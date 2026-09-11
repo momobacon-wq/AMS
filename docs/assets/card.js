@@ -52,6 +52,15 @@
     ],
   };
   const fill = (tpl, o) => String(tpl).replace(/\{(\w+)\}/g, (_, k) => (o[k] == null ? '' : String(o[k])));
+  /** 站內工作表連結（已跳脫，可直接放進 href="…"）：id 以 encodeURIComponent、r 只接受非負整數（SEC-1） */
+  function sheetHref(sid, o) {
+    o = o || {};
+    const p = [];
+    const r = o.r == null ? NaN : Number(o.r);
+    if (Number.isInteger(r) && r >= 0) p.push('r=' + r);
+    if (o.f) p.push('f=' + encodeURIComponent(JSON.stringify(o.f)));
+    return U.esc('#/s/' + encodeURIComponent(String(sid)) + (p.length ? '?' + p.join('&') : ''));
+  }
 
   class CardView {
     constructor(root, meta, route) {
@@ -92,7 +101,7 @@
     renderShell() {
       const s = this.spec; const root = this.root;
       const notes = Array.isArray(s.notes) ? s.notes : (s.notes ? [s.notes] : []);
-      const home = s.home_link && s.home_link.l ? `<a class="lk soft" href="${AMS.linkHref(s.home_link.l)}">${U.esc(s.home_link.t || '⌂ 目錄')}</a>` : '<a class="lk soft" href="#/s/00">⌂ 目錄</a>';
+      const home = s.home_link && s.home_link.l ? `<a class="lk soft" href="${U.esc(AMS.linkHref(s.home_link.l))}">${U.esc(s.home_link.t || '⌂ 目錄')}</a>` : '<a class="lk soft" href="#/s/00">⌂ 目錄</a>';
       root.innerHTML = `
         <header class="sv-head">
           <div class="sv-crumb"><span class="mode-badge">查詢卡</span> ${U.esc(this.meta.group || '')} · ${home}</div>
@@ -176,11 +185,33 @@
       } else { alts.hidden = true; alts.innerHTML = ''; }
       const body = root.querySelector('.cq-body');
       body.innerHTML = '';
+      if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       body.appendChild(this.renderSections(row, res));
       body.appendChild(this.renderLinks(row, res));
       body.appendChild(this.renderRecent(row, res));
       body.appendChild(this.renderParams(row, res));
-      document.title = (res.alias ? `${res.alias} · ` : '') + '設備查詢卡 · AMS';
+      // 分頁標題以使用者分享的位號為主，alias 附在括號（書籤／歷史紀錄才認得出來；LIVE-5）
+      const tag0 = row ? U.text(row[L.target_tag_col]) : '';
+      const head = res.empty ? '' : (tag0 || res.key || String(q || ''));
+      document.title = [head, res.alias && res.alias !== head ? `（${res.alias}）` : ''].join('') + (head ? ' · ' : '') + '設備查詢卡 · AMS';
+    }
+
+    /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */
+    renderNotFound(res) {
+      const box = U.h('section', { class: 'csec nf' });
+      box.appendChild(U.h('h2', { class: 'csec-h' }, '找不到完全相符的鍵'));
+      const inner = U.h('div', { class: 'nf-body' });
+      let sg = [];
+      try { sg = AMS.index.suggest(res.q, 12); } catch (e) { sg = []; }
+      const ixId = (this.spec.lookup && this.spec.lookup.index_sheet) || '05';
+      const ixName = D.meta(ixId) ? D.meta(ixId).name : ixId;
+      const q = String(res.q == null ? '' : res.q).trim();
+      inner.innerHTML = (sg.length
+        ? `<p>你是不是要找（含「${U.esc(q)}」的鍵）：</p><div class="nf-chips">${sg.map((it) => `<a class="chip-btn" href="#/card/${encodeURIComponent(it.key)}">${AMS.hilite(it.key, q)}<span class="muted small">${U.esc([it.src, it.alias].filter(Boolean).join(' · '))}</span></a>`).join('')}</div>`
+        : '<p class="muted">位號索引中沒有包含這個字串的鍵。</p>')
+        + `<p><a class="lk" href="${U.esc('#/s/' + encodeURIComponent(ixId) + '?q=' + encodeURIComponent(q))}">在 ${U.esc(ixName)} 搜尋「${U.esc(q)}」（所有欄位）›</a></p>`;
+      box.appendChild(inner);
+      return box;
     }
 
     /* ---------- 條件式格式 ---------- */
@@ -268,7 +299,7 @@
         const cell = U.h('div', { class: 'cl' });
         grid.appendChild(cell);
         if (lk.self) {
-          cell.innerHTML = `<a class="lk" href="#/s/${U.esc(lk.sheet || '03')}?r=${res.i3}">${U.esc(lk.label)}</a>`;
+          cell.innerHTML = `<a class="lk" href="${sheetHref(lk.sheet || '03', { r: res.i3 })}">${U.esc(lk.label)}</a>`;
           continue;
         }
         if (lk.param) {
@@ -279,7 +310,7 @@
           const sid = sm ? sm.id : sheetName.slice(0, 2);
           const dg = Number(U.raw(row[p.row_col])); const n = U.raw(row[p.count_col]);
           const r = isFinite(dg) ? dg - this.dataFirstRow(sid) : null;
-          cell.innerHTML = `<a class="lk" href="#/s/${sid}${r != null && r >= 0 ? '?r=' + r : ''}">${U.esc(fill(lk.fmt || '→ 參數 {n} 筆', { n: n == null ? '' : String(n) }))}</a>`;
+          cell.innerHTML = `<a class="lk" href="${sheetHref(sid, { r })}">${U.esc(fill(lk.fmt || '→ 參數 {n} 筆', { n: n == null ? '' : String(n) }))}</a>`;
           continue;
         }
         if (!alias) { cell.textContent = ''; continue; }
@@ -297,8 +328,15 @@
     }
     fillLink(cell, lk, e) {
       if (!e || e[0] == null) { cell.textContent = lk.none || (lk.label + '（無）'); cell.classList.add('none'); return; }
-      const [r0, n] = e;
-      cell.innerHTML = `<a class="lk" href="#/s/${U.esc(lk.sheet)}?r=${r0}">${U.esc(fill(lk.fmt || (lk.label + ' {n} 筆'), { n }))}</a>`;
+      const r0 = Number(e[0]); const n = Number(e[1]);
+      // 超過 1 筆時同時篩選出此設備的全部列（否則只標示第一列，其餘混在全表中；ENG-10）
+      let f = null;
+      const alias = this.res && this.res.alias;
+      if (alias && n > 1) {
+        if (lk.count_mode === 'prefix#' && lk.count_col != null) f = { [lk.count_col]: '^' + alias + '#' };
+        else if (lk.match_col != null) f = { [lk.match_col]: '=' + alias };
+      }
+      cell.innerHTML = `<a class="lk" href="${sheetHref(lk.sheet, { r: r0, f })}">${U.esc(fill(lk.fmt || (lk.label + ' {n} 筆'), { n: Number.isFinite(n) ? n : '' }))}</a>`;
     }
     async computeLinks(alias, pending) {
       // 沒有 link_index 時，載入目標表計算（與 Excel MATCH／COUNTIF 同義）
@@ -362,12 +400,12 @@
         let html = `<div class="tbl-scroll"><table class="mini"><thead><tr><th>k</th>${cols.map((c) => `<th>${U.esc(c.label)}</th>`).join('')}</tr></thead><tbody>`;
         for (const [k, i] of take) {
           const r = j.rows[i];
-          html += `<tr><td class="ac"><a class="lk" href="#/s/${U.esc(rc.sheet)}?r=${i}" title="在 08 開啟此列">${k}</a></td>${cols.map((c, ci) => `<td${ci === 0 ? ' class="nowrap"' : ''}>${U.esc(U.visible(cellText(r, c), true))}</td>`).join('')}</tr>`;
+          html += `<tr><td class="ac"><a class="lk" href="${sheetHref(rc.sheet, { r: i })}" title="在 08 開啟此列">${U.esc(k)}</a></td>${cols.map((c, ci) => `<td${ci === 0 ? ' class="nowrap"' : ''}>${U.esc(U.visible(cellText(r, c), true))}</td>`).join('')}</tr>`;
         }
         html += '</tbody></table></div>';
         const more = list.length > kmax ? `共 ${U.int(list.length)} 筆有意義變更，顯示最新 ${kmax} 筆。` : `共 ${U.int(list.length)} 筆有意義變更。`;
         const ac = this.findAliasCol(j);
-        const fl = ac != null ? `#/s/${rc.sheet}?f=${encodeURIComponent(JSON.stringify({ [ac]: '=' + alias }))}` : `#/s/${rc.sheet}?q=${encodeURIComponent(alias + '#')}`;
+        const fl = ac != null ? sheetHref(rc.sheet, { f: { [ac]: '=' + alias } }) : U.esc('#/s/' + encodeURIComponent(rc.sheet) + '?q=' + encodeURIComponent(alias + '#'));
         html += `<p class="muted small">${more} <a class="lk" href="${fl}">在 08 查看此設備全部變更 ›</a></p>`;
         body.innerHTML = html;
       }).catch((e) => { body.innerHTML = `<p class="muted">無法載入 08：${U.esc(e.message)}</p>`; });
@@ -419,9 +457,15 @@
         }
         if (this.destroyed) return;
         const ok = rows.length && rows.every((r) => r && U.text(r[1]) === alias);
-        const show = cols.map((c, i) => i).filter((i) => i > 1 && !(cols[i].hidden));
+        let show = cols.map((c, i) => i).filter((i) => i > 1 && !(cols[i].hidden));
+        if (U.isMobile()) {
+          // 手機：參數與現值排在最前面、去掉每列都相同的「型號」（已在 1. 識別顯示），否則要橫捲 750px 才看得到值（M9）
+          const pri = ['參數', 'FF 標準名稱', '參數(item:member)', '現值', '解碼值', '中文名稱', '最後記錄(台灣)'];
+          const rank = (i) => { const k = pri.indexOf(cols[i].label); return k < 0 ? pri.length + i : k; };
+          show = show.filter((i) => cols[i].label !== '型號').sort((a, b) => rank(a) - rank(b));
+        }
         const head = `<div class="ptools"><input type="search" class="pq" placeholder="篩選參數（名稱、中文、值…）" aria-label="篩選參數"><span class="pcount muted"></span>
-          <a class="lk" href="#/s/${sid}?r=${g0}&f=${encodeURIComponent(JSON.stringify({ 1: '=' + alias }))}">在 ${U.esc(D.meta(sid) ? D.meta(sid).name : sid)} 開啟（篩選此設備）›</a></div>
+          <a class="lk" href="${sheetHref(sid, { r: g0, f: { 1: '=' + alias } })}">在 ${U.esc(D.meta(sid) ? D.meta(sid).name : sid)} 開啟（篩選此設備）›</a></div>
           ${ok ? '' : '<p class="warn-text">注意：參數起始列與設備別名不一致，資料可能不同步。</p>'}`;
         box.innerHTML = head + '<div class="tbl-scroll ptable"></div>';
         const tbl = box.querySelector('.ptable');
@@ -433,7 +477,7 @@
             if (!r) return;
             if (qq && !show.some((i) => U.text(r[i]).toLowerCase().includes(qq))) return;
             cnt++;
-            html += `<tr><td class="ar muted"><a class="lk soft" href="#/s/${sid}?r=${g0 + k}">${k + 1}</a></td>${show.map((i) => {
+            html += `<tr><td class="ar muted"><a class="lk soft" href="${sheetHref(sid, { r: g0 + k })}">${k + 1}</a></td>${show.map((i) => {
               const v = r[i]; const raw = U.raw(v);
               const txt = U.isBlank(raw) ? '' : U.display(v, cols[i].fmt);
               const ws = typeof raw === 'string' && raw.trim() === '' && raw.length ? ' ws' : '';

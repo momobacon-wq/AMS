@@ -56,6 +56,12 @@ C:\Users\bacon\AMS\
 - chart 可選欄位 `gap`（Excel gapWidth，預設 150）：柱寬 categoryPercentage = n／(n＋gap/100)。圖例依 series 順序。
 - 顯示色：前端在「字比底暗且對比 < 3:1」時把字色往黑色調整到 3:1（Excel 淡灰字 #A6A6A6 疊在條件式底色上），JSON 色值不變。
 
+### v2.3（快取版本與站內連結）
+- `manifest.build`：所有輸出檔（sheets/*.json＋不含 build 的 manifest）的 sha256 前 10 碼，由 `tools/extract.py` 寫入（決定性，不含時間）。前端對每個資料檔請求加 `?v=<build>`，同一分頁不會混用兩次建置的分塊。
+- `tools/stamp_assets.py`（extract 結束時自動執行；只改 docs/assets 時手動執行）：index.html 的 `assets/*.js|css` 加 `?v=<檔案雜湊>`、`<meta name="ams-build" content=<build> data-app data-chart>`、manifest preload 加 `?v=<build>`；寫出 `docs/version.json {"build","app"}`。開著的分頁在切回前景／換頁（至多每 5 分鐘）以 no-cache 取 version.json，不同時提示重新整理。
+- 連結物件 `{s, r}` 可另帶 `f`（逐欄篩選，鍵為欄號或**欄名**，值為篩選字串）；前端 01 的 KPI／重點發現連結以此重現該數字（例：K11 → 07 `{"嚴重度":"=高"}`）。沒有目標列的表格連結輸出 `?q=`（重設上次的搜尋／篩選）。資料檔本身不變。
+- `?data=` 只接受同源相對路徑；index.html 帶 CSP（`script-src 'self'`），主題初始化移到 `assets/boot.js`。
+
 ## manifest.json
 
 ```json

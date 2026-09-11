@@ -26,6 +26,7 @@ from amsx.grid import build_grid  # noqa: E402
 from amsx.card import build_card, build_link_index, verify_default  # noqa: E402
 from amsx.charts import ChartBuilder  # noqa: E402
 from amsx import config  # noqa: E402
+import stamp_assets  # noqa: E402
 
 MAX_FILE_BYTES = 8 * 1024 * 1024
 
@@ -299,7 +300,13 @@ def main(argv=None):
         "search": {"index_sheet": "05", "key_col": 0, "alias_col": 4, "count_col": 7, "prio_col": 2, "tag_col": 3},
     }
     size = write_json(os.path.join(outdir, "manifest.json"), manifest)
-    log("[manifest] %d sheets  %.1f KB" % (len(manifest_sheets), size / 1024.0))
+    # build hash over every output file (deterministic): the front-end versions data URLs with it (?v=<build>)
+    manifest["build"] = stamp_assets.data_build(outdir)
+    size = write_json(os.path.join(outdir, "manifest.json"), manifest)
+    log("[manifest] %d sheets  %.1f KB  build %s" % (len(manifest_sheets), size / 1024.0, manifest["build"]))
+    docs_dir = os.path.dirname(outdir)
+    if os.path.exists(os.path.join(docs_dir, "index.html")):
+        log("[stamp] %s" % json.dumps(stamp_assets.stamp(docs_dir)))
 
     # ---- self-check -----------------------------------------------------------------
     problems = self_check(ctx, outdir, manifest, table_rows, grid_info, card)
