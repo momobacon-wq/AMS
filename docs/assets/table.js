@@ -8,6 +8,7 @@
   AMS.viewState = AMS.viewState || {};
 
   const BLANK_TOKEN = '∅';
+  const FILTER_HELP = '篩選語法：文字＝包含；=值 完全相符；!值 不包含；^值 開頭；>10、<=5 數值比較；∅ 空白；!∅ 非空白';
 
   /* ------------------------------------------------------------ 篩選運算式 */
   function numOf(v) {
@@ -33,6 +34,26 @@
     return (v) => U.text(v).toLowerCase().includes(t);
   }
   AMS.compileFilter = compileFilter;
+
+  /* ------------------------------------------------------------ CSV 欄位
+   * Excel 開啟 CSV 時會把「002」「00020002」變成數字、「800204e6」變成 8.00E+206、「10/21/2025 14:03」變成日期：
+   * 這類識別碼字串輸出為 ="…"（只含數字／字母／日期符號，不會形成有害公式）；「↗」連結欄輸出目標網址（ENG-08） */
+  const CSV_PROTECT = [
+    /^0\d+$/, // 前導零
+    /^\d+[eE][+-]?\d+$/, // 看起來像科學記號（十六進位 item id）
+    /^\d{16,}$/, // 超過 15 位數會失真
+    /^\d{1,4}([-/])\d{1,2}(?:\1\d{1,4})?(?:[ T]\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/, // 日期（1-2、10/21、2025-10-21 14:03）
+    /^\d{1,4}\.\d{1,2}\.\d{1,4}$/, // 日期（2025.10.21）
+    /^\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/, // 時間
+  ];
+  function csvField(v, base) {
+    const raw = U.raw(v);
+    if (v && typeof v === 'object' && v.l && typeof raw === 'string' && /^[↗→↘]$/.test(raw.trim())) {
+      const h = AMS.linkHref(v.l); return h ? U.csvCell(base + h) : '';
+    }
+    if (typeof raw === 'string' && CSV_PROTECT.some((re) => re.test(raw))) return '"=""' + raw + '"""';
+    return U.csvCell(raw);
+  }
 
   /* ------------------------------------------------------------ 排序鍵 */
   const NUMRE = /^\s*-?\d+(\.\d+)?\s*$/;
@@ -68,7 +89,7 @@
           await ch.ensurePart(first);
           if (this.destroyed) return;
           this.init(ch.asJSON());
-          ch.loadAll(first).catch((e) => this.showError(e));
+          this.loadRest(first);
         } else {
           this.showLoading('載入中…');
           const j = await D.loadSheet(this.id, (f) => this.setLoadFrac(f));
@@ -77,9 +98,21 @@
         }
       } catch (e) { this.showError(e); }
     }
+    /** 其餘分塊：某一塊失敗時其他塊照常載入；結束後若有失敗，載入列改為常駐警告＋重試（ROB-4） */
+    loadRest(first) {
+      this.loadFailed = false;
+      this.updateLoadUI();
+      this.ch.loadAll(first).catch((e) => {
+        console.error(e);
+        if (this.destroyed) return;
+        this.loadFailed = true;
+        this.updateLoadUI();
+        U.toast('部分資料載入失敗：' + (e && e.message), 5000);
+      });
+    }
     onChunk(ev) {
       if (this.destroyed || !this.data) { if (ev.type === 'progress') this.updateLoadUI(); return; }
-      if (ev.type === 'progress') { this.updateLoadUI(); return; }
+      if (ev.type === 'progress' || ev.type === 'error') { this.updateLoadUI(); return; }
       if (ev.type === 'part' || ev.type === 'done') {
         this.data.rows = this.ch.rows;
         this.styles = this.ch.styles.map((s) => U.parseStyleStr(s));
@@ -151,6 +184,7 @@
       this.rebuildLoaded();
       this.computeZebra();
       this.computeFacets();
+      this.computeAutoWidths();
       this.renderHeader();
       this.buildTable();
       this.refresh({ first: true });
@@ -160,21 +194,36 @@
       const p = route.params;
       const has = (k) => p.has(k);
       const r = p.get('r');
-      if (has('q') || has('f') || has('sort') || (r != null && r !== '')) {
+      const rn = r != null && /^\s*\d+\s*$/.test(r) ? Number(r) : null; // 只接受非負整數（r=abc、r=-5 → 忽略）
+      if (has('q') || has('f') || has('sort') || rn != null) {
         this.state.q = p.get('q') || '';
         let f = {};
-        if (has('f')) { try { f = JSON.parse(p.get('f')) || {}; } catch (e) { f = {}; } }
-        this.state.f = f;
+        if (has('f')) { try { f = JSON.parse(p.get('f')); } catch (e) { f = {}; } }
+        this.state.f = this.cleanFilters(f);
         if (has('sort')) {
           const m = /^(\d+):(a|d)$/.exec(p.get('sort'));
-          this.state.sort = m ? { c: +m[1], dir: m[2] === 'd' ? -1 : 1 } : null;
+          this.state.sort = m && +m[1] < this.ncol ? { c: +m[1], dir: m[2] === 'd' ? -1 : 1 } : null;
         } else if (!initial) this.state.sort = this.state.sort || null;
       }
-      this.target = r != null && r !== '' ? Number(r) : null;
+      this.target = rn;
       if (this.target != null && this.chunked && this.ch) {
         const k = this.ch.partOf(this.target);
         if (k != null && !this.ch.parts[k].loaded) this.ch.ensurePart(k).catch(() => {});
       }
+    }
+    /** 網址的 f：只保留「欄號或欄名 → 字串」；其他型別（陣列、數字、物件值、__proto__…）一律丟棄 */
+    cleanFilters(f) {
+      const out = {};
+      if (!f || typeof f !== 'object' || Array.isArray(f)) return out;
+      for (const k of Object.keys(f)) {
+        const v = f[k];
+        if (typeof v !== 'string' && typeof v !== 'number') continue;
+        const c = /^\d+$/.test(k) ? Number(k) : this.cols.findIndex((col) => col.label === k); // 欄名鍵：01 KPI 連結用
+        if (!(c >= 0 && c < this.ncol)) continue;
+        const s = String(v);
+        if (s) out[c] = s;
+      }
+      return out;
     }
     /** 同一工作表內的路由變更（連結跳轉到同表另一列等） */
     update(route) {
@@ -182,7 +231,7 @@
       if (!this.data) return;
       this.applyRoute(route, false);
       this.syncInputs();
-      this.refresh({});
+      this.refresh({ sync: true });
     }
 
     computeZebra() {
@@ -259,27 +308,64 @@
       const notesHTML = notes.length
         ? `<details class="sv-notes"${this.state.notesOpen ? ' open' : ''}><summary>說明（${notes.length} 則）<span class="np">${U.esc(notes[0])}</span></summary><ul>${notes.map((n) => `<li>${U.esc(n)}</li>`).join('')}</ul></details>` : '';
       const hc = (j.header_cells || []).slice().sort((a, b) => ((a.r || 0) - (b.r || 0)) || ((a.c || 0) - (b.c || 0)));
-      const hcHTML = hc.length ? `<div class="sv-hcells">${hc.map((x) => this.headerCellHTML(x)).join('')}</div>` : '';
+      const hf = this.headerFacets(hc);
+      const hcHTML = hc.length ? `<div class="sv-hcells">${hc.map((x, i) => this.headerCellHTML(x, hf[i])).join('')}</div>` : '';
       h.innerHTML = `<div class="sv-crumb"><span class="mode-badge">表格</span> ${U.esc(m.group || '')}<span class="sv-rows">· ${U.int(this.total)} 列 × ${this.ncol} 欄</span></div>
         <h1 class="sv-title">${U.esc(m.name)}</h1>${title}${hcHTML}${notesHTML}`;
       const det = h.querySelector('.sv-notes');
       if (det) det.addEventListener('toggle', () => { this.state.notesOpen = det.open; });
+      if (!this._hcBound) {
+        this._hcBound = true;
+        // 07「高 155／中 386…」：表頭統計格可點 → 套用該 facet 篩選（ENG-07）
+        h.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-hf]'); if (!b) return;
+          const c = Number(b.dataset.hf); const fv = '=' + b.dataset.hv;
+          if (this.state.f[c] === fv) delete this.state.f[c]; else this.state.f[c] = fv;
+          this.target = null;
+          this.refresh({ user: true }); this.renderHead();
+        });
+      }
     }
-    headerCellHTML(x) {
+    /** 表頭統計格 → facet：文字格的值全都出現在同一個 facet 欄時，該文字格與緊鄰的數字格可點 */
+    headerFacets(hc) {
+      const out = hc.map(() => null);
+      if (!this.facetVals || !this.facetVals.size) return out;
+      const labels = hc.map((x, i) => ({ i, x, t: typeof x.v === 'string' ? x.v.trim() : null })).filter((o) => o.t && !o.x.l);
+      if (labels.length < 2) return out;
+      let col = null;
+      for (const c of this.facets) {
+        const m = this.facetVals.get(c);
+        if (m && labels.every((o) => m.has(o.t))) { col = c; break; }
+      }
+      if (col == null) return out;
+      labels.forEach((o) => {
+        out[o.i] = { c: col, v: o.t };
+        const nx = hc[o.i + 1];
+        if (nx && typeof U.raw(nx.v) === 'number' && (nx.r || 0) === (o.x.r || 0) && (nx.c || 0) === (o.x.c || 0) + 1) out[o.i + 1] = { c: col, v: o.t };
+      });
+      return out;
+    }
+    headerCellHTML(x, hf) {
       let st = x.s;
       if (typeof st === 'number') st = this.styles[st] || (this.data.styles || [])[st];
       st = st ? U.parseStyleStr(st) : null;
       const v = x.v;
       let txt = U.esc(U.visible(U.display(v, x.f)));
       txt = AMS.cellLinkHTML(v && typeof v === 'object' ? v : null, txt, 'lk');
-      if (x.l) txt = `<a class="lk" href="${AMS.linkHref(x.l)}">${txt}</a>`;
+      if (x.l) txt = `<a class="lk" href="${U.esc(AMS.linkHref(x.l))}">${txt}</a>`;
       let css = '';
       if (st) {
         const a = U.adaptColors(st.bg, st.fc, U.theme());
         if (a.bg) css += `background:${a.bg};`; if (a.fc) css += `color:${a.fc};`;
         if (st.b) css += 'font-weight:700;'; if (st.i) css += 'font-style:italic;';
       }
-      return `<span class="hcell${st && st.bg ? ' has-bg' : ''}" style="${css}">${txt}</span>`;
+      const cls = `hcell${st && st.bg ? ' has-bg' : ''}`;
+      if (hf) {
+        const on = this.state.f[hf.c] === '=' + hf.v;
+        const lab = this.cols[hf.c] ? this.cols[hf.c].label : '';
+        return `<button type="button" class="${cls} hbtn" style="${css}" data-hf="${hf.c}" data-hv="${U.esc(hf.v)}" aria-pressed="${on}" title="${U.esc(`篩選「${lab}」＝ ${hf.v}（再按一次取消）`)}">${txt}</button>`;
+      }
+      return `<span class="${cls}" style="${css}">${txt}</span>`;
     }
 
     buildTable() {
@@ -293,7 +379,7 @@
         <div class="tv-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           <input type="search" class="tv-q" placeholder="搜尋此表（所有欄位）" aria-label="搜尋此表" spellcheck="false"></div>
         <span class="tv-count" aria-live="polite"></span>
-        <span class="tv-load" hidden><span class="tv-load-txt"></span><span class="tv-load-bar"><i></i></span></span>
+        <span class="tv-load" hidden role="status"><span class="tv-load-txt"></span><span class="tv-load-bar"><i></i></span><button type="button" class="btn xs" data-act="retry" hidden>重試</button></span>
         ${this.presets.length ? `<span class="tv-presets" role="group" aria-label="快速篩選">${this.presets.map((p, i) => `<button type="button" class="btn sm preset" data-act="preset" data-pi="${i}" aria-pressed="false" title="${U.esc(this.presetTip(p))}">${U.esc(p.label)}</button>`).join('')}</span>` : ''}
         <span class="tv-spacer"></span>
         <div class="tv-actions">
@@ -389,8 +475,13 @@
       const done = ch.allLoaded();
       el.hidden = done;
       const nLoaded = ch.parts.filter((p) => p.loaded).length;
-      el.querySelector('.tv-load-txt').textContent = `載入 ${nLoaded}/${ch.n} 部分 · ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列`;
+      const failed = this.loadFailed ? ch.failedParts() : [];
+      el.classList.toggle('bad', failed.length > 0);
+      el.querySelector('.tv-load-txt').textContent = failed.length
+        ? `第 ${failed.map((k) => k + 1).join('、')} 部分載入失敗 · 已載入 ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列（篩選、排序、CSV 只含已載入的列）`
+        : `載入 ${nLoaded}/${ch.n} 部分 · ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列`;
       el.querySelector('.tv-load-bar > i').style.width = Math.round(ch.progress() * 100) + '%';
+      const rb = el.querySelector('[data-act="retry"]'); if (rb) rb.hidden = !failed.length;
       if (done && !this._doneToast) { this._doneToast = true; if (this.data) U.toast(`${this.meta.name}：${U.int(this.total)} 列全部載入完成`); }
     }
 
@@ -422,7 +513,48 @@
       const w = this.state.widths[c];
       if (w) return w;
       const cw = this.cols[c].w;
-      return cw ? Math.max(36, cw) : 100;
+      const base = cw ? Math.max(36, cw) : 100;
+      const a = this.autoW ? this.autoW[c] : 0;
+      return a > base ? a : base;
+    }
+    /** Excel 欄寬以 Calibri 計，網頁的中文字型較寬：短欄（問題編號 AUD-0001、嚴重度、協定 HART…）依表頭與前 200 列實測加寬，
+     *  上限為 Excel 寬 ×1.4（最多 180px）；facet 欄至少 72px 讓下拉看得到值（ENG-04） */
+    computeAutoWidths() {
+      const cols = this.cols; const rows = this.data.rows; const L = this.loaded;
+      let ctx = null;
+      try { ctx = document.createElement('canvas').getContext('2d'); } catch (e) { ctx = null; }
+      if (!ctx) { this.autoW = null; return; }
+      const rs = getComputedStyle(document.documentElement);
+      const font = rs.getPropertyValue('--font') || 'sans-serif';
+      const mono = rs.getPropertyValue('--mono') || 'monospace';
+      const cache = new Map();
+      const meas = (f, t) => { const k = f + '' + t; let v = cache.get(k); if (v === undefined) { ctx.font = f; v = ctx.measureText(t).width; cache.set(k, v); } return v; };
+      const n = Math.min(L ? L.length : 0, 200);
+      const out = new Array(cols.length).fill(0);
+      for (let c = 0; c < cols.length; c++) {
+        const col = cols[c];
+        const base = col.w ? Math.max(36, col.w) : 100;
+        const cap = Math.min(Math.max(base * 1.4, base + 24), Math.max(base, 180));
+        const hf = `700 12.5px ${font}`;
+        const lw = meas(hf, String(col.label || ''));
+        const headNeed = Math.min(lw, lw / 2 + 14) + 24; // 表頭最多兩行
+        const df = col.mono ? `12px ${mono}` : `13px ${font}`;
+        let dataNeed = 0;
+        for (let i = 0; i < n; i++) {
+          const row = rows[L[i]]; if (!row) continue;
+          const v = row[c]; const raw = U.raw(v);
+          if (U.isBlank(raw)) continue;
+          let t = U.display(v, col.fmt);
+          const nl = t.indexOf('\n'); if (nl >= 0) t = t.slice(0, nl);
+          if (t.length > 40) continue; // 長文字本來就要截斷／看詳情
+          const w = meas(df, t) + 14;
+          if (w > dataNeed) dataNeed = w;
+        }
+        let a = Math.min(cap, Math.ceil(Math.max(headNeed, dataNeed)));
+        if (this.facets.has(c)) a = Math.max(a, 72);
+        out[c] = a > base ? a : 0;
+      }
+      this.autoW = out;
     }
     colWindow() {
       const sl = this.sc.scrollLeft; const cw = this.sc.clientWidth || 800;
@@ -512,13 +644,17 @@
           let inner;
           if (this.facets.has(c) && this.facetVals) {
             const m = this.facetVals.get(c) || new Map();
+            // 有其他篩選時，筆數＝符合「其他」條件的列（排除本欄自己的條件）；0 筆的選項變淡
+            const lm = this.facetLive ? this.facetLive.get(c) : null;
             let opts = `<option value="">全部</option>`;
             let found = !val;
-            m.forEach((n, v) => {
+            m.forEach((n0, v) => {
               const fv = v === BLANK_TOKEN ? BLANK_TOKEN : '=' + v;
               const sel = val === fv || (val.toLowerCase && val.toLowerCase() === fv.toLowerCase());
               if (sel) found = true;
-              opts += `<option value="${U.esc(fv)}"${sel ? ' selected' : ''}>${U.esc(v === BLANK_TOKEN ? '（空白）' : U.visible(v))}${n ? ' (' + U.int(n) + ')' : ''}</option>`;
+              const n = lm ? (lm.get(v) || 0) : n0;
+              const cnt = lm ? ' (' + U.int(n) + ')' : (n ? ' (' + U.int(n) + ')' : '');
+              opts += `<option value="${U.esc(fv)}"${sel ? ' selected' : ''}${lm && !n ? ' class="zero"' : ''}>${U.esc(v === BLANK_TOKEN ? '（空白）' : U.visible(v))}${cnt}</option>`;
             });
             if (!found) opts += `<option value="${U.esc(val)}" selected>條件：${U.esc(val)}</option>`;
             inner = `<select class="fi${val ? ' on' : ''}" data-fc="${c}" aria-label="${U.esc(col.label)} 篩選">${opts}</select>`;
@@ -529,7 +665,7 @@
         };
         let a1 = ''; for (let k = 0; k < this.nfz; k++) a1 += fcell(k, true);
         let a2 = ''; for (let k = c0; k <= c1; k++) a2 += fcell(k, false);
-        html += `<div class="hr hr-filt">${gut('fhelp', '<span title="篩選語法：文字＝包含；=值 完全相符；!值 不包含；^值 開頭；&gt;10、&lt;=5 數值比較；∅ 空白；!∅ 非空白">?</span>')}${a1}${spacer}${a2}</div>`;
+        html += `<div class="hr hr-filt">${gut('fhelp', `<button type="button" class="fhelp-btn" data-fhelp aria-label="篩選語法說明" title="${U.esc(FILTER_HELP)}">?</button>`)}${a1}${spacer}${a2}</div>`;
       }
       // 保留焦點
       const act = document.activeElement;
@@ -683,14 +819,18 @@
     async refresh(opt) {
       opt = opt || {};
       if (!this.data) return;
+      // 使用者操作要寫回網址；若這次 refresh 被分塊到達的 refresh 取代，由最後完成的那次寫入（ENG-09）
+      if (opt.user || opt.first || opt.sync) this._needSync = true;
       const tok = ++this.tok;
       const alive = () => tok === this.tok && !this.destroyed;
       const s = this.state;
       const preds = [];
       for (const k in s.f) {
+        if (!Object.prototype.hasOwnProperty.call(s.f, k) || !/^\d+$/.test(k)) continue;
         const c = Number(k);
         if (!(c >= 0 && c < this.ncol)) continue;
-        const fn = compileFilter(s.f[k]);
+        let fn = null;
+        try { fn = compileFilter(s.f[k]); } catch (e) { fn = null; }
         if (fn) preds.push([c, fn]);
       }
       const q = (s.q || '').trim().toLowerCase();
@@ -700,19 +840,34 @@
       let out;
       const big = src.length > 20000;
       if (big) this.setBusy(true);
+      let live = null;
       if (!preds.length && !q) out = src;
       else {
         const buf = new Int32Array(src.length); let n = 0;
         const np = preds.length;
+        // facet 筆數依「其他」篩選條件計算（每個 facet 排除自己那欄的條件；ENG-06）
+        const fcols = this.facets.size ? Array.from(this.facets) : null;
+        if (fcols) live = new Map(fcols.map((c) => [c, new Map()]));
+        const sum = this.summary;
+        const bump = (c, v) => { const m = live.get(c); const t = U.isBlank(U.raw(v)) ? BLANK_TOKEN : U.text(v); m.set(t, (m.get(t) || 0) + 1); };
         const ok = await U.chunked(src.length, (i) => {
           const g = src[i]; const row = rows[g];
-          for (let p = 0; p < np; p++) if (!preds[p][1](row[preds[p][0]])) return;
+          let fails = 0; let failC = -1;
+          for (let p = 0; p < np; p++) {
+            if (!preds[p][1](row[preds[p][0]])) { fails++; failC = preds[p][0]; if (!live || fails > 1) break; }
+          }
+          if (fails > 1 || (fails === 1 && !live)) return;
           if (q && this.haystack(g).indexOf(q) < 0) return;
-          buf[n++] = g;
+          if (fails === 0) buf[n++] = g;
+          if (live && !(sum && sum.has(g))) {
+            if (fails === 0) { for (let x = 0; x < fcols.length; x++) bump(fcols[x], row[fcols[x]]); }
+            else if (live.has(failC)) bump(failC, row[failC]);
+          }
         }, alive);
         if (!ok) return;
         out = buf.subarray(0, n);
       }
+      this.facetLive = live;
       if (s.sort && s.sort.c < this.ncol) {
         const keys = await this.sortKeys(s.sort.c, alive);
         if (!keys) return;
@@ -747,7 +902,7 @@
         this.sc.scrollTop = this.state.scrollTop; this.sc.scrollLeft = this.state.scrollLeft || 0;
       } else if (opt.keepScroll) this.sc.scrollTop = prevTop;
       this.renderAll();
-      if (opt.user || opt.first) this.syncURL();
+      if (this._needSync) { this._needSync = false; this.syncURL(); }
     }
     setBusy(on) { this.root.classList.toggle('busy', !!on); const c = this.toolbar && this.toolbar.querySelector('.tv-count'); if (c && on) c.textContent = '處理中…'; }
     async sortKeys(c, alive) {
@@ -786,6 +941,7 @@
     presetValue(p) { return p.nonempty ? '!' + BLANK_TOKEN : p.empty ? BLANK_TOKEN : p.eq != null ? '=' + p.eq : (p.filter || ''); }
     presetTip(p) { const col = this.cols ? this.cols[p.col] : (this.data.columns || [])[p.col]; return `快速篩選：「${col ? col.label : p.col}」${p.nonempty ? ' 非空白' : p.empty ? ' 空白' : p.eq != null ? ' ＝ ' + p.eq : ''}（再按一次取消）`; }
     syncPresets() {
+      if (this.head) this.head.querySelectorAll('[data-hf]').forEach((b) => b.setAttribute('aria-pressed', String(this.state.f[b.dataset.hf] === '=' + b.dataset.hv)));
       if (!this.toolbar || !this.presets.length) return;
       this.toolbar.querySelectorAll('[data-act="preset"]').forEach((b) => { const p = this.presets[Number(b.dataset.pi)]; b.setAttribute('aria-pressed', String(!!p && this.state.f[p.col] === this.presetValue(p))); });
     }
@@ -794,7 +950,7 @@
       const s = this.state; const parts = [];
       if (s.q) parts.push(`<span class="chip">搜尋：${U.esc(s.q)}<button type="button" data-rmf="q" aria-label="移除搜尋">×</button></span>`);
       for (const k in s.f) {
-        if (!s.f[k]) continue;
+        if (!s.f[k] || !Object.prototype.hasOwnProperty.call(s.f, k) || !/^\d+$/.test(k)) continue;
         const col = this.cols[k]; if (!col) continue;
         parts.push(`<span class="chip">${U.esc(col.label)}：${U.esc(s.f[k])}<button type="button" data-rmf="${k}" aria-label="移除 ${U.esc(col.label)} 篩選">×</button></span>`);
       }
@@ -807,11 +963,11 @@
       const s = this.state; const p = new URLSearchParams();
       if (this.target != null) p.set('r', this.target);
       if (s.q) p.set('q', s.q);
-      const f = {}; let nf = 0; for (const k in s.f) if (s.f[k]) { f[k] = s.f[k]; nf++; }
+      const f = {}; let nf = 0; for (const k in s.f) if (s.f[k] && Object.prototype.hasOwnProperty.call(s.f, k) && /^\d+$/.test(k)) { f[k] = String(s.f[k]); nf++; }
       if (nf) p.set('f', JSON.stringify(f));
       if (s.sort) p.set('sort', s.sort.c + ':' + (s.sort.dir > 0 ? 'a' : 'd'));
       const qs = p.toString();
-      AMS.router.replace('#/s/' + this.id + (qs ? '?' + qs : ''));
+      AMS.router.replace('#/s/' + encodeURIComponent(this.id) + (qs ? '?' + qs : ''));
     }
     scrollToTarget() {
       const g = this.target;
@@ -845,8 +1001,10 @@
       }
       else if (act === 'csv') this.exportCSV(btn);
       else if (act === 'cols') this.openColumnChooser(btn);
+      else if (act === 'retry' && this.ch) this.loadRest(null);
     }
     onHeadClick(e) {
+      if (e.target.closest('[data-fhelp]')) { U.toast(FILTER_HELP, 7000); return; } // title 在觸控裝置上看不到（M13）
       if (e.target.closest('.rsz') || e.target.closest('.fi')) return;
       if (this._justResized && Date.now() - this._justResized < 400) return;
       const th = e.target.closest('.th.col');
@@ -1008,8 +1166,20 @@
       }
     }
     openColumnChooser(btn) {
-      if (this.pop) { this.pop.remove(); this.pop = null; return; }
+      if (this.pop) { if (this.closePop) this.closePop(); else { this.pop.remove(); this.pop = null; } return; }
       const pop = (this.pop = U.h('div', { class: 'popover colchooser', role: 'dialog', 'aria-label': '欄位顯示／隱藏' }));
+      // 所有關閉途徑（點外面、Esc、✕、再按一次「欄位」、離開工作表）共用：一定移除 document 監聽（ROB-2）
+      const off = (ev) => {
+        if (this.pop !== pop) { document.removeEventListener('pointerdown', off, true); return; }
+        if (!pop.contains(ev.target) && ev.target !== btn && !btn.contains(ev.target)) close(false);
+      };
+      const close = (focusBtn) => {
+        pop.remove();
+        document.removeEventListener('pointerdown', off, true);
+        if (this.pop === pop) { this.pop = null; this.closePop = null; }
+        if (focusBtn && btn.isConnected) btn.focus();
+      };
+      this.closePop = close;
       const s = this.state;
       const bands = this.data.bands || [];
       const render = (filter) => {
@@ -1041,7 +1211,7 @@
       pop.addEventListener('click', (e) => {
         const b = e.target.closest('[data-cca]'); if (!b) return;
         const a = b.dataset.cca;
-        if (a === 'close') { pop.remove(); this.pop = null; return; }
+        if (a === 'close') { close(true); return; }
         if (a === 'all') s.hidden = [];
         if (a === 'def') s.hidden = this.cols.map((c, i) => (c.hidden ? i : -1)).filter((i) => i >= 0);
         if (a === 'none') s.hidden = this.cols.map((c, i) => i).filter((i) => i !== 0);
@@ -1049,13 +1219,23 @@
       });
       pop.querySelector('.cc-q').addEventListener('input', (e) => render(e.target.value));
       this.root.appendChild(pop);
-      const r = btn.getBoundingClientRect(); const rr = this.root.getBoundingClientRect();
-      pop.style.top = (r.bottom - rr.top + 6) + 'px';
-      pop.style.right = Math.max(8, rr.right - r.right) + 'px';
-      pop.querySelector('.cc-q').focus();
-      const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== btn && !btn.contains(ev.target)) { pop.remove(); this.pop = null; document.removeEventListener('pointerdown', off, true); } };
-      setTimeout(() => document.addEventListener('pointerdown', off, true), 0);
-      pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { pop.remove(); this.pop = null; btn.focus(); } });
+      if (U.isMobile()) pop.classList.add('sheet'); // 手機：固定在畫面底部的面板（CSS）
+      else {
+        // 以按鈕右緣對齊，但夾在檢視範圍內（窄視窗時按鈕在左側，右對齊會跑出畫面；M1）
+        // 座標以 popover 的定位容器（offsetParent：.app-body 或 modal 面板）為準，不是 .view（桌機時兩者差一個側欄寬）
+        const r = btn.getBoundingClientRect(); const rr = this.root.getBoundingClientRect();
+        const op = pop.offsetParent || document.documentElement; const orr = op.getBoundingClientRect();
+        const pw = pop.offsetWidth;
+        let left = r.right - pw; // 視窗座標
+        left = Math.max(rr.left + 8, Math.min(left, rr.right - pw - 8));
+        pop.style.top = (r.bottom - orr.top + op.scrollTop + 6) + 'px';
+        pop.style.left = (left - orr.left + op.scrollLeft) + 'px';
+        pop.style.right = 'auto';
+      }
+      // 只有滑鼠等精確指標才自動聚焦搜尋框（觸控會立刻彈出鍵盤蓋住清單）
+      if (window.matchMedia('(pointer: fine)').matches) pop.querySelector('.cc-q').focus();
+      setTimeout(() => { if (this.pop === pop) document.addEventListener('pointerdown', off, true); }, 0);
+      pop.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(true); } });
     }
     async exportCSV(btn) {
       if (!this.view) return;
@@ -1065,10 +1245,11 @@
       const cols = this.vcols; const rows = this.data.rows; const V = this.view;
       btn.disabled = true; const old = btn.textContent; btn.textContent = '匯出中…';
       const lines = [cols.map((c) => U.csvCell(this.cols[c].label)).join(',')];
+      const base = location.href.split('#')[0];
       await U.chunked(V.length, (i) => {
         const row = rows[V[i]];
         let line = '';
-        for (let k = 0; k < cols.length; k++) { if (k) line += ','; line += U.csvCell(U.raw(row[cols[k]])); }
+        for (let k = 0; k < cols.length; k++) { if (k) line += ','; line += csvField(row[cols[k]], base); }
         lines.push(line);
       });
       const d = new Date(); const P = (x) => String(x).padStart(2, '0');
@@ -1083,7 +1264,7 @@
       if (this.sc) { this.state.scrollTop = this.sc.scrollTop; this.state.scrollLeft = this.sc.scrollLeft; }
       if (this.ro) this.ro.disconnect();
       if (this.unsub) this.unsub();
-      if (this.pop) this.pop.remove();
+      if (this.closePop) this.closePop(); else if (this.pop) this.pop.remove();
       if (AMS.detail.isOpen()) AMS.detail.close();
     }
   }

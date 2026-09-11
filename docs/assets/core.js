@@ -41,7 +41,11 @@
     set(k, v) { try { localStorage.setItem('ams.' + k, JSON.stringify(v)); } catch (e) { /* 私密模式等 */ } },
   };
   U.int = (n) => (n == null || n === '' ? '' : Number(n).toLocaleString('en-US'));
-  U.isMobile = () => window.matchMedia('(max-width: 720px)').matches;
+  // 手機：窄螢幕，或「矮的觸控螢幕」（手機橫放 844×390 等）— 與 app.css 的 @media 條件一致
+  U.MOBILE_MQ = '(max-width: 720px), (pointer: coarse) and (max-height: 500px)';
+  U.isMobile = () => window.matchMedia(U.MOBILE_MQ).matches;
+  U.isTouch = () => window.matchMedia('(pointer: coarse)').matches;
+  U.num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : (d === undefined ? 0 : d); }; // 寫入標記前一律轉數字
   U.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
   // 讓出主執行緒（MessageChannel 比 setTimeout(0) 快）
@@ -408,16 +412,34 @@
   (function initBase() {
     const qs = new URLSearchParams(location.search);
     let b = qs.get('data') || 'data/';
+    // ?data= 只接受同源的相對路徑（拒絕 data:、blob:、//host、https://他站）：避免以假資料在本站網址下執行／冒充內容
+    try {
+      const u = new URL(b, location.href);
+      if (u.origin !== location.origin || !/^https?:$/.test(u.protocol) || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(b)) b = 'data/';
+    } catch (e) { b = 'data/'; }
     if (!b.endsWith('/')) b += '/';
     D.base = b;
+    // 版本戳記（tools/stamp_assets.py 寫入 index.html）：manifest 以建置雜湊為快取鍵
+    const mv = document.querySelector('meta[name="ams-build"]');
+    D.pageBuild = mv ? mv.getAttribute('content') || '' : '';
+    D.appVersion = mv ? mv.getAttribute('data-app') || '' : '';
+    D.chartVersion = mv ? mv.getAttribute('data-chart') || '' : '';
   })();
   D.cache = new Map(); // path → Promise<json>
+  /** 實際網址：資料檔加上 ?v=<manifest.build>，同一建置的檔案才會共用快取 */
+  D.url = function (path) {
+    if (path === 'manifest.json') return D.base + path + (D.pageBuild ? '?v=' + encodeURIComponent(D.pageBuild) : '');
+    const v = D.manifest && D.manifest.build;
+    return D.base + path + (v ? (path.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(v) : '');
+  };
   D.fetchJSON = function (path, onProgress, estBytes) {
     if (D.cache.has(path)) return D.cache.get(path);
     const p = (async () => {
-      const url = D.base + path;
+      const url = D.url(path);
       let res;
-      try { res = await fetch(url, { cache: 'default' }); } catch (e) { throw new Error('無法連線：' + url); }
+      // 沒有版本戳記的 manifest 一律向伺服器確認（304 很便宜），避免分塊清單與資料檔來自不同建置
+      const cacheMode = path === 'manifest.json' && !D.pageBuild ? 'no-cache' : 'default';
+      try { res = await fetch(url, { cache: cacheMode }); } catch (e) { throw new Error('無法連線：' + url); }
       if (!res.ok) throw new Error(`HTTP ${res.status}：${url}`);
       if (!res.body || !onProgress) { const j = await res.json(); if (onProgress) onProgress(1); return j; }
       const enc = res.headers.get('content-encoding');
@@ -558,15 +580,31 @@
       if (first != null && first >= 0 && first < this.n) order.push(first);
       for (let k = 0; k < this.n; k++) if (k !== first) order.push(k);
       const run = (async () => {
-        // 沒有 offsets 時必須依序載入
-        if (!this.offsets) order.sort((a, b) => a - b);
-        for (const k of order) await this.ensurePart(k);
+        // 沒有 offsets 時必須依序載入（此時一個部分失敗就無法算出後面的列位置 → 停止）
+        const seq = !this.offsets;
+        if (seq) order.sort((a, b) => a - b);
+        const failed = [];
+        for (const k of order) {
+          try { await this.ensurePart(k); } catch (e) {
+            failed.push({ k, e });
+            this.emit({ type: 'error', k, error: e });
+            if (seq) break;
+          }
+        }
+        if (failed.length) {
+          const err = new Error(`第 ${failed.map((x) => x.k + 1).join('、')} 部分載入失敗：${failed[0].e && failed[0].e.message}`);
+          err.parts = failed.map((x) => x.k);
+          throw err;
+        }
         this.emit({ type: 'done' });
         return this;
       })();
       if (!this.allPromise) this.allPromise = run;
+      // 失敗後清掉快取的 promise，讓「重試」真的重新抓取
+      run.catch(() => { if (this.allPromise === run) this.allPromise = null; });
       return run;
     }
+    failedParts() { return this.parts.filter((p) => !p.loaded && !p.promise).map((p) => p.k); }
     allLoaded() { return this.parts.every((p) => p.loaded); }
     asJSON() {
       return Object.assign({}, this.sheet, { rows: this.rows, styles: this.styles });
@@ -643,23 +681,74 @@
   };
 
   /* ------------------------------------------------------------------ 連結 */
+  /** 連結物件 {s, r, f?} → 站內網址（r 一律轉成非負整數；f 為逐欄篩選，鍵可為欄號或欄名） */
   AMS.linkHref = function (l) {
     if (!l) return null;
     const s = String(l.s);
     const m = D.meta(s);
-    if (m && m.mode === 'card') return '#/card/';
-    let h = '#/s/' + encodeURIComponent(s);
-    if (l.r !== null && l.r !== undefined) h += '?r=' + l.r;
-    return h;
+    if (m && m.mode === 'card') return '#/card/' + (l.q ? encodeURIComponent(String(l.q)) : '');
+    const p = [];
+    const r = l.r === null || l.r === undefined || l.r === '' ? NaN : Number(l.r);
+    if (Number.isInteger(r) && r >= 0) p.push('r=' + r);
+    if (l.f && typeof l.f === 'object' && !Array.isArray(l.f)) p.push('f=' + encodeURIComponent(JSON.stringify(l.f)));
+    // 沒有目標列的表格連結：明確重設搜尋／篩選（否則會沿用上次造訪時的篩選，落地畫面與連結的說明矛盾）
+    if (!p.length && m && m.mode === 'table') p.push('q=');
+    return '#/s/' + encodeURIComponent(s) + (p.length ? '?' + p.join('&') : '');
   };
   AMS.cellLinkHTML = function (c, text, cls) {
     if (c && typeof c === 'object') {
-      if (c.l) { const href = AMS.linkHref(c.l); return `<a class="${cls || 'lk'}" href="${href}">${text}</a>`; }
+      if (c.l) { const href = AMS.linkHref(c.l); return `<a class="${cls || 'lk'}" href="${U.esc(href)}">${text}</a>`; }
       if (c.u && /^(https?:|mailto:)/i.test(c.u)) return `<a class="${cls || 'lk'}" href="${U.esc(c.u)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
     }
     return text;
   };
   AMS.isAlias = (s) => /^D\d{5}$/.test(String(s));
+
+  /* ------------------------------------------------------------------ 覆蓋層與「上一頁」（僅手機）
+   * 手機上全螢幕的列詳情、抽屜、區塊表格看起來像另一頁：開啟時推入一筆同網址的歷史，
+   * 按 Android 返回鍵（popstate）就關閉覆蓋層，而不是離開這張工作表。桌機不改變歷史。 */
+  const OV = (AMS.overlay = { stack: [], skip: 0, pending: 0 });
+  OV.open = function (name, close) {
+    if (!U.isMobile()) return null;
+    const tok = { name, close, live: true };
+    try { history.pushState({ amsOv: name }, '', location.href); } catch (e) { return null; }
+    OV.stack.push(tok);
+    return tok;
+  };
+  const drop = (tok) => { tok.live = false; const i = OV.stack.indexOf(tok); if (i >= 0) OV.stack.splice(i, 1); };
+  /** 由介面關閉（✕、Esc、遮罩）：退回推入的那筆歷史（同一輪的多個關閉合併成一次 history.go） */
+  OV.done = function (tok) {
+    if (!tok || !tok.live) return;
+    drop(tok);
+    OV.pending++;
+    if (OV.pending === 1) {
+      queueMicrotask(() => {
+        const n = OV.pending; OV.pending = 0;
+        if (!(history.state && history.state.amsOv)) return;
+        OV.skip++;
+        history.go(-n);
+      });
+    }
+  };
+  /** 由站內導覽接手：不退回，改以 location.replace 覆蓋掉那筆同網址歷史 */
+  OV.forgetAll = function () { OV.stack.slice().forEach(drop); };
+  OV.live = () => OV.stack.length > 0;
+  window.addEventListener('popstate', () => {
+    if (OV.skip) { OV.skip--; return; }
+    const tok = OV.stack.pop();
+    if (tok && tok.live) { tok.live = false; try { tok.close(); } catch (e) { console.error(e); } }
+  });
+  // 覆蓋層開著時點站內連結：用 replace 取代同網址的覆蓋層歷史，返回鍵才會回到原工作表
+  document.addEventListener('click', (e) => {
+    if (!OV.live() || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest && e.target.closest('a[href^="#/"]');
+    if (!a || a.target) return;
+    const href = a.getAttribute('href');
+    if (href === location.hash) return; // 同網址：交給 app.js 重新套用路由
+    e.preventDefault();
+    OV.forgetAll();
+    location.replace(href);
+  }, true);
 
   /* ------------------------------------------------------------------ 列詳情側板 */
   const DT = (AMS.detail = {});
@@ -679,13 +768,18 @@
     const wasHidden = el.hidden;
     el.hidden = false;
     document.body.classList.add('detail-open');
-    if (wasHidden) { DT.returnFocus = document.activeElement; requestAnimationFrame(() => U.$('#detail-close').focus({ preventScroll: true })); }
+    if (wasHidden) {
+      DT.returnFocus = document.activeElement;
+      requestAnimationFrame(() => U.$('#detail-close').focus({ preventScroll: true }));
+      DT.tok = OV.open('detail', () => DT.close());
+    }
   };
   DT.close = function () {
     const el = U.$('#detail');
     if (el.hidden) return;
     el.hidden = true;
     document.body.classList.remove('detail-open');
+    const tok = DT.tok; DT.tok = null; OV.done(tok);
     const f = DT.onClose; DT.onClose = null;
     if (f) f();
     if (DT.returnFocus && DT.returnFocus.focus) try { DT.returnFocus.focus({ preventScroll: true }); } catch (e) { /**/ }

@@ -14,7 +14,11 @@
   R.parse = function (hash) {
     const h = (hash || '').replace(/^#/, '');
     let m;
-    if ((m = /^\/s\/([^?]+)(?:\?(.*))?$/.exec(h))) return { view: 'sheet', id: decodeURIComponent(m[1]), params: new URLSearchParams(m[2] || '') };
+    if ((m = /^\/s\/([^?]+)(?:\?(.*))?$/.exec(h))) {
+      let id = m[1];
+      try { id = decodeURIComponent(id); } catch (e) { /* 截斷的 %XX：保留原字串 → 找不到工作表 */ }
+      return { view: 'sheet', id, params: new URLSearchParams(m[2] || '') };
+    }
     if ((m = /^\/card\/?(.*)$/.exec(h))) {
       let q = m[1];
       try { q = decodeURIComponent(q); } catch (e) { /* 保留原字串 */ }
@@ -23,7 +27,12 @@
     return null;
   };
   R.current = () => (current ? current.instance : null); // 目前的檢視（除錯／自動化測試用）
-  R.go = function (hash) { if (location.hash === hash) route(); else location.hash = hash; };
+  R.go = function (hash) {
+    if (location.hash === hash) { route(); return; }
+    // 手機覆蓋層開著（其歷史是同網址的一筆）：以 replace 取代它，返回鍵才會回到原工作表
+    if (AMS.overlay.live()) { AMS.overlay.forgetAll(); location.replace(hash); return; }
+    location.hash = hash;
+  };
   R.replace = function (hash) {
     if (location.hash === hash) return;
     ignoreHash = hash;
@@ -35,7 +44,18 @@
     return s ? s.id : '02';
   }
   function route() {
+    try { routeInner(); } catch (e) {
+      console.error(e);
+      const root = U.$('#view');
+      root.className = 'view';
+      root.innerHTML = `<div class="error-box"><h2>無法開啟此網址</h2><p>${U.esc(e && e.message || String(e))}</p><p><a class="lk" href="#/s/00">回到 00_說明</a></p></div>`;
+    }
+    maybeCheckVersion();
+  }
+  function routeInner() {
     if (ignoreHash && location.hash === ignoreHash) { ignoreHash = null; return; }
+    // 路由變更一律關閉浮在上面的區塊表格（瀏覽器返回、點連結、全域搜尋…）
+    U.$$('.modal').forEach((m) => m.dispatchEvent(new CustomEvent('ams-close')));
     let rt = R.parse(location.hash);
     if (!rt) {
       const first = (D.manifest && D.manifest.default_sheet) || (D.sheets[0] && D.sheets[0].id) || '00';
@@ -126,8 +146,38 @@
     const act = U.$('.sheet-link.active');
     if (act && act.scrollIntoViewIfNeeded) act.scrollIntoViewIfNeeded(false);
   }
-  function openDrawer() { document.body.classList.add('drawer-open'); U.$('#scrim').hidden = false; U.$('#btn-menu').setAttribute('aria-expanded', 'true'); const a = U.$('.sheet-link.active') || U.$('.sheet-link'); if (a) a.focus(); }
-  function closeDrawer() { if (!document.body.classList.contains('drawer-open')) return; document.body.classList.remove('drawer-open'); U.$('#scrim').hidden = true; U.$('#btn-menu').setAttribute('aria-expanded', 'false'); }
+  let drawerTok = null;
+  function openDrawer() {
+    document.body.classList.add('drawer-open'); U.$('#scrim').hidden = false; U.$('#btn-menu').setAttribute('aria-expanded', 'true');
+    const a = U.$('.sheet-link.active') || U.$('.sheet-link'); if (a) a.focus();
+    drawerTok = AMS.overlay.open('drawer', () => closeDrawer());
+  }
+  function closeDrawer() {
+    if (!document.body.classList.contains('drawer-open')) return;
+    document.body.classList.remove('drawer-open'); U.$('#scrim').hidden = true; U.$('#btn-menu').setAttribute('aria-expanded', 'false');
+    const t = drawerTok; drawerTok = null; AMS.overlay.done(t);
+  }
+
+  /* ------------------------------------------------------------ 新版本偵測（開著的分頁不會自己換 manifest） */
+  let lastVerCheck = Date.now();
+  let verBanner = null;
+  function maybeCheckVersion(force) {
+    if (!D.appVersion && !D.pageBuild) return; // 未經 stamp 的開發版
+    const now = Date.now();
+    if (!force && now - lastVerCheck < 5 * 60 * 1000) return;
+    lastVerCheck = now;
+    fetch('version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((v) => {
+      if (!v || verBanner) return;
+      const dataChanged = v.build && D.manifest && D.manifest.build && v.build !== D.manifest.build;
+      const appChanged = v.app && D.appVersion && v.app !== D.appVersion;
+      if (!dataChanged && !appChanged) return;
+      verBanner = U.h('div', { class: 'ver-banner', role: 'status' },
+        U.h('span', {}, dataChanged ? '資料已更新（新的建置），請重新整理以免新舊資料混用。' : '網頁已更新，請重新整理。'),
+        U.h('button', { type: 'button', class: 'btn sm primary', onclick: () => location.reload() }, '重新整理'),
+        U.h('button', { type: 'button', class: 'icon-btn', 'aria-label': '稍後', onclick: () => { verBanner.remove(); } }, '✕'));
+      document.body.appendChild(verBanner);
+    }).catch(() => {});
+  }
 
   /* ------------------------------------------------------------ 主題 */
   function setTheme(t, persist) {
@@ -193,10 +243,21 @@
     });
     // 全域搜尋 → 設備查詢卡
     const gs = U.$('#global-search');
+    if (U.isMobile()) gs.placeholder = '搜尋位號／alias…'; // 360px 寬時完整提示會被截斷
     new AMS.Autocomplete(gs, Object.assign({}, AMS.tagSuggestSource, {
       onPick: (it) => { gs.value = ''; gs.blur(); R.go('#/card/' + encodeURIComponent(it.key)); },
-      onEnter: (t) => { if (!t.trim()) return; gs.blur(); R.go('#/card/' + encodeURIComponent(t)); gs.value = ''; },
+      onEnter: async (t) => {
+        if (!t.trim()) return;
+        let key = t;
+        // 沒有完全相符的鍵、但只有一個建議時，直接開那一個（例：輸入 HAP70BT00 只對到一台）
+        try {
+          const IX = AMS.index; await IX.load();
+          if (!IX.first.has(IX.norm(t))) { const sg = IX.suggest(t, 2); if (sg.length === 1) key = sg[0].key; }
+        } catch (e) { /* 索引載入失敗 → 照原字串查詢 */ }
+        gs.blur(); R.go('#/card/' + encodeURIComponent(key)); gs.value = '';
+      },
     }));
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') maybeCheckVersion(); });
     try {
       await D.loadManifest();
     } catch (e) {
@@ -209,6 +270,7 @@
     buildSidebar();
     window.addEventListener('hashchange', route);
     route();
+    lastVerCheck = Date.now();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

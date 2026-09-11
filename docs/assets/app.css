@@ -458,7 +458,7 @@ table.mini tr:hover td { background: var(--hover); }
   .brand-sub { display: none; }
   .card-sections { grid-template-columns: 1fr; }
 }
-@media (max-width: 720px) {
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   :root { --hdr: 52px; }
   .only-mobile { display: inline-grid; }
   .only-desktop { display: none; }
@@ -470,16 +470,28 @@ table.mini tr:hover td { background: var(--hover); }
   }
   body.sidebar-collapsed .sidebar { width: min(86vw, 320px); border-right: 1px solid var(--border); }
   body.drawer-open .sidebar { transform: none; }
-  .sv-head { padding: 10px 12px 4px; }
-  .sv-title { font-size: 18px; }
+  .sv-head { padding: 6px 12px 2px; }
+  .sv-title { font-size: 16px; }
+  .sv-hcells { margin-top: 4px; }
+  .sv-notes { margin-top: 2px; }
   .tv-bodywrap { padding: 0 8px 8px; }
-  .tv-toolbar { gap: 6px; }
-  .tv-search { flex: 1 1 100%; }
+  /* 工具列：搜尋＋筆數一行，按鈕一行橫向捲動（手機上表頭與工具列原本占掉近一半畫面；M7） */
+  .tv-toolbar { gap: 6px; padding: 4px 0 6px; }
+  .tv-search { flex: 1 1 55%; min-width: 0; }
+  .tv-count { flex: 0 1 auto; font-size: 12px; white-space: nowrap; }
   .tv-spacer { display: none; }
-  .tv-actions .btn.sm { height: 30px; }
-  .tv-scroll { min-height: 60dvh; }
+  .tv-presets { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .tv-actions { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); padding-right: 20px; }
+  .tv-actions .btn, .tv-presets .btn { flex: none; height: 34px; }
+  .tv-load { flex: 1 1 100%; flex-wrap: wrap; }
+  /* 參數現值表：去掉序號欄，參數欄固定在左（M9） */
+  .ptable table.mini th:first-child, .ptable table.mini td:first-child { display: none; }
+  .ptable table.mini th:nth-child(2), .ptable table.mini td:nth-child(2) { position: sticky; left: 0; background: var(--surface); z-index: 1; box-shadow: 3px 0 4px -2px rgba(0, 0, 0, 0.2); }
+  .ptable table.mini th:nth-child(2) { background: #1f4e79; z-index: 2; }
+  .ptable table.mini td { max-width: 180px; }
+  .tv-scroll { min-height: 0; }
   .gv-toc { padding: 2px 12px 8px; }
-  .gv-wrap { min-height: 65dvh; }
+  .gv-wrap { min-height: 55dvh; }
   body.detail-open .main { margin-right: 0; }
   .detail { width: 100vw; }
   .cq { padding: 8px 12px 4px; }
@@ -516,7 +528,7 @@ table.mini tr:hover td { background: var(--hover); }
 .gv-bar { display: flex; align-items: center; gap: 8px; padding: 2px 20px 8px; flex: none; min-width: 0; }
 .gv-bar .gv-toc { padding: 0; flex: 1 1 auto; min-width: 0; }
 .gv-toc.ovf { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent); }
-@media (max-width: 720px) { .gv-bar { padding: 2px 12px 8px; flex-wrap: wrap; } .gv-zoom { margin-left: 0; } }
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) { .gv-bar { padding: 2px 12px 8px; flex-wrap: wrap; } .gv-zoom { margin-left: 0; } }
 .sheet-link.has-tab .sl-id { position: relative; padding-left: 9px; }
 .sheet-link.has-tab .sl-id::before { content: ""; position: absolute; left: 0; top: 50%; width: 5px; height: 12px; margin-top: -6px; border-radius: 2px; background: var(--tab); }
 .resizing, .resizing * { cursor: col-resize !important; user-select: none; }
@@ -536,4 +548,114 @@ table.mini tr:hover td { background: var(--hover); }
 .modal-panel > .view { flex: 1; min-height: 0; }
 .modal-x { position: absolute; top: 8px; right: 8px; z-index: 5; background: var(--surface); border: 1px solid var(--border); }
 .gv-blocks { height: 26px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); font-size: 12px; max-width: 180px; }
-@media (max-width: 720px) { .modal { padding: 0; } .modal-panel { height: 100dvh; border-radius: 0; } }
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) { .modal { padding: 0; } .modal-panel { height: 100dvh; border-radius: 0; } body.modal-open .detail { top: 0; } }
+
+/* ---------------------------------------------------------------- 新版本提示（app.js maybeCheckVersion；LIVE-2） */
+.ver-banner {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 98;
+  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); padding: 8px 8px 8px 16px; border-radius: 10px;
+  background: #fff4ce; color: #3b2f00; border: 1px solid #e0c060; box-shadow: var(--shadow); font-size: 13px;
+}
+[data-theme="dark"] .ver-banner { background: #3a3214; color: #f3e3a4; border-color: #6b5a1c; }
+.ver-banner .icon-btn { width: 30px; height: 30px; color: inherit; }
+
+/* ---------------------------------------------------------------- 分塊載入失敗（ROB-4） */
+.tv-load.bad { color: #9c0006; font-weight: 700; background: #ffe7e7; border: 1px solid #f1b0b0; border-radius: 6px; padding: 2px 4px 2px 8px; }
+[data-theme="dark"] .tv-load.bad { color: #ffb3b3; background: #3a1a1a; border-color: #6b2b2b; }
+.tv-load.bad .tv-load-bar { display: none; }
+
+/* ---------------------------------------------------------------- 表頭統計格按鈕（07 高／中／低；ENG-07）與篩選說明（M13） */
+button.hcell.hbtn { font: inherit; font-size: 12.5px; cursor: pointer; color: inherit; line-height: inherit; }
+button.hcell.hbtn:hover { filter: brightness(0.95); box-shadow: 0 0 0 1px var(--accent-2); }
+button.hcell.hbtn[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--accent-2); }
+.fhelp-btn { cursor: help; font: 700 11px/1 var(--font); color: var(--muted); background: transparent; border: 1px solid var(--border-strong); border-radius: 50%; width: 17px; height: 17px; padding: 0; display: inline-grid; place-items: center; }
+select.fi option.zero { color: #999; }
+
+/* ---------------------------------------------------------------- 欄位選擇器（手機：底部面板；M1） */
+.popover.colchooser.sheet { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; max-height: min(72dvh, 560px); z-index: 70; }
+.popover.colchooser.sheet .cc-item { min-height: 40px; font-size: 14px; }
+.popover.colchooser.sheet .cc-item input[type="checkbox"] { width: 18px; height: 18px; }
+.popover.colchooser.sheet .cc-btns .btn.xs { height: 34px; padding: 0 12px; }
+.popover.colchooser.sheet .cc-head input { height: 38px; font-size: 16px; }
+
+/* ---------------------------------------------------------------- grid：溢出截斷、alias 連結、捲動提示 */
+.gv-inner { overflow: clip; } /* 溢出文字不再把捲動範圍撐到版面之外（24 的 1.4 萬 px；M10） */
+table.gx td.ov.ovcut { overflow: hidden; text-overflow: ellipsis; }
+.glk.alk { text-decoration: underline dotted; text-underline-offset: 2px; }
+.gv-hint {
+  align-self: center; position: relative; z-index: 7; margin: -44px 0 12px; pointer-events: none; flex: none;
+  background: rgba(28, 35, 48, 0.9); color: #fff; font-size: 12px; line-height: 1.4; padding: 6px 12px; border-radius: 999px;
+  max-width: calc(100% - 32px); text-align: center; transition: opacity 0.4s;
+}
+[data-theme="dark"] .gv-hint { background: rgba(227, 231, 237, 0.92); color: #111; }
+.gv-hint.gone { opacity: 0; }
+.gv-wrap.ovf-r { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), rgba(0, 0, 0, 0.35)); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), rgba(0, 0, 0, 0.35)); }
+
+/* ---------------------------------------------------------------- grid 窄版重排（01 KPI 方塊、長文字換行；M3） */
+table.gx tr.gx-hide { display: none; }
+table.gx tr.gx-flow > td { padding: 0 !important; border: 0 !important; background: var(--surface); }
+.gx-flow-box { position: sticky; left: 0; padding: 4px 6px; }
+.gx-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 2px 0; }
+.gx-tile { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.gx-tile .gx-cell { padding: 3px 8px; white-space: normal !important; word-break: break-word; text-align: left !important; }
+.gx-tile .k0 { font-size: 11px !important; }
+.gx-tile .k1 { font-size: 12.5px !important; padding-top: 6px; }
+.gx-tile .k2 { font-size: clamp(22px, 7vw, 30px) !important; line-height: 1.15; }
+.gx-tile .k3 { font-size: 11.5px !important; flex: 1; padding-bottom: 8px; }
+.gx-line { display: flex; gap: 6px; align-items: stretch; }
+.gx-line .gx-cell { white-space: normal !important; word-break: break-word; padding: 4px 6px; }
+.gx-line .grow { flex: 1 1 auto; min-width: 0; }
+.gx-line .fix { flex: none; max-width: 30%; }
+@media (max-width: 340px) { .gx-tiles { grid-template-columns: 1fr; } }
+
+/* ---------------------------------------------------------------- 查無此鍵（ENG-05） */
+.nf-body { padding: 10px 12px 12px; font-size: 13.5px; }
+.nf-body p { margin: 4px 0 8px; }
+.nf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nf-chips .chip-btn { flex-direction: column; align-items: flex-start; gap: 0; border-radius: 8px; padding: 4px 10px; font-family: var(--mono); font-weight: 700; }
+.nf-chips .chip-btn .small { font-family: var(--font); font-weight: 400; }
+
+/* ---------------------------------------------------------------- modal（M14） */
+.modal-panel .sv-head { padding-right: 56px; }
+
+/* ---------------------------------------------------------------- 手機橫放（矮觸控螢幕）：收起說明與麵包屑，把高度留給資料（M2） */
+@media (pointer: coarse) and (max-height: 500px) {
+  .sv-notes, .sv-crumb, .sv-hcells { display: none; }
+  .sv-head { padding-block: 4px 0; }
+  .sv-title { font-size: 15px; }
+  .gv-wrap { min-height: 0; }
+}
+
+/* ---------------------------------------------------------------- 觸控：輸入框 ≥ 16px（iOS 聚焦時不再自動放大；M8）、點擊目標加大（M12） */
+@media (max-width: 720px), (pointer: coarse) {
+  #global-search, .tv-search input, .cc-head input, .ptools input, .fi, .gv-zoom select, .gv-blocks, .cq-input { font-size: 16px; }
+  .fi { height: 30px; }
+  .hr-filt .th { height: 37px; }
+}
+@media (pointer: coarse) {
+  .chip-btn, .gv-zoom select, .gv-blocks, .btn.sm, .btn.xs { min-height: 36px; }
+  .sheet-link, .sg-h { min-height: 40px; }
+  .sv-notes summary { padding: 6px 0; }
+  .cl > a { display: block; margin: -8px -12px; padding: 8px 12px; }
+  .td > a.lk:only-child { display: block; margin: 0 -6px; padding: 0 6px; }
+  .gchart-src { padding: 6px 8px; top: 0; right: 0; }
+  .hcell a, .sv-crumb a { display: inline-block; padding: 4px 4px; margin: -2px 0; }
+  .fhelp-btn { width: 26px; height: 26px; font-size: 13px; }
+}
+
+/* ---------------------------------------------------------------- iPhone 瀏海／主畫面指示條（viewport-fit=cover；M15） */
+.app-header { padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.app-body { padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.toast { bottom: calc(22px + env(safe-area-inset-bottom)); }
+.detail { padding-bottom: env(safe-area-inset-bottom); padding-right: env(safe-area-inset-right); }
+
+/* ---------------------------------------------------------------- 列印（ENG-03）：grid 以 A4 橫向、縮放到頁寬 */
+@page amswide { size: A4 landscape; margin: 8mm; }
+@media print {
+  .grid-view { page: amswide; }
+  .grid-view .gv-inner { zoom: var(--print-zoom, 1) !important; }
+  .gv-bar, .gv-hint, .gchart-src, .ver-banner, .modal, .skip-link, .cq, .cq-alts { display: none !important; }
+  .gv-wrap { -webkit-mask-image: none !important; mask-image: none !important; }
+  .csec { break-inside: avoid; }
+  .app-body { padding: 0; }
+}

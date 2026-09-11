@@ -88,17 +88,21 @@
     const sCache = new Map();
     const sty = (i) => { if (i == null) return null; let r = sCache.get(i); if (!r) { r = styleCss(typeof i === 'object' ? i : styles[i], theme); sCache.set(i, r); } return r; };
     const hiddenCols = new Set((g.hidden_cols || []).map(colNum));
-    const hiddenRows = new Set(g.hidden_rows || []);
-    const widths = g.col_widths || [];
+    const hiddenRows = new Set((g.hidden_rows || []).map(Number));
+    // 寫進標記的幾何值一律轉成數字（資料來自 JSON；不讓字串值帶進屬性）
+    const widths = (Array.isArray(g.col_widths) ? g.col_widths : []).map((w) => (w == null ? null : Math.max(0, U.num(w, 64))));
     let maxCol = widths.length; let maxRow = 0;
     const rowMap = new Map();
+    const inum = (v, d) => { const n = Math.floor(U.num(v, d)); return n; };
     for (const row of g.rows || []) {
-      rowMap.set(row.r, row);
-      if (row.r > maxRow) maxRow = row.r;
+      const rr = inum(row.r, 0);
+      if (!(rr >= 1)) continue;
+      rowMap.set(rr, row);
+      if (rr > maxRow) maxRow = rr;
       for (const c of row.cells || []) {
-        const e = c.c + Math.max(1, c.cs || 1) - 1 + (c.ov || 0);
+        const e = inum(c.c, 0) + Math.max(1, inum(c.cs, 1) || 1) - 1 + Math.max(0, inum(c.ov, 0));
         if (e > maxCol) maxCol = e;
-        const er = row.r + Math.max(1, c.rs || 1) - 1;
+        const er = rr + Math.max(1, inum(c.rs, 1) || 1) - 1;
         if (er > maxRow) maxRow = er;
       }
     }
@@ -107,11 +111,12 @@
       if (a.to) { if (a.to.c > maxCol) maxCol = a.to.c; if (a.to.r > maxRow) maxRow = a.to.r; }
       if (a.from) { if (a.from.c > maxCol) maxCol = a.from.c; if (a.from.r > maxRow) maxRow = a.from.r; }
     }
-    for (const s of g.sections || []) if (s.r > maxRow) maxRow = s.r;
-    if (g.max_row && g.max_row > maxRow) maxRow = g.max_row;
-    if (g.max_col && g.max_col > maxCol) maxCol = g.max_col;
+    for (const s of g.sections || []) if (inum(s.r, 0) > maxRow) maxRow = inum(s.r, 0);
+    if (g.max_row && inum(g.max_row, 0) > maxRow) maxRow = inum(g.max_row, 0);
+    if (g.max_col && inum(g.max_col, 0) > maxCol) maxCol = inum(g.max_col, 0);
+    maxRow = Math.min(maxRow, 100000); maxCol = Math.min(maxCol, 2000);
     if (opt.extraCols) maxCol += opt.extraCols;
-    const defW = g.default_col_w || 64;
+    const defW = U.num(g.default_col_w, 64) || 64;
     const cw = (c) => (hiddenCols.has(c) ? 0 : (widths[c - 1] != null ? widths[c - 1] : defW));
     const left = [0, 0]; // left[c] = x of col c (1-based)
     for (let c = 1; c <= maxCol + 1; c++) left[c + 1] = left[c] + cw(c);
@@ -131,9 +136,9 @@
       if (hiddenRows.has(r)) continue;
       const row = rowMap.get(r);
       const cells = new Map();
-      if (row) for (const c of row.cells || []) cells.set(c.c, c);
+      if (row) for (const c of row.cells || []) { const cc = inum(c.c, 0); if (cc >= 1) cells.set(cc, c); }
       const cov = covered.get(r);
-      let h = row && row.h != null ? row.h : null;
+      let h = row && row.h != null && Number.isFinite(Number(row.h)) ? Number(row.h) : null;
       const empty = !row || !(row.cells && row.cells.length);
       if (h == null && empty && !(cov && cov.size)) h = 20;
       let tr = `<tr data-r="${r}"${h != null ? ` style="height:${h}px"` : ''}${empty ? ' class="er"' : ''}>`;
@@ -141,15 +146,17 @@
         if (cov && cov.has(c)) continue;
         const cell = cells.get(c);
         if (!cell) { if (!hiddenCols.has(c)) tr += '<td></td>'; continue; }
-        const cs = Math.max(1, cell.cs || 1); const rs = Math.max(1, cell.rs || 1);
-        let ov = cell.ov || 0;
+        const cs = Math.max(1, inum(cell.cs, 1) || 1); const rs = Math.max(1, inum(cell.rs, 1) || 1);
+        const ov0 = Math.max(0, inum(cell.ov, 0));
+        let ov = ov0;
         // 溢出只能延伸到真的空白格
         if (ov) { let k = 0; while (k < ov && !cells.has(c + cs + k) && !(cov && cov.has(c + cs + k)) && c + cs + k <= maxCol) k++; ov = k; }
         const span = cs + ov;
         for (let rr = r; rr < r + rs; rr++) for (let cc = c; cc < c + span; cc++) if (rr !== r || cc !== c) cover(rr, cc);
         const vis = visCount(c, c + span - 1);
         if (!vis || hiddenCols.has(c) && vis === 0) continue;
-        tr += cellHTML(cell, sty(cell.s), vis, rs, ov > 0);
+        // 溢出被鄰格或版面右緣截斷：在此裁切並加省略號（否則 24 的長清單會把捲動範圍撐到 1.4 萬 px；M10）
+        tr += cellHTML(cell, sty(cell.s), vis, rs, ov0 > 0, ov0 > 0 && ov < ov0, c, opt);
         // cover 同列後續欄
         c += span - 1;
       }
@@ -162,7 +169,7 @@
     table.querySelectorAll('tr[data-r]').forEach((tr) => trs.set(Number(tr.dataset.r), tr));
     return { table, trs, left, maxCol, maxRow, totalW, rowMap };
   }
-  function cellHTML(cell, st, cs, rs, overflow) {
+  function cellHTML(cell, st, cs, rs, overflow, cut, cnum, opt) {
     let v = cell.v;
     let link = cell.l || null; let url = cell.u || null;
     if (v && typeof v === 'object') { if (v.l) link = v.l; if (v.u) url = v.u; }
@@ -175,19 +182,24 @@
     const wrap = st && st.wrap;
     cls.push(wrap ? 'wr' : 'nw');
     if (overflow) cls.push('ov');
+    if (cut) cls.push('ovcut');
     let inner = U.esc(U.visible(txt, true));
     if (link) {
       const href = AMS.linkHref(link);
-      inner = `<a class="glk${st && st.fc ? ' inh' : ''}" href="${href}">${inner}</a>`;
+      inner = `<a class="glk${st && st.fc ? ' inh' : ''}" href="${U.esc(href)}">${inner}</a>`;
     } else if (url && /^(https?:|mailto:)/i.test(url)) inner = `<a class="glk" href="${U.esc(url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+    else if (opt && opt.aliasLinks && /\bD\d{5}\b/.test(inner)) {
+      // 01 重點發現的「D00298（G12HAP70BT001）」→ 設備查詢卡（ENG-10）；字色沿用儲存格
+      inner = inner.replace(/\bD\d{5}\b/g, (a) => `<a class="glk inh alk" href="#/card/${a}" title="開啟 ${a} 的設備查詢卡">${a}</a>`);
+    }
     if (cell.bar) {
       const p = U.clamp(Number(cell.bar.p) || 0, 0, 1);
       // Excel 資料橫條（無 x14 擴充）：minLength 10%、maxLength 90% → 長度 = 10% + 80%·p
       inner = `<i class="gbar" style="width:${(10 + 80 * p).toFixed(1)}%;--bc:${U.esc(cell.bar.c || '#638EC6')}"></i><span class="bv">${inner}</span>`;
       cls.push('hasbar');
     }
-    const title = !wrap && txt.length > 40 ? ` title="${U.esc(txt)}"` : '';
-    return `<td data-c="${cell.c}"${cs > 1 ? ` colspan="${cs}"` : ''}${rs > 1 ? ` rowspan="${rs}"` : ''} class="${cls.join(' ')}" style="${css}"${title}>${inner}</td>`;
+    const title = !wrap && (txt.length > 40 || (cut && txt.length > 8)) ? ` title="${U.esc(txt)}"` : '';
+    return `<td data-c="${cnum}"${cs > 1 ? ` colspan="${cs}"` : ''}${rs > 1 ? ` rowspan="${rs}"` : ''} class="${cls.join(' ')}" style="${css}"${title}>${inner}</td>`;
   }
 
   /* ------------------------------------------------------------ 圖表 */
@@ -254,6 +266,22 @@
     }
     return true;
   }
+  /** Chart.js（70 KB gz）只在有圖表的工作表（01、16）才載入，不在每一頁的關鍵路徑上（LIVE-3） */
+  let chartLoad = null;
+  CH.load = function () {
+    if (window.Chart) return Promise.resolve(true);
+    if (!chartLoad) {
+      chartLoad = new Promise((res) => {
+        const s = document.createElement('script');
+        s.src = 'assets/chart.umd.min.js' + (D.chartVersion ? '?v=' + encodeURIComponent(D.chartVersion) : '');
+        s.async = true;
+        s.onload = () => res(!!window.Chart);
+        s.onerror = () => { chartLoad = null; res(false); };
+        document.head.appendChild(s);
+      });
+    }
+    return chartLoad;
+  };
   function tickFmt(fmt) { return (v) => (fmt ? U.fmt(v, fmt) : (Math.abs(v) >= 1000 ? U.fmt(v, '#,##0') : U.general(v))); }
   /** chart 規格 → Chart.js 設定 */
   CH.config = function (spec, opt) {
@@ -387,7 +415,7 @@
       const a = U.h('a', { class: 'gchart-src', href: AMS.linkHref(spec.src), title: '資料來源：' + (spec.source || '') }, '資料 ↗');
       box.appendChild(a);
     }
-    if (!ensureChartJs()) { box.appendChild(U.h('p', { class: 'muted' }, '（Chart.js 未載入）')); return null; }
+    if (!ensureChartJs()) { box.appendChild(U.h('p', { class: 'muted' }, '（Chart.js 無法載入）')); return null; }
     try { return new window.Chart(cv, CH.config(spec, opt)); } catch (e) { console.error(e); box.appendChild(U.h('p', { class: 'muted' }, '圖表繪製失敗：' + e.message)); return null; }
   };
   CH.describe = function (spec) {
@@ -395,12 +423,50 @@
     return `${spec.title || ''}。類別：${(spec.categories || []).join('、')}。${s}`;
   };
 
+  /* ------------------------------------------------------------ 01 連結加強（ENG-01／ENG-02）
+   * Excel 的 KPI／重點發現連結只指向「目標表第 0 列」或整張表；網頁上改成直接套用能重現該數字的篩選
+   * （篩選以欄名表示，TableView 會換成欄號）。只在原連結的目標表相符、且該列文字仍含關鍵字時才套用。 */
+  const LINK_PLUS = {
+    '01': [
+      { r: 6, c: 2, s: '03' }, // K1 設備總數 → 整張 03（不標示無關的第 1 列）
+      { r: 6, c: 14, s: '15' }, // K4 機組歸屬率 → 整張 15
+      { r: 11, c: 6, s: '08', f: { 查詢鍵: '!∅' } }, // K8 有意義組態變更 4,757
+      { r: 11, c: 10, s: '08' }, // K9 核心組態變更（類別 OR 條件無法以逐欄篩選表示 → 只重設）
+      { r: 11, c: 14, from: '07', s: '08', f: { 來源判讀: '=現場偵測(非經AMS)', 'MOC 審查範圍': '=是' } }, // K10 379 筆在 08（Excel 連到 07）
+      { r: 11, c: 18, s: '07', f: { 嚴重度: '=高' } }, // K11 155
+      { r: 11, c: 22, s: '12', f: { 對照狀態: '!僅' } }, // K12 CMX 自動配對 429
+      { r: 75, c: 24, s: '08', f: { 來源判讀: '=現場偵測(非經AMS)', 查詢鍵: '!∅' }, need: [3, '非經 AMS'] }, // 832 筆
+      { r: 76, c: 24, s: '07', f: { 嚴重度: '=高', 問題類別: '位號' }, need: [3, '位號問題'] },
+      { r: 77, c: 24, s: '08', f: { 設備別名: '=D00298' }, need: [3, 'D00298'] },
+      { r: 80, c: 24, s: '12', f: { 對照狀態: '!僅' }, need: [3, 'CMX 對照'] },
+    ],
+  };
+  function enhanceLinks(id, g) {
+    const list = LINK_PLUS[id];
+    if (!list || g._linksPlus) return;
+    g._linksPlus = true;
+    const rowMap = new Map((g.rows || []).map((r) => [r.r, r]));
+    const cellAt = (r, c) => { const row = rowMap.get(r); return row ? (row.cells || []).find((x) => x.c === c) : null; };
+    for (const o of list) {
+      const cell = cellAt(o.r, o.c); if (!cell) continue;
+      const l = cell.l || (cell.v && typeof cell.v === 'object' ? cell.v.l : null);
+      if (!l || String(l.s) !== (o.from || o.s)) continue;
+      if (o.need) { const t = cellAt(o.r, o.need[0]); if (!t || !String(U.raw(t.v) || '').includes(o.need[1])) continue; }
+      l.s = o.s; l.r = null;
+      if (o.f) l.f = o.f;
+    }
+  }
+  const REFLOW_TILES = new Set(['01']); // 手機：KPI 卡片帶改成 2 欄方塊
+  const REFLOW_TEXT = new Set(['00', '01', '24']); // 手機：一行長文字的列改成隨螢幕寬度換行
+  const ALIAS_LINKS = new Set(['01']); // 內文中的 D00298 等 alias → 查詢卡
+  const PRINT_W = 1040; // A4 橫向（左右各 8 mm）可列印寬度，CSS px
+
   /* ------------------------------------------------------------ GridView */
   class GridView {
     constructor(root, meta, route) {
       this.root = root; this.meta = meta; this.id = meta.id; this.charts = [];
       this.state = AMS.viewState[meta.id] || (AMS.viewState[meta.id] = {});
-      this.route = route;
+      this.route = route; this.rtok = 0;
       root.className = 'view grid-view';
       root.innerHTML = `<header class="sv-head"><div class="sv-crumb"><span class="mode-badge">版面</span> ${U.esc(meta.group || '')}</div><h1 class="sv-title">${U.esc(meta.name)}</h1></header><div class="loading-box"><div class="spinner"></div><p>載入中…</p><div class="lb-bar"><div></div></div></div>`;
       this.load();
@@ -409,18 +475,22 @@
       try {
         const j = await D.loadSheet(this.id, (f) => { const b = this.root.querySelector('.lb-bar > div'); if (b) b.style.width = Math.round(f * 100) + '%'; });
         if (this.destroyed) return;
+        enhanceLinks(this.id, j);
         this.g = j;
+        if ((j.charts || []).length) CH.load(); // 先開始下載 Chart.js，與版面繪製並行
         this.render();
       } catch (e) {
         console.error(e);
-        this.root.querySelector('.loading-box').outerHTML = `<div class="error-box"><h2>無法載入資料</h2><p>${U.esc(e.message)}</p></div>`;
+        const lb = this.root.querySelector('.loading-box');
+        if (lb) lb.outerHTML = `<div class="error-box"><h2>無法載入資料</h2><p>${U.esc(e.message)}</p></div>`;
       }
     }
     render() {
       const g = this.g; const m = this.meta;
       this.destroyCharts();
-      this.updToc = null;
-      const secs = (g.sections || []).slice().sort((a, b) => a.r - b.r);
+      this.rtok++;
+      this.updToc = null; this.hint = null; this.chartBoxes = null; this.inlineBoxes = null;
+      const secs = (g.sections || []).map((s) => ({ r: Math.floor(U.num(s.r, 0)), label: s.label })).filter((s) => s.r >= 1).sort((a, b) => a.r - b.r);
       const notes = Array.isArray(g.notes) ? g.notes : (g.notes ? String(g.notes).split('｜') : []);
       const root = this.root;
       root.innerHTML = '';
@@ -457,14 +527,13 @@
       root.appendChild(bar);
       if (this.state.zoom == null) this.state.zoom = 'auto';
       sel.value = this.state.zoom;
-      sel.addEventListener('change', () => { this.state.zoom = sel.value; this.applyZoom(); });
+      sel.addEventListener('change', () => { this.state.zoom = sel.value; this.hintGone = false; this.applyZoom(); });
       const wrap = (this.wrap = U.h('div', { class: 'gv-wrap', tabindex: '0', role: 'region', 'aria-label': m.name + ' 版面' }));
       const inner = (this.inner = U.h('div', { class: 'gv-inner' }));
       wrap.appendChild(inner);
       root.appendChild(wrap);
       const narrow = (this.narrow = (root.clientWidth || window.innerWidth) < CHART_BREAK);
-      // 圖表需要的額外欄
-      const built = (this.built = buildGridTable(g, {}));
+      const built = (this.built = buildGridTable(g, { aliasLinks: ALIAS_LINKS.has(this.id) }));
       inner.appendChild(built.table);
       // 圖表寬度可能超過最後一欄
       let needW = built.totalW;
@@ -473,20 +542,34 @@
         const w = (ch.size_px && ch.size_px.w) || 480;
         needW = Math.max(needW, (built.left[a.c] || 0) + w + 4);
       }
-      inner.style.width = (narrow ? built.totalW : needW) + 'px';
-      this.needW = narrow ? built.totalW : needW;
+      this.fullW = needW; // 桌機版面（含圖表）寬：列印縮放用
+      if (narrow) {
+        this.placeChartsInline();
+        this.needW = built.totalW;
+        const fitW = this.reflowNarrow();
+        if (fitW) this.needW = fitW;
+      } else this.needW = needW;
+      inner.style.width = this.needW + 'px';
+      root.style.setProperty('--print-zoom', String(Math.min(1, PRINT_W / Math.max(1, narrow ? this.needW : needW))));
       this.applyZoom();
       this.applyFreeze();
-      if (narrow) this.placeChartsInline(); else this.placeChartsAbsolute();
+      if (!narrow) this.placeChartsAbsolute();
+      // 觸控裝置看不到 title 提示：點被截斷／很長的儲存格時以提示訊息顯示全文（M10）
+      wrap.addEventListener('click', (e) => {
+        if (!(U.isTouch() || U.isMobile()) || e.target.closest('a')) return;
+        const td = e.target.closest('td[title]'); if (td) U.toast(td.getAttribute('title'), 6000);
+      });
       // 目標列
       const r = this.route && this.route.params.get('r');
-      if (r) requestAnimationFrame(() => this.scrollToRow(Number(r), true));
+      if (r && /^\d+$/.test(r)) requestAnimationFrame(() => this.scrollToRow(Number(r), true));
       else if (this.state.scrollTop) { wrap.scrollTop = this.state.scrollTop; wrap.scrollLeft = this.state.scrollLeft || 0; }
       this.ro = new ResizeObserver(U.debounce(() => {
+        if (this.destroyed) return;
         if (this.updToc) this.updToc();
         const nn = (root.clientWidth || window.innerWidth) < CHART_BREAK;
-        if (nn !== this.narrow) { this.state.scrollTop = wrap.scrollTop; this.render(); return; }
-        if (this.state.zoom === 'fit' || this.state.zoom === 'auto') { this.applyZoom(); if (!nn) this.positionCharts(); }
+        const reflowMoved = nn && this.flowW && Math.abs(Math.max(260, (wrap.clientWidth || 360) - 4) - this.flowW) > 8;
+        if (nn !== this.narrow || reflowMoved) { this.state.scrollTop = wrap.scrollTop; this.render(); return; }
+        this.applyZoom();
         if (!nn) this.positionCharts();
         else this.sizeInlineCharts();
       }, 120));
@@ -513,6 +596,7 @@
       return out.filter((b) => b.header && b.first && b.last && b.last >= b.first);
     }
     openBlock(b) {
+      if (this.closeBlock) this.closeBlock();
       const g = this.g; const styles = g.styles || [];
       const rowMap = new Map((g.rows || []).map((r) => [r.r, r]));
       const cellAt = (r, c) => { const row = rowMap.get(r); return row ? (row.cells || []).find((x) => x.c === c) : null; };
@@ -522,7 +606,7 @@
         const h = cellAt(b.header, c); const sp = b.spec ? cellAt(b.spec, c) : null;
         let fmt = null;
         for (let r = b.first; r <= b.last && !fmt; r++) { const x = cellAt(r, c); if (x && x.f) fmt = x.f; }
-        cols.push({ label: h && h.v != null ? String(U.raw(h.v)) : '欄 ' + c, w: Math.max(50, Math.min(420, wOf(c))), fmt, note: sp && sp.v != null ? String(sp.v) : null });
+        cols.push({ label: h && h.v != null ? String(U.raw(h.v)) : '欄 ' + c, w: Math.max(50, Math.min(420, U.num(wOf(c), 64))), fmt, note: sp && sp.v != null ? String(sp.v) : null });
       }
       const rows = []; const cst = []; const bars = []; const stIdx = new Map(); const stList = [];
       const sidx = (str) => { if (!stIdx.has(str)) { stIdx.set(str, stList.length); stList.push(str); } return stIdx.get(str); };
@@ -550,40 +634,86 @@
       const close = U.h('button', { class: 'icon-btn modal-x', type: 'button', 'aria-label': '關閉表格檢視' }, '✕');
       const root = U.h('div', { class: 'view table-view' });
       panel.append(close, root); ov.appendChild(panel); document.body.appendChild(ov);
+      document.body.classList.add('modal-open');
       const tv = new AMS.TableView(root, { id, name: data.name, group: this.meta.name, _data: data }, null);
-      const done = () => { tv.destroy(); ov.remove(); document.removeEventListener('keydown', onKey, true); };
-      const onKey = (e) => { if (e.key === 'Escape' && !AMS.detail.isOpen()) { e.preventDefault(); done(); } };
-      close.addEventListener('click', done);
-      ov.addEventListener('pointerdown', (e) => { if (e.target === ov) done(); });
-      ov.addEventListener('click', (e) => { if (e.target.closest('a[href^="#/"]')) done(); });
+      let closed = false; let tok = null;
+      // 所有關閉途徑共用（✕、Esc、背景、modal 內站內連結、路由變更、瀏覽器返回、GridView 銷毀；ROB-3／M4）
+      const done = (fromHistory) => {
+        if (closed) return;
+        closed = true;
+        tv.destroy(); ov.remove();
+        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('hashchange', onHash);
+        if (!document.querySelector('.modal')) document.body.classList.remove('modal-open');
+        if (!fromHistory) AMS.overlay.done(tok);
+        if (this.closeBlock === doneOnce) this.closeBlock = null;
+      };
+      const doneOnce = () => done(false);
+      const onKey = (e) => { if (e.key === 'Escape' && !AMS.detail.isOpen()) { e.preventDefault(); done(false); } };
+      const onHash = () => done(false);
+      close.addEventListener('click', doneOnce);
+      ov.addEventListener('pointerdown', (e) => { if (e.target === ov) done(false); });
+      ov.addEventListener('click', (e) => { if (e.target.closest('a[href^="#/"]')) done(false); });
+      ov.addEventListener('ams-close', doneOnce);
       document.addEventListener('keydown', onKey, true);
+      window.addEventListener('hashchange', onHash);
+      this.closeBlock = doneOnce;
+      tok = AMS.overlay.open('modal', () => done(true)); // 手機：返回鍵關閉 modal，留在原工作表
       close.focus();
     }
     applyZoom() {
       if (!this.inner) return;
-      const fit = Math.min(1, Math.max(0.45, ((this.wrap.clientWidth || 800) - 4) / (this.needW || 1)));
+      const W = Math.max(1, (this.wrap.clientWidth || 800) - 4);
+      const fit = Math.min(1, W / (this.needW || 1));
+      const phone = W < 720;
       let z;
-      if (this.state.zoom === 'fit') z = fit;
-      else if (this.state.zoom === 'auto') z = fit >= 0.8 ? fit : 1; // 只差一點就放得下時才縮小，避免文字過小
+      if (this.state.zoom === 'fit') z = Math.max(fit, 0.2); // 真的放得下（總覽）；手機上 0.45 的下限反而放不下
+      else if (this.state.zoom === 'auto') z = fit >= (phone ? 0.62 : 0.8) ? fit : 1; // 只差一點就放得下時才縮小，避免文字過小
       else z = Number(this.state.zoom) || 1;
       this.zoom = z;
       this.inner.style.zoom = z === 1 ? '' : String(z);
+      // 窄版的內嵌圖表在縮放的版面裡：抵銷縮放，維持螢幕寬度與可讀的字（M5）
+      this.root.querySelectorAll('.gchart-stack').forEach((el) => { el.style.zoom = z === 1 ? '' : String(1 / z); });
+      this.updHint();
+    }
+    /** 觸控裝置的橫向捲動提示：版面比畫面寬時顯示「約 N 個畫面寬」，右緣淡出（M5） */
+    updHint() {
+      const wrap = this.wrap; if (!wrap) return;
+      const touch = U.isMobile() || U.isTouch();
+      if (!touch) { if (this.hint) this.hint.hidden = true; wrap.classList.remove('ovf-r'); return; }
+      if (!this.hint) {
+        this.hint = U.h('div', { class: 'gv-hint', 'aria-hidden': 'true', hidden: true });
+        wrap.after(this.hint);
+        this._updOvf = () => {
+          wrap.classList.toggle('ovf-r', wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 2);
+          if (wrap.scrollLeft > 24 && this.hint) { this.hint.classList.add('gone'); this.hintGone = true; }
+        };
+        wrap.addEventListener('scroll', this._updOvf, { passive: true });
+      }
+      const screens = wrap.scrollWidth / Math.max(1, wrap.clientWidth);
+      this.hint.hidden = screens < 1.05;
+      this.hint.classList.toggle('gone', !!this.hintGone);
+      this.hint.textContent = `↔ 版面約 ${screens.toFixed(1)} 個畫面寬，可左右滑動（或縮放選「符合寬度」看全貌）`;
+      this._updOvf();
     }
     applyFreeze() {
       const fr = this.g.freeze_rows || 0; const fc = this.g.freeze_cols || 0;
       if (!fr && !fc) return;
       const trs = this.built.trs;
+      const mobile = U.isMobile();
+      const cap = mobile ? Math.max(40, (this.wrap.clientHeight || 600) * 0.12) : Infinity; // 手機：凍結列最多占 12% 高度
       let top = 0;
       for (let r = 1; r <= fr; r++) {
         const tr = trs.get(r); if (!tr) continue;
+        if (mobile && tr.classList.contains('er')) continue; // 手機：空白列不凍結（14 第 2 列；M16）
         const h = tr.getBoundingClientRect().height;
+        if (top + h > cap) break;
         tr.classList.add('frz');
         Array.from(tr.cells).forEach((td) => { td.style.position = 'sticky'; td.style.top = top + 'px'; td.style.zIndex = 3; if (!td.style.backgroundColor) td.style.backgroundColor = 'var(--surface)'; });
         top += h;
       }
       this.freezeH = top;
       if (fc) {
-        const x = this.built.left[fc + 1];
         this.built.table.querySelectorAll('tr').forEach((tr) => {
           let c = 1;
           Array.from(tr.cells).forEach((td) => {
@@ -591,7 +721,6 @@
             c += td.colSpan || 1;
           });
         });
-        void x;
       }
     }
     chartRect(ch) {
@@ -607,7 +736,15 @@
         if (!w) w = toW; else if (toW > 120 && toW < w) w = toW; // 夾到錨點範圍，避免左右圖重疊
         if (!h) h = toH;
       }
-      return { left: left + (f.dx || 0), top: top + (f.dy || 0), w: w || 480, h: h || 300 };
+      return { left: left + U.num(f.dx, 0), top: top + U.num(f.dy, 0), w: U.num(w, 480) || 480, h: U.num(h, 300) || 300 };
+    }
+    /** Chart.js 載入後才建立圖表（LIVE-3）；render 重跑或離開時放棄 */
+    mountCharts(items) {
+      const tok = this.rtok;
+      CH.load().then(() => {
+        if (this.destroyed || tok !== this.rtok) return;
+        items.forEach(({ ch, box }) => { const c = CH.mount(box, ch, { width: box.clientWidth }); if (c) this.charts.push(c); });
+      });
     }
     placeChartsAbsolute() {
       const charts = this.g.charts || [];
@@ -620,7 +757,7 @@
         return { ch, box };
       });
       this.positionCharts();
-      this.chartBoxes.forEach(({ ch, box }) => { const c = CH.mount(box, ch, { width: box.clientWidth }); if (c) this.charts.push(c); });
+      this.mountCharts(this.chartBoxes);
     }
     positionCharts() {
       if (!this.chartBoxes) return;
@@ -632,7 +769,7 @@
     placeChartsInline() {
       const charts = (this.g.charts || []).slice();
       if (!charts.length) return;
-      const secs = (this.g.sections || []).map((s) => s.r).sort((a, b) => a - b);
+      const secs = (this.g.sections || []).map((s) => Math.floor(U.num(s.r, 0))).sort((a, b) => a - b);
       const b = this.built;
       // 各圖插在「錨點之後的下一個區段標題」之前（無則放最後）
       const groups = new Map();
@@ -663,25 +800,114 @@
         const before = key === 'end' ? null : b.trs.get(key);
         const tbody = b.table.tBodies[0];
         if (before) tbody.insertBefore(tr, before); else tbody.appendChild(tr);
+        // 圖表列前後緊鄰的空白列也收起來（01 在 C1 上方留下 80–150px 空白；M16）
+        for (let p = tr.previousElementSibling; p && p.classList.contains('er'); p = p.previousElementSibling) p.classList.add('er-chart');
+        for (let n = tr.nextElementSibling; n && n.classList.contains('er'); n = n.nextElementSibling) n.classList.add('er-chart');
         for (const ch of list) {
           const box = U.h('div', { class: 'gchart inline' });
           const w = (ch.size_px && ch.size_px.w) || 600; const h = (ch.size_px && ch.size_px.h) || 320;
-          box.style.aspectRatio = `${w} / ${h}`;
+          box.style.aspectRatio = `${U.num(w, 600)} / ${U.num(h, 320)}`;
           holder.appendChild(box);
           this.inlineBoxes.push({ ch, box });
         }
       });
       this.sizeInlineCharts();
-      this.inlineBoxes.forEach(({ ch, box }) => { const c = CH.mount(box, ch, { width: box.clientWidth }); if (c) this.charts.push(c); });
+      this.mountCharts(this.inlineBoxes);
     }
     sizeInlineCharts() {
       const w = Math.max(260, (this.wrap.clientWidth || 360) - 4);
       this.root.querySelectorAll('.gchart-stack').forEach((el) => { el.style.width = w + 'px'; });
     }
+    /**
+     * 手機（窄版）重排（M3）：
+     *  1) KPI 卡片帶（連續 ≥2 列、每列 ≥3 個等寬合併格、起始欄相同）→ 2 欄方塊；
+     *  2) 只有 1–3 格、其中一格是超出畫面的長文字的列 → 隨螢幕寬度換行的一行。
+     * 沿用各儲存格已算好的樣式（深色模式同樣適用）。原列隱藏並記住對應的重排列（區段跳轉用）。
+     * 回傳：若其餘可見列都在畫面寬度內 → 版面寬度（不再需要左右捲動）；否則 0。
+     */
+    reflowNarrow() {
+      const tiles = REFLOW_TILES.has(this.id); const text = REFLOW_TEXT.has(this.id);
+      if (!tiles && !text) return 0;
+      const b = this.built; const tbl = b.table; const tbody = tbl.tBodies[0];
+      const W = Math.max(260, (this.wrap.clientWidth || 360) - 4);
+      this.flowW = W;
+      const ncols = tbl.querySelector('colgroup').children.length;
+      const hasText = (td) => td.textContent.trim() !== '';
+      const filled = (td) => hasText(td) || !!td.style.backgroundColor;
+      const rows = Array.from(tbody.querySelectorAll('tr[data-r]')).filter((tr) => !tr.classList.contains('er-chart'));
+      const mkFlow = (before, inner) => {
+        const tr = document.createElement('tr'); tr.className = 'gx-flow';
+        const td = document.createElement('td'); td.colSpan = ncols;
+        const box = U.h('div', { class: 'gx-flow-box' }); box.style.width = W + 'px';
+        box.appendChild(inner); td.appendChild(box); tr.appendChild(td);
+        tbody.insertBefore(tr, before);
+        return tr;
+      };
+      const cellDiv = (td, extra) => {
+        const d = document.createElement('div');
+        d.style.cssText = td.style.cssText;
+        d.style.position = ''; d.style.left = ''; d.style.top = ''; d.style.zIndex = '';
+        d.className = 'gx-cell' + (extra ? ' ' + extra : '');
+        d.innerHTML = td.innerHTML;
+        return d;
+      };
+      if (tiles) {
+        const sig = (tr) => {
+          const tds = Array.from(tr.cells).filter(filled);
+          const blk = tds.filter((td) => td.colSpan >= 3);
+          if (blk.length < 3 || blk.length !== tds.length) return null;
+          const cs = blk[0].colSpan;
+          if (!blk.every((td) => td.colSpan === cs)) return null;
+          return blk.map((td) => td.dataset.c).join(',');
+        };
+        let i = 0;
+        while (i < rows.length) {
+          const s = sig(rows[i]);
+          if (!s) { i++; continue; }
+          let j = i; while (j + 1 < rows.length && sig(rows[j + 1]) === s) j++;
+          if (j > i) {
+            const band = rows.slice(i, j + 1);
+            const grid = U.h('div', { class: 'gx-tiles' });
+            s.split(',').forEach((c) => {
+              const card = U.h('div', { class: 'gx-tile' });
+              band.forEach((tr, k) => { const td = Array.from(tr.cells).find((x) => x.dataset.c === c); if (td) card.appendChild(cellDiv(td, 'k' + Math.min(k, 3))); });
+              grid.appendChild(card);
+            });
+            const ftr = mkFlow(band[0], grid);
+            band.forEach((tr) => { tr.classList.add('gx-hide'); tr._flow = ftr; });
+          }
+          i = j + 1;
+        }
+      }
+      if (text) {
+        rows.forEach((tr) => {
+          if (tr.classList.contains('gx-hide')) return;
+          const tds = Array.from(tr.cells).filter(hasText);
+          if (!tds.length || tds.length > 3) return;
+          const wide = tds.some((td) => td.offsetLeft + td.offsetWidth > W && td.textContent.trim().length > 12);
+          if (!wide) return;
+          const line = U.h('div', { class: 'gx-line' });
+          tds.forEach((td) => line.appendChild(cellDiv(td, td.offsetWidth > 160 ? 'grow' : 'fix')));
+          const ftr = mkFlow(tr, line);
+          tr.classList.add('gx-hide'); tr._flow = ftr;
+        });
+      }
+      // 其餘可見列是否都在畫面寬度內
+      let fits = true;
+      for (const tr of tbody.querySelectorAll('tr[data-r]')) {
+        if (tr.classList.contains('gx-hide') || tr.classList.contains('er-chart') || tr.classList.contains('er')) continue;
+        for (const td of tr.cells) { if (filled(td) && td.offsetLeft + td.offsetWidth > W + 2) { fits = false; break; } }
+        if (!fits) break;
+      }
+      return fits ? W : 0;
+    }
     scrollToRow(r, flash) {
       const b = this.built; if (!b) return;
       let tr = b.trs.get(r);
       if (!tr) { let best = null; b.trs.forEach((t, k) => { if (k >= r && (best == null || k < best)) best = k; }); if (best != null) tr = b.trs.get(best); }
+      if (tr && tr._flow) tr = tr._flow; // 已重排成方塊／換行的列
+      // 被收起（display:none）的列 offsetTop 為 0：改用其後第一個看得到的列
+      while (tr && !tr.offsetParent && tr.nextElementSibling) { tr = tr.nextElementSibling; if (tr._flow) tr = tr._flow; }
       if (!tr) return;
       this.wrap.scrollTop = Math.max(0, (tr.offsetTop - (this.freezeH || 0)) * (this.zoom || 1) - 8);
       if (flash) {
@@ -689,11 +915,12 @@
         void tr.offsetWidth; tr.classList.add('flash-row');
       }
     }
-    update(route) { this.route = route; const r = route.params.get('r'); if (r) this.scrollToRow(Number(r), true); }
+    update(route) { this.route = route; const r = route.params.get('r'); if (r && /^\d+$/.test(r)) this.scrollToRow(Number(r), true); }
     destroyCharts() { this.charts.forEach((c) => { try { c.destroy(); } catch (e) { /**/ } }); this.charts = []; if (this.ro) { this.ro.disconnect(); this.ro = null; } }
     onTheme() { if (this.g) { const st = this.wrap ? this.wrap.scrollTop : 0; this.render(); if (this.wrap) this.wrap.scrollTop = st; } }
     destroy() {
       this.destroyed = true;
+      if (this.closeBlock) this.closeBlock();
       if (this.wrap) { this.state.scrollTop = this.wrap.scrollTop; this.state.scrollLeft = this.wrap.scrollLeft; }
       this.destroyCharts();
     }
