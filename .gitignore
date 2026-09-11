@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.xlsx
+*.ams_merge
+tools/verify_report.json
+tools/verify_report.md
+.DS_Store
+Thumbs.db
