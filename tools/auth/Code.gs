@@ -4,7 +4,7 @@
  * 綁定的試算表：「物料管理系統 的副本」（或任何含 Users 分頁的試算表）
  *   Users 分頁：EMPLOYEE_ID、EMPLOYEE_NAME（以表頭名稱尋找，找不到才用 A/B 欄）
  *   AMS_Log 分頁：自動建立；7 欄 Timestamp | EmployeeID | EmployeeName | ActionType | Site | Page | UserAgent
- *     ActionType：LOGIN（登入成功）、LOGIN_FAIL（姓名或代號不符）、LOGIN_BLOCKED（10 分鐘內失敗過多，只記第一次）、
+ *     ActionType：LOGIN（登入成功）、LOGIN_FAIL（代號不在清單）、LOGIN_BLOCKED（10 分鐘內失敗過多，只記第一次）、
  *                 VISIT（沿用工作階段再次開站）、LOGOUT（登出；只記有效工作階段）
  *   Timestamp 依「試算表」的時區顯示：檔案 → 設定 → 時區 請設為 (GMT+08:00) 台北。
  *
@@ -32,13 +32,13 @@ function doPost(e) {
   var id = clip_(norm_(body.id), 20), name = clip_(norm_(body.name), 40);
   try {
     if (action === 'login') {
-      if (!id || !name) return json_({ ok: false, error: '請輸入姓名與員工代號。' });
+      if (!id) return json_({ ok: false, error: '請輸入員工代號。' });
       if (failCount_(id) >= MAX_FAILS_PER_10MIN) {
         if (failCount_(id) === MAX_FAILS_PER_10MIN) { log_(id, name, 'LOGIN_BLOCKED', site, page, ua); bumpFail_(id); }
         return json_({ ok: false, error: '嘗試次數過多，請 10 分鐘後再試。' });
       }
-      var u = findUser_(id, name);
-      if (!u) { bumpFail_(id); log_(id, name, 'LOGIN_FAIL', site, page, ua); return json_({ ok: false, error: '姓名或員工代號不符，請再試一次。' }); }
+      var u = findUserById_(id); // 只憑員工代號；姓名由 Users 分頁帶出
+      if (!u) { bumpFail_(id); log_(id, name, 'LOGIN_FAIL', site, page, ua); return json_({ ok: false, error: '員工代號不在使用者清單中，請再試一次。' }); }
       var exp = Date.now() + SESSION_HOURS * 3600 * 1000;
       var token = sign_(u.id, exp);
       log_(u.id, u.name, 'LOGIN', site, page, ua);

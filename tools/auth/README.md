@@ -1,14 +1,14 @@
-# 登入閘門（姓名＋員工代號）與登入紀錄
+# 登入閘門（員工代號）與登入紀錄
 
 網站是 GitHub Pages 靜態站，沒有伺服器可以驗證帳號，所以把「對照 Users 分頁、寫入紀錄」交給綁定在 Google 試算表上的
 Apps Script 網頁應用程式；前端（`docs/assets/auth.js`）在載入資料前先跟它確認。
 
 - 使用者清單：試算表「物料管理系統 的副本」的 **Users** 分頁（`EMPLOYEE_ID`、`EMPLOYEE_NAME`）。改清單只要改分頁，不用重新部署。
 - 登入紀錄：同一份試算表自動建立 **AMS_Log** 分頁：`Timestamp | EmployeeID | EmployeeName | ActionType | Site | Page | UserAgent`
-  - `LOGIN` 登入成功、`LOGIN_FAIL` 姓名或代號不符、`LOGIN_BLOCKED` 10 分鐘內失敗 ≥20 次、`VISIT` 沿用工作階段再次開站、`LOGOUT`
+  - `LOGIN` 登入成功、`LOGIN_FAIL` 代號不在清單、`LOGIN_BLOCKED` 10 分鐘內失敗 ≥20 次、`VISIT` 沿用工作階段再次開站、`LOGOUT`
   - Site 分「AMS 匯出檔解析（20260910）」與「AMS 資料庫解析（20260912）」；Page 是開站時的 #/… 路徑
 - 工作階段 12 小時（`SESSION_HOURS` 與 `docs/auth-config.json` 的 `sessionHours`）；token 是 HMAC 簽章，密鑰存在指令碼屬性。30 分鐘內驗證過的工作階段再開站不會重打端點（所以 VISIT 不會每次重新整理都記一筆）。
-- 比對規則：員工代號去空白、全形轉半形、去前導零；姓名去空白、不分大小寫（紀錄與畫面仍顯示試算表裡的原始姓名）。
+- 比對規則：只憑員工代號（去空白、全形轉半形、去前導零）；姓名由 Users 分頁帶出，顯示在右上角並寫入紀錄。
 - 端點故障（5xx／逾時／Apps Script 內部錯誤）時，已登入者沿用快取工作階段放行；未登入者看到「無法連線」可重試。`docs/auth-config.json` 若存在但格式錯誤，網站會鎖住並顯示錯誤（避免手滑把站台打開）。
 - 這是**軟性閘門**：資料檔本身仍是公開的靜態檔案，閘門只擋一般瀏覽並留下紀錄，不是資安防線。
 
@@ -28,6 +28,6 @@ Apps Script 網頁應用程式；前端（`docs/assets/auth.js`）在載入資�
 
 ```bash
 py tools/auth/mock_server.py 8766        # 同時提供 docs/ 靜態檔與 /mock-auth（使用者見 mock_users.csv，紀錄寫 mock_log.jsonl）
-# 開 http://127.0.0.1:8766/ 或 /db/ → 用 900001 / 測試甲 登入
+# 開 http://127.0.0.1:8766/ 或 /db/ → 輸入 900001 登入（測試甲）
 ```
 測試伺服器會把 `auth-config.json` 改指向 `/mock-auth`；`POST /mock-control {"down":true}` 可模擬端點故障、`{"slow":20}` 模擬逾時。
