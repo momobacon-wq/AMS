@@ -214,6 +214,8 @@
 
   /* ------------------------------------------------------------ 啟動 */
   async function boot() {
+    // 登入閘門（assets/auth.js；auth-config.json 的 endpoint 空白時直接通過）
+    if (window.AMSAuth && window.AMSAuth.ready) { try { await window.AMSAuth.ready(); } catch (e) { console.error('auth', e); } }
     U.$('#btn-menu').addEventListener('click', () => (document.body.classList.contains('drawer-open') ? closeDrawer() : openDrawer()));
     U.$('#scrim').addEventListener('click', closeDrawer);
     U.$('#btn-collapse').addEventListener('click', () => {
