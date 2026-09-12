@@ -10,3 +10,5 @@ Thumbs.db
 *.log
 *.sqlite
 tools/db/__pycache__/
+tools/auth/mock_log.jsonl
+tools/auth/mock_server.out

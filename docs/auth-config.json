@@ -1,0 +1,7 @@
+{
+  "endpoint": "",
+  "sessionHours": 12,
+  "title": "請先登入",
+  "subtitle": "輸入姓名與員工代號後才能瀏覽本站；登入時間會記錄在試算表的 AMS_Log 分頁。",
+  "footer": "帳號問題請找站台管理者"
+}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <!-- CSP：只允許本站的程式與資料（行內事件處理器、他站 script／fetch 一律不執行）；style 需 'unsafe-inline'（版面大量使用行內 style） -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AMS 資料庫解析（20260912）</title>
 <meta name="description" content="新複循環廠 AMS Device Manager 資料庫解析（20260912.ams_bckup 還原後的完整資料庫；20260912_AMS資料庫解析.xlsx 的網頁版）">
@@ -20,12 +20,14 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <!-- 版本戳記：tools/stamp_assets.py 依檔案內容寫入（build＝資料建置雜湊、app／chart＝程式雜湊） -->
-<meta name="ams-build" content="9024da6bd4" data-app="d0473c200a" data-chart="81ffafe13c">
+<meta name="ams-build" content="9024da6bd4" data-app="bfea14046d" data-chart="81ffafe13c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4E79'/%3E%3Ctext x='16' y='21' font-size='12' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'%3EAMS%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="../assets/icon-180.png">
 <link rel="preload" href="data/manifest.json?v=9024da6bd4" as="fetch" crossorigin>
 <script src="../assets/boot.js?v=bdf8c21c5f"></script>
-<link rel="stylesheet" href="../assets/app.css?v=cd35c1164c">
+<meta name="ams-auth-config" content="../auth-config.json" data-site="AMS 資料庫解析（20260912）">
+<script src="../assets/auth.js?v=6d5c6a08a0"></script>
+<link rel="stylesheet" href="../assets/app.css?v=f92991a753">
 </head>
 <body>
 <a class="skip-link" href="#main">跳到主要內容</a>
@@ -106,6 +108,6 @@
 <script src="../assets/table.js?v=4819ed12e4"></script>
 <script src="../assets/grid.js?v=dbc37e8bce"></script>
 <script src="../assets/card.js?v=aee09f005a"></script>
-<script src="../assets/app.js?v=c1fa558491"></script>
+<script src="../assets/app.js?v=4f11b3e828"></script>
 </body>
 </html>
