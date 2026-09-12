@@ -104,12 +104,12 @@ class H(SimpleHTTPRequestHandler):
         action = body.get('action'); uid = canon(body.get('id')); name = norm(body.get('name')).upper()
         site, page, ua = str(body.get('site', ''))[:60], str(body.get('page', ''))[:200], str(body.get('ua', ''))[:200]
         if action == 'login':
-            if not uid or not name:
-                return self._json({'ok': False, 'error': '請輸入姓名與員工代號。'})
+            if not uid:
+                return self._json({'ok': False, 'error': '請輸入員工代號。'})
             u = USERS.get(uid)
-            if not u or u['key'] != name:
+            if not u:
                 log({'id': uid, 'name': name, 'action': 'LOGIN_FAIL', 'site': site, 'page': page})
-                return self._json({'ok': False, 'error': '姓名或員工代號不符，請再試一次。'})
+                return self._json({'ok': False, 'error': '員工代號不在使用者清單中，請再試一次。'})
             exp = int(time.time() * 1000) + 12 * 3600 * 1000
             log({'id': uid, 'name': u['name'], 'action': 'LOGIN', 'site': site, 'page': page, 'ua': ua})
             return self._json({'ok': True, 'id': uid, 'name': u['name'], 'token': sign(uid, exp), 'exp': exp})

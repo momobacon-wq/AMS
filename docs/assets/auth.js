@@ -1,4 +1,4 @@
-/* AMS 解析網頁 — 登入閘門（姓名＋員工代號，對照 Google 試算表 Users 分頁；登入／造訪寫入 AMS_Log）
+/* AMS 解析網頁 — 登入閘門（員工代號，對照 Google 試算表 Users 分頁；登入／造訪寫入 AMS_Log）
  *
  * 運作：index.html 在 core.js 之前載入本檔；app.js 的 boot() 會先 await window.AMSAuth.ready()。
  *  1. 讀 auth-config.json（<meta name="ams-auth-config" content="路徑" data-site="站名">；預設 auth-config.json）
@@ -6,7 +6,7 @@
  *     endpoint 空白（或設定檔 404）＝ 閘門關閉，網站照舊（console 會提示）；設定檔存在但格式錯誤 ＝ 鎖住並顯示錯誤（fail closed）。
  *  2. localStorage 'ams.auth' 有未過期的工作階段 → 向 endpoint 送 resume（記一筆 VISIT；30 分鐘內驗證過就不再送）→ 通過。
  *     endpoint 連不上／逾時／回 5xx／回覆 transient 錯誤時，沿用快取的工作階段放行（軟性閘門）；伺服器明確回 ok:false 才重新登入。
- *  3. 否則顯示全螢幕登入表單：姓名＋員工代號 → endpoint login → 成功記 LOGIN 並存工作階段。
+ *  3. 否則顯示全螢幕登入表單：員工代號 → endpoint login → 成功記 LOGIN 並存工作階段（姓名由 Users 分頁帶出）。
  *  注意：這是「軟性」閘門——資料檔仍是公開的靜態檔案，閘門只擋一般瀏覽並留下登入紀錄，不是資安防線。
  *  端點以 text/plain 送 JSON（避免 CORS preflight，Apps Script 網頁應用程式的標準做法；302 到 script.googleusercontent.com 由 fetch 自動跟隨）。
  */
@@ -76,8 +76,7 @@
       overlay.setAttribute('aria-labelledby', 'auth-title');
       overlay.innerHTML = `
         <form class="auth-card" autocomplete="on" novalidate>
-          <div class="auth-brand"><span class="brand-mark" aria-hidden="true">AMS</span><div><h1 id="auth-title">${esc(A.config.title || '請先登入')}</h1><p class="auth-sub">${esc(A.config.subtitle || '輸入姓名與員工代號後才能瀏覽本站；登入時間會記錄在登入紀錄中。')}</p></div></div>
-          <label class="auth-field"><span>姓名</span><input id="auth-name" name="name" type="text" autocomplete="name" autocapitalize="off" spellcheck="false" required maxlength="40" placeholder="與人事資料相同的姓名"></label>
+          <div class="auth-brand"><span class="brand-mark" aria-hidden="true">AMS</span><div><h1 id="auth-title">${esc(A.config.title || '請先登入')}</h1><p class="auth-sub">${esc(A.config.subtitle || '輸入員工代號後才能瀏覽本站；登入時間會記錄在登入紀錄中。')}</p></div></div>
           <label class="auth-field"><span>員工代號</span><input id="auth-id" name="id" type="text" inputmode="numeric" autocomplete="username" autocapitalize="off" spellcheck="false" required maxlength="20" placeholder="員工代號（半形數字）"></label>
           <div id="auth-msg" class="auth-msg" role="status" aria-live="polite"></div>
           <button id="auth-submit" class="btn primary auth-btn" type="submit">登入</button>
@@ -93,8 +92,8 @@
     m.textContent = msg || '';
     m.className = 'auth-msg' + (msg ? ' bad' : '');
     if (fatal) { overlay.querySelector('#auth-submit').disabled = true; overlay.querySelectorAll('input').forEach((i) => { i.disabled = true; }); return; }
-    if (prefill) { overlay.querySelector('#auth-name').value = prefill.name || ''; overlay.querySelector('#auth-id').value = prefill.id || ''; }
-    setTimeout(() => { const f = overlay.querySelector(prefill && prefill.name ? '#auth-id' : '#auth-name'); if (f) f.focus(); }, 0);
+    if (prefill) overlay.querySelector('#auth-id').value = prefill.id || '';
+    setTimeout(() => { const f = overlay.querySelector('#auth-id'); if (f) f.focus(); }, 0);
   }
   function hideLogin() {
     if (overlay) { overlay.remove(); overlay = null; }
@@ -107,19 +106,18 @@
   async function onSubmit(e) {
     e.preventDefault();
     if (submitting) return;
-    const name = norm(overlay.querySelector('#auth-name').value);
     const id = norm(overlay.querySelector('#auth-id').value);
     const btn = overlay.querySelector('#auth-submit');
     const m = overlay.querySelector('#auth-msg');
-    if (!name || !id) { m.textContent = '請輸入姓名與員工代號。'; m.className = 'auth-msg bad'; return; }
+    if (!id) { m.textContent = '請輸入員工代號。'; m.className = 'auth-msg bad'; return; }
     submitting = true; btn.disabled = true; m.textContent = '驗證中…'; m.className = 'auth-msg';
     try {
-      const j = await call('login', { id, name });
+      const j = await call('login', { id });
       if (j.ok) {
-        const s = { id: String(j.id || id), name: String(j.name || name), token: String(j.token || ''), exp: Number(j.exp) || (Date.now() + (A.config.sessionHours || 12) * 3600e3), site: SITE, verified: Date.now() };
+        const s = { id: String(j.id || id), name: String(j.name || id), token: String(j.token || ''), exp: Number(j.exp) || (Date.now() + (A.config.sessionHours || 12) * 3600e3), site: SITE, verified: Date.now() };
         save(s); A.user = s; hideLogin(); renderChip(); if (resolveReady) resolveReady();
       } else {
-        m.textContent = j.error || '姓名或員工代號不符，請再試一次。'; m.className = 'auth-msg bad';
+        m.textContent = j.error || '員工代號不在使用者清單中，請再試一次。'; m.className = 'auth-msg bad';
       }
     } catch (err) {
       m.textContent = '無法連線到登入服務：' + (err && err.name === 'AbortError' ? '逾時' : (err && err.message) || err) + '。請確認網路後重試。';

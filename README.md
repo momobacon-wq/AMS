@@ -35,9 +35,9 @@ py tools/db/extract_db.py tools/db/sheets_final.pkl docs/db/data          # 寫 
 py tools/stamp_assets.py docs                                             # 前端程式有改時，主站也重新戳記
 ```
 
-## 登入閘門（姓名＋員工代號）與登入紀錄
+## 登入閘門（員工代號）與登入紀錄
 
-兩個網站共用 `docs/assets/auth.js`：開站先要求輸入姓名與員工代號，對照 Google 試算表的 **Users** 分頁，登入／造訪／登出都寫進同一份試算表的 **AMS_Log** 分頁。驗證與寫入由綁在試算表上的 Apps Script 網頁應用程式（`tools/auth/Code.gs`）處理；部署步驟與本機測試方式見 [tools/auth/README.md](tools/auth/README.md)。`docs/auth-config.json` 的 `endpoint` 留空時閘門關閉。
+兩個網站共用 `docs/assets/auth.js`：開站先要求輸入員工代號，對照 Google 試算表的 **Users** 分頁（姓名由分頁帶出），登入／造訪／登出都寫進同一份試算表的 **AMS_Log** 分頁。驗證與寫入由綁在試算表上的 Apps Script 網頁應用程式（`tools/auth/Code.gs`）處理；部署步驟與本機測試方式見 [tools/auth/README.md](tools/auth/README.md)。`docs/auth-config.json` 的 `endpoint` 留空時閘門關閉。
 
 ## 資料更新（20260910 匯出檔資料集）
 
