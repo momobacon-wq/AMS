@@ -1,5 +1,5 @@
 {
-  "endpoint": "",
+  "endpoint": "https://script.google.com/macros/s/AKfycbzFtMlGHVmW3bJrObp9QVuh2KIxB-h5p6jNWJxBQoASirGvZW1SsVNB1gCPPcIDeMaS/exec",
   "sessionHours": 12,
   "title": "請先登入",
   "subtitle": "輸入姓名與員工代號後才能瀏覽本站；登入時間會記錄在試算表的 AMS_Log 分頁。",
