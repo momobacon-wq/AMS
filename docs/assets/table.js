@@ -1119,7 +1119,7 @@
       }
       // 21／22：附上 20_參數字典 的對應條目（協定＋參數，100% 可對到）
       const proto = { 21: 'HART', 22: 'FF' }[this.id];
-      if (proto && D.meta('20') && this.ui.key_col != null) {
+      if (proto && D.meta('20') && /參數字典/.test(D.meta('20').name || '') && this.ui.key_col != null) {
         const key = U.text(row[this.ui.key_col]);
         const box = U.h('section', { class: 'dt-sec dt-dict' });
         box.innerHTML = '<h3 class="dt-band" style="background:#7F7F7F;color:#fff">20_參數字典</h3><p class="muted small" style="margin:6px 10px">載入參數字典…</p>';

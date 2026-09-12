@@ -6,3 +6,7 @@ tools/verify_report.json
 tools/verify_report.md
 .DS_Store
 Thumbs.db
+*.pkl
+*.log
+*.sqlite
+tools/db/__pycache__/

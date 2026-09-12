@@ -13,7 +13,29 @@
 - 工作簿內所有 `HYPERLINK`（約 5 萬個）都變成可點的連結，跳到目標表並標示目標列；深連結可分享（例：`#/s/03?q=GT11`、`#/card/G11HAD60BT001`）。
 - 條件式格式（嚴重度、信心、CMX 狀態、色階、資料橫條）已套用；淺色/深色主題；手機可用。
 
-## 資料更新
+## 第二個資料集：完整資料庫解析（20260912，`docs/db/`）
+
+**線上瀏覽：** https://momobacon-wq.github.io/AMS/db/
+
+`20260912.ams_bckup` 是 AMS 的 SQL Server 2014 原生備份（資料庫 AmsDb）。還原後逐表倒成 SQLite，經多代理解讀／對抗驗證／稽核，產出 `20260912_AMS資料庫解析.xlsx`（55 張表）與同內容的網站（同一套前端，資料放在 `docs/db/data/`）。比文字匯出多出：實體網路位置（MUX／通道／COM 埠／FF LD）、完整事件稽核（29,773 筆 vs 13,682）、警報定義、使用者權限、範本參數、SnapOn 檔案資訊、資料表與程式碼字典。
+
+- 02_設備查詢卡：輸入目前／舊位號、識別時位號、HostTag、裝置 ID、設備鍵、GUID 或別名（D0xxxx，與前一版相同）。
+- 各表都有「設備別名 (alias)」欄，可在兩個資料集之間互相對照。
+- 未收錄於網站（只在 Excel 明細活頁簿）：範本參數現值 306,891 列、全部警報定義 140,438 列。
+
+### 重建
+
+```bash
+# 1. 還原備份並倒出 SQLite（WSL Ubuntu 內，見 tools/db/install_mssql.sh、export_to_sqlite.py、fix_blobs.py）
+# 2. 產出 Excel（sheets_*.py 每個領域一個模組；sheets_cache.pkl 快取模組結果）
+py tools/db/make_order.py                      # 產生 order.json（工作表順序、摘要、來源說明）
+py tools/db/build_workbook.py tools/db/order.json 主簿.xlsx 明細.xlsx 120000   # 也寫出 sheets_final.pkl
+# 3. 網站資料（與 Excel 同一份後處理結果）
+py tools/db/extract_db.py tools/db/sheets_final.pkl docs/db/data          # 寫 manifest / sheets，並戳記 docs/db/index.html、version.json
+py tools/stamp_assets.py docs                                             # 前端程式有改時，主站也重新戳記
+```
+
+## 資料更新（20260910 匯出檔資料集）
 
 ```bash
 # 需要 Python 3 + openpyxl

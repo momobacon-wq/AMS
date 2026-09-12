@@ -5,27 +5,27 @@
 <!-- CSP：只允許本站的程式與資料（行內事件處理器、他站 script／fetch 一律不執行）；style 需 'unsafe-inline'（版面大量使用行內 style） -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>AMS 設備資產與組態變更解析</title>
-<meta name="description" content="新複循環廠 AMS Device Manager 匯出檔解析（20260910_AMS解析.xlsx 的網頁版）">
+<title>AMS 資料庫解析（20260912）</title>
+<meta name="description" content="新複循環廠 AMS Device Manager 資料庫解析（20260912.ams_bckup 還原後的完整資料庫；20260912_AMS資料庫解析.xlsx 的網頁版）">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#1F4E79" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171C23" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AMS 解析">
-<meta property="og:title" content="AMS 設備資產與組態變更解析">
-<meta property="og:description" content="新複循環廠 AMS Device Manager 匯出檔解析：設備總表、位號索引、組態變更歷程、待查核清單、CMX 對照與設備查詢卡。">
-<meta property="og:url" content="https://momobacon-wq.github.io/AMS/">
+<meta property="og:title" content="AMS 資料庫解析（20260912）">
+<meta property="og:description" content="新複循環廠 AMS Device Manager 完整資料庫解析：設備總表與實體位置、位號索引、參數現值與變更、事件稽核、警報定義、範本、使用者權限、資料表字典與設備查詢卡。">
+<meta property="og:url" content="https://momobacon-wq.github.io/AMS/db/">
 <meta property="og:image" content="https://momobacon-wq.github.io/AMS/assets/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <!-- 版本戳記：tools/stamp_assets.py 依檔案內容寫入（build＝資料建置雜湊、app／chart＝程式雜湊） -->
-<meta name="ams-build" content="dfe4a09251" data-app="d0473c200a" data-chart="81ffafe13c">
+<meta name="ams-build" content="9024da6bd4" data-app="d0473c200a" data-chart="81ffafe13c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4E79'/%3E%3Ctext x='16' y='21' font-size='12' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'%3EAMS%3C/text%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="assets/icon-180.png">
-<link rel="preload" href="data/manifest.json?v=dfe4a09251" as="fetch" crossorigin>
-<script src="assets/boot.js?v=bdf8c21c5f"></script>
-<link rel="stylesheet" href="assets/app.css?v=cd35c1164c">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<link rel="preload" href="data/manifest.json?v=9024da6bd4" as="fetch" crossorigin>
+<script src="../assets/boot.js?v=bdf8c21c5f"></script>
+<link rel="stylesheet" href="../assets/app.css?v=cd35c1164c">
 </head>
 <body>
 <a class="skip-link" href="#main">跳到主要內容</a>
@@ -41,14 +41,14 @@
   <a class="brand" href="#/s/00" title="回到 00_說明">
     <span class="brand-mark" aria-hidden="true">AMS</span>
     <span class="brand-text">
-      <span id="wb-title" class="brand-title">AMS 解析</span>
+      <span id="wb-title" class="brand-title">AMS 資料庫解析</span>
       <span id="wb-subtitle" class="brand-sub"></span>
     </span>
   </a>
   <div class="header-search" role="search">
     <svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="global-search" type="search" autocomplete="off" spellcheck="false"
-      placeholder="位號／舊位號／HART tag／alias…" aria-label="全域位號搜尋（開啟設備查詢卡）">
+      placeholder="位號／舊位號／HostTag／裝置ID／alias…" aria-label="全域位號搜尋（開啟設備查詢卡）">
   </div>
   <button id="btn-legend" class="icon-btn" type="button" aria-label="圖例（各狀態色的意義）" title="圖例（各狀態色的意義）" aria-haspopup="dialog" aria-expanded="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.2"/><rect x="3.5" y="14" width="6" height="6" rx="1.2"/><path d="M13 7h7.5M13 17h7.5"/></svg>
@@ -102,10 +102,10 @@
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <!-- Chart.js 只在有圖表的工作表（01、16）由 grid.js 動態載入 -->
-<script src="assets/core.js?v=b355864312"></script>
-<script src="assets/table.js?v=4819ed12e4"></script>
-<script src="assets/grid.js?v=dbc37e8bce"></script>
-<script src="assets/card.js?v=aee09f005a"></script>
-<script src="assets/app.js?v=c1fa558491"></script>
+<script src="../assets/core.js?v=b355864312"></script>
+<script src="../assets/table.js?v=4819ed12e4"></script>
+<script src="../assets/grid.js?v=dbc37e8bce"></script>
+<script src="../assets/card.js?v=aee09f005a"></script>
+<script src="../assets/app.js?v=c1fa558491"></script>
 </body>
 </html>
