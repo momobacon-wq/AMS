@@ -128,6 +128,8 @@
       }));
     }
     go(q) {
+      q = String(q == null ? '' : q).trim();
+      if (!q) { this.run(''); return; }
       const h = '#/card/' + encodeURIComponent(q);
       if (location.hash === h) this.run(q); else AMS.router.go(h);
     }
@@ -186,7 +188,9 @@
       const body = root.querySelector('.cq-body');
       body.innerHTML = '';
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
+      if (res.empty) { document.title = '設備查詢卡 · AMS'; return; }
       body.appendChild(this.renderSections(row, res));
+      if (this.spec.stats && this.spec.stats.sheet) body.appendChild(this.renderStats(row, res));
       body.appendChild(this.renderLinks(row, res));
       body.appendChild(this.renderRecent(row, res));
       body.appendChild(this.renderParams(row, res));
@@ -286,6 +290,38 @@
       return wrap;
     }
 
+    /* ---------- 另一張表的關鍵值（spec.stats：{sheet, alias_col, fields:[{label,col,fmt?}]}，依設備別名對到該表的一列） ---------- */
+    renderStats(row, res) {
+      const st = this.spec.stats;
+      const s = U.h('section', { class: 'csec stats' });
+      s.appendChild(U.h('h2', { class: 'csec-h' }, st.title || `關鍵組態現值（${D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet}）`));
+      const grid = U.h('div', { class: 'cfields' });
+      s.appendChild(grid);
+      if (!row || !res.alias) { grid.innerHTML = '<p class="muted cl-empty">（無對應設備）</p>'; return s; }
+      grid.innerHTML = '<p class="muted cl-empty">載入中…</p>';
+      const alias = res.alias;
+      D.loadSheet(st.sheet).then((j) => {
+        if (this.destroyed || this.res.alias !== alias) return;
+        const ac = st.alias_col != null ? st.alias_col : (j.columns || []).findIndex((c) => /設備別名|alias/i.test(c.label));
+        const i = j.rows.findIndex((r) => U.text(r[ac]) === alias);
+        if (i < 0) { grid.innerHTML = `<p class="muted cl-empty">此設備在 ${U.esc(D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet)} 無資料（沒有參數紀錄）。</p>`; return; }
+        const r = j.rows[i];
+        grid.innerHTML = '';
+        for (const f of st.fields || []) {
+          const raw = U.raw(r[f.col]);
+          const col = (j.columns || [])[f.col] || {};
+          const val = raw == null || raw === '' ? '' : (typeof raw === 'number' ? (f.fmt ? U.fmt(raw, f.fmt) : U.general(raw)) : (f.fmt ? U.fmt(raw, f.fmt) : String(raw)));
+          const item = U.h('div', { class: 'cf' + (f.span === 2 ? ' span2' : '') });
+          item.innerHTML = `<div class="cf-k" title="${U.esc(col.label || '')}">${U.esc(f.label)}</div><div class="cf-v${val === '' ? ' blank' : ''}${typeof raw === 'number' ? ' num' : ''}">${U.esc(U.visible(val, true))}</div>`;
+          grid.appendChild(item);
+        }
+        const more = U.h('p', { class: 'muted small' });
+        more.innerHTML = `<a class="lk" href="${sheetHref(st.sheet, { r: i })}">在 ${U.esc(D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet)} 開啟此設備的完整一列 ›</a>`;
+        s.appendChild(more);
+      }).catch((e) => { grid.innerHTML = `<p class="muted">無法載入：${U.esc(e.message)}</p>`; });
+      return s;
+    }
+
     /* ---------- 快速連結 ---------- */
     renderLinks(row, res) {
       const s = U.h('section', { class: 'csec links' });
@@ -369,7 +405,7 @@
       const body = U.h('div', { class: 'recent-body' });
       s.appendChild(body);
       if (!row || !res.alias) { body.innerHTML = '<p class="muted">（無）</p>'; return s; }
-      body.innerHTML = '<p class="muted">載入 08_變更歷程…</p>';
+      body.innerHTML = `<p class="muted">載入 ${U.esc(D.meta(rc.sheet) ? D.meta(rc.sheet).name : rc.sheet)}…</p>`;
       const alias = res.alias;
       D.loadSheet(rc.sheet).then((j) => {
         if (this.destroyed || this.res.alias !== alias) return;
@@ -389,7 +425,9 @@
         const list = this.recentIdx.m.get(alias) || [];
         const kmax = rc.k_max || 10;
         const take = list.filter((x) => x[0] >= 1 && x[0] <= kmax);
-        if (!take.length) { body.innerHTML = '<p class="muted">（此設備沒有有意義變更）</p>'; return; }
+        const noun = rc.noun || '有意義變更';
+        const sheetLabel = D.meta(rc.sheet) ? D.meta(rc.sheet).name : rc.sheet;
+        if (!take.length) { body.innerHTML = `<p class="muted">（此設備沒有${U.esc(noun)}）</p>`; return; }
         const cols = rc.columns || DEFAULT.recent_changes.columns;
         const cellText = (r, c) => {
           if (c.cols) return c.cols.map((k) => { const v = U.raw(r[k]); return v == null ? '' : String(v); }).join(c.join != null ? c.join : ' ');
@@ -403,17 +441,20 @@
           html += `<tr><td class="ac"><a class="lk" href="${sheetHref(rc.sheet, { r: i })}" title="在 08 開啟此列">${U.esc(k)}</a></td>${cols.map((c, ci) => `<td${ci === 0 ? ' class="nowrap"' : ''}>${U.esc(U.visible(cellText(r, c), true))}</td>`).join('')}</tr>`;
         }
         html += '</tbody></table></div>';
-        const more = list.length > kmax ? `共 ${U.int(list.length)} 筆有意義變更，顯示最新 ${kmax} 筆。` : `共 ${U.int(list.length)} 筆有意義變更。`;
-        const ac = this.findAliasCol(j);
+        const more = list.length > kmax ? `共 ${U.int(list.length)} 筆${U.esc(noun)}，顯示最新 ${kmax} 筆。` : `共 ${U.int(list.length)} 筆${U.esc(noun)}。`;
+        const ac = this.findAliasCol(j, rc);
         const fl = ac != null ? sheetHref(rc.sheet, { f: { [ac]: '=' + alias } }) : U.esc('#/s/' + encodeURIComponent(rc.sheet) + '?q=' + encodeURIComponent(alias + '#'));
-        html += `<p class="muted small">${more} <a class="lk" href="${fl}">在 08 查看此設備全部變更 ›</a></p>`;
+        html += `<p class="muted small">${more} <a class="lk" href="${fl}">在 ${U.esc(sheetLabel)} 查看此設備全部${U.esc(noun)} ›</a></p>`;
         body.innerHTML = html;
-      }).catch((e) => { body.innerHTML = `<p class="muted">無法載入 08：${U.esc(e.message)}</p>`; });
+      }).catch((e) => { body.innerHTML = `<p class="muted">無法載入 ${U.esc(D.meta(rc.sheet) ? D.meta(rc.sheet).name : rc.sheet)}：${U.esc(e.message)}</p>`; });
       return s;
     }
-    findAliasCol(j) {
-      const lk = (this.spec.links || []).find((x) => x.sheet === '08');
+    findAliasCol(j, rc) {
+      if (rc && rc.alias_col != null) return rc.alias_col;
+      const sid = (rc && rc.sheet) || '08';
+      const lk = (this.spec.links || []).find((x) => x.sheet === sid && !x.self && !x.param);
       if (lk && lk.match_col != null) return lk.match_col;
+      if (j.ui && j.ui.alias_col != null) return j.ui.alias_col;
       const i = (j.columns || []).findIndex((c) => /設備別名/.test(c.label));
       return i >= 0 ? i : null;
     }
@@ -460,7 +501,7 @@
         let show = cols.map((c, i) => i).filter((i) => i > 1 && !(cols[i].hidden));
         if (U.isMobile()) {
           // 手機：參數與現值排在最前面、去掉每列都相同的「型號」（已在 1. 識別顯示），否則要橫捲 750px 才看得到值（M9）
-          const pri = ['參數', 'FF 標準名稱', '參數(item:member)', '現值', '解碼值', '中文名稱', '最後記錄(台灣)'];
+          const pri = ['參數', 'FF 標準名稱', '參數(item:member)', '參數 (ParamName 基底 / item:member)', '現值', '解碼值', '解碼值(碼表)', '中文名稱', '參數中文名稱', '最後記錄(台灣)', '最後記錄時間(台灣)'];
           const rank = (i) => { const k = pri.indexOf(cols[i].label); return k < 0 ? pri.length + i : k; };
           show = show.filter((i) => cols[i].label !== '型號').sort((a, b) => rank(a) - rank(b));
         }

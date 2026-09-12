@@ -1,0 +1,875 @@
+{
+ "title": "新複循環廠 AMS Device Manager 資料庫解析",
+ "default_query": "G12HAP70BT001",
+ "sheets": [
+  {
+   "number": "03",
+   "module_key": "devices",
+   "sheet_name": "設備總表"
+  },
+  {
+   "number": "04",
+   "module_key": "index",
+   "sheet_name": "位號索引"
+  },
+  {
+   "number": "05",
+   "module_key": "devices",
+   "sheet_name": "設備領域摘要"
+  },
+  {
+   "number": "06",
+   "module_key": "devices",
+   "sheet_name": "MUX多工器清單"
+  },
+  {
+   "number": "07",
+   "module_key": "devices",
+   "sheet_name": "網路清單"
+  },
+  {
+   "number": "08",
+   "module_key": "devices",
+   "sheet_name": "FF區塊清單"
+  },
+  {
+   "number": "09",
+   "module_key": "devices",
+   "sheet_name": "位號指派歷程"
+  },
+  {
+   "number": "10",
+   "module_key": "devices",
+   "sheet_name": "非現行位號池"
+  },
+  {
+   "number": "11",
+   "module_key": "templates",
+   "sheet_name": "位號主檔"
+  },
+  {
+   "number": "12",
+   "module_key": "misc",
+   "sheet_name": "位號跨表對照"
+  },
+  {
+   "number": "13",
+   "module_key": "params",
+   "sheet_name": "設備參數統計"
+  },
+  {
+   "number": "14",
+   "module_key": "params",
+   "sheet_name": "參數變更歷程"
+  },
+  {
+   "number": "15",
+   "module_key": "params",
+   "sheet_name": "參數現值"
+  },
+  {
+   "number": "16",
+   "module_key": "params",
+   "sheet_name": "參數字典"
+  },
+  {
+   "number": "17",
+   "module_key": "params",
+   "sheet_name": "參數解碼摘要"
+  },
+  {
+   "number": "18",
+   "module_key": "events",
+   "sheet_name": "事件稽核摘要"
+  },
+  {
+   "number": "19",
+   "module_key": "events",
+   "sheet_name": "事件總帳"
+  },
+  {
+   "number": "20",
+   "module_key": "events",
+   "sheet_name": "類別×年月統計"
+  },
+  {
+   "number": "21",
+   "module_key": "events",
+   "sheet_name": "刪除裝置事件"
+  },
+  {
+   "number": "22",
+   "module_key": "events",
+   "sheet_name": "同步失敗統計"
+  },
+  {
+   "number": "23",
+   "module_key": "events",
+   "sheet_name": "裝置掃描作業"
+  },
+  {
+   "number": "24",
+   "module_key": "events",
+   "sheet_name": "資料庫維護與系統事件"
+  },
+  {
+   "number": "25",
+   "module_key": "events",
+   "sheet_name": "登入登出統計"
+  },
+  {
+   "number": "26",
+   "module_key": "events",
+   "sheet_name": "使用者帳號變更"
+  },
+  {
+   "number": "27",
+   "module_key": "events",
+   "sheet_name": "使用者清單"
+  },
+  {
+   "number": "28",
+   "module_key": "events",
+   "sheet_name": "電腦清單"
+  },
+  {
+   "number": "29",
+   "module_key": "alerts",
+   "sheet_name": "使用中機型警報定義"
+  },
+  {
+   "number": "30",
+   "module_key": "alerts",
+   "sheet_name": "機型警報數量彙總"
+  },
+  {
+   "number": "31",
+   "module_key": "alerts",
+   "sheet_name": "全部警報定義"
+  },
+  {
+   "number": "32",
+   "module_key": "alerts",
+   "sheet_name": "系統設定與警報監視狀態"
+  },
+  {
+   "number": "33",
+   "module_key": "templates",
+   "sheet_name": "範本域總覽"
+  },
+  {
+   "number": "34",
+   "module_key": "templates",
+   "sheet_name": "範本清單"
+  },
+  {
+   "number": "35",
+   "module_key": "templates",
+   "sheet_name": "範本參數現值"
+  },
+  {
+   "number": "36",
+   "module_key": "templates",
+   "sheet_name": "SnapOn裝置檔案資訊"
+  },
+  {
+   "number": "37",
+   "module_key": "templates",
+   "sheet_name": "測試定義"
+  },
+  {
+   "number": "38",
+   "module_key": "templates",
+   "sheet_name": "測試定義測試點"
+  },
+  {
+   "number": "39",
+   "module_key": "templates",
+   "sheet_name": "測試定義指派"
+  },
+  {
+   "number": "40",
+   "module_key": "templates",
+   "sheet_name": "裝置版次擴充屬性"
+  },
+  {
+   "number": "41",
+   "module_key": "security",
+   "sheet_name": "使用者與安全主體"
+  },
+  {
+   "number": "42",
+   "module_key": "security",
+   "sheet_name": "權限矩陣_依權限群組"
+  },
+  {
+   "number": "43",
+   "module_key": "security",
+   "sheet_name": "權限矩陣_逐權限"
+  },
+  {
+   "number": "44",
+   "module_key": "security",
+   "sheet_name": "權限授予明細"
+  },
+  {
+   "number": "45",
+   "module_key": "security",
+   "sheet_name": "權限定義字典"
+  },
+  {
+   "number": "46",
+   "module_key": "security",
+   "sheet_name": "廠區階層與授權範圍"
+  },
+  {
+   "number": "47",
+   "module_key": "security",
+   "sheet_name": "使用者電腦活動統計"
+  },
+  {
+   "number": "48",
+   "module_key": "security",
+   "sheet_name": "系統資訊"
+  },
+  {
+   "number": "49",
+   "module_key": "security",
+   "sheet_name": "資料庫結構版本歷程"
+  },
+  {
+   "number": "50",
+   "module_key": "devices",
+   "sheet_name": "DD型號庫"
+  },
+  {
+   "number": "51",
+   "module_key": "modules",
+   "sheet_name": "代碼對照表"
+  },
+  {
+   "number": "52",
+   "module_key": "modules",
+   "sheet_name": "關鍵語意規則"
+  },
+  {
+   "number": "53",
+   "module_key": "modules",
+   "sheet_name": "資料表字典"
+  },
+  {
+   "number": "54",
+   "module_key": "modules",
+   "sheet_name": "欄位字典"
+  },
+  {
+   "number": "55",
+   "module_key": "modules",
+   "sheet_name": "視圖與程序"
+  },
+  {
+   "number": "56",
+   "module_key": "misc",
+   "sheet_name": "跨域對帳與殘留資料"
+  }
+ ],
+ "skip_sheets": [
+  [
+   "events",
+   "事件類別碼表"
+  ],
+  [
+   "security",
+   "資料表清單與領域"
+  ],
+  [
+   "alerts",
+   "網路通訊與輪詢設定"
+  ],
+  [
+   "security",
+   "登入與帳號異動事件"
+  ],
+  [
+   "alerts",
+   "警報類別代碼"
+  ]
+ ],
+ "header_renames": [
+  [
+   "設備序號 \\(Identifier\\)",
+   "裝置ID (Identifier)"
+  ],
+  [
+   "裝置序號/識別 \\(Identifier\\)",
+   "裝置ID (Identifier)"
+  ]
+ ],
+ "sources": [
+  [
+   "原始檔",
+   "20260912.ams_bckup（365.6 MB；Microsoft SQL Server 2014 原生備份，MTF 格式）"
+  ],
+  [
+   "資料庫",
+   "AmsDb（AMS Device Manager V14.1.1；資料庫結構版本 5.1；伺服器 AMS1SVR\\EMERSON2014；定序 SQL_Latin1_General_CP1_CI_AS）"
+  ],
+  [
+   "還原方式",
+   "WSL Ubuntu 24.04 內安裝 SQL Server 2025 Express → RESTORE DATABASE（相容層級 120）→ pyodbc 逐表倒出成 SQLite（105 表、1,170,089 列）→ Python/openpyxl 產生本簿"
+  ],
+  [
+   "備份時間",
+   "檔案時間 2026-09-12 09:29；EventLog 最後一筆事件為判定基準（見 16_事件稽核摘要）"
+  ],
+  [
+   "與前簿關係",
+   "20260910_AMS解析.xlsx 來自 .ams_merge 文字匯出（13,682 事件、1,928 台）；本簿來自完整資料庫（29,773 事件），涵蓋前簿沒有的：實體網路位置（MUX/通道/COM 埠/FF LD）、登入/帳號/刪除/掃描/同步事件、警報定義、權限、範本參數、SnapOn 檔案資訊、資料表與程式碼字典"
+  ],
+  [
+   "大表拆分",
+   "列數 ≥ 120,000 的三張表（參數現值 344,943、範本參數現值 306,891、全部警報定義 140,438）放在明細活頁簿 20260912_AMS資料庫解析_明細.xlsx，主簿留存說明頁"
+  ],
+  [
+   "產生器",
+   "scratchpad/build/sheets_*.py（8 個領域模組）＋ build_workbook.py；每張表的產表模組名稱見目錄「來源表」與註記"
+  ],
+  [
+   "解析方法",
+   "ultracode 多代理：7 個領域代理解讀 → 7 個對抗驗證代理逐表反駁並修正 → 完備性稽核代理檢查涵蓋率/矛盾/CSV 缺陷（未涵蓋的 NetworkHierarchies 1 列已補入跨域對帳表）"
+  ]
+ ],
+ "reading_notes": [
+  "時間：資料庫事件時間為 UTC；欄名帶「(台灣)」者已加 8 小時。裝置內部儲存的日期（HART date、FF 日期）時區不明，範本/參數表的「值(日期)」欄一併加了 8 小時，判讀時請留意。",
+  "哨兵值：資料庫用 -1/-2 鍵、EventIdDay 25569（1970-01-01）與 49710（2036-02-07，代表「尚未結束」）、OLE 0（1899-12-30）、1900-01-01、0001-01-01 表示「無/未設定/現行」。本簿把這些日期一律留白，鍵值保留原值並在註記說明。",
+  "位號：「現行 AMS 位號」= ExtBlockTags 經 BlockAsgms 之現行指派（EventIdDayOut=49710），每台恰一筆；「識別時位號 (Devices.AmsDeviceTag)」是 AMS 識別當下讀到的 HART 短位號，常含殘碼或空白。設備領域各表用清理後位號，其他表用原值；10 台兩者不同，對照見「位號跨表對照」。",
+  "Devices.Identifier 是 HART Device ID（= HostPath 中的裝置 UID 末 6 hex），不是銘牌序號；本簿一律稱「裝置ID」。",
+  "參數值解碼：ParamDataType 4 = int32、6 = float32、8 = OLE 日期 double、12 = UTF-16LE 字串、9 = 位元組、3 = 窄字串（本庫只有 FF 裝置的十六進位容器使用，Archived=1）。FF 參數容器內的型別字母 D/E/G/I 等由樣本推得。已與前簿 21/22 參數現值逐值核對（見 15_參數解碼摘要）。",
+  "ComputerId 為 IPv4 以有號 32 位元整數儲存，已解成點分格式；2130706433 = 127.0.0.1（伺服器本機）。",
+  "本廠 AMS 只作組態/稽核用：Alert Monitor 服務旗標為 1 但無任何裝置在監視名單，AlertList/AlertLog/DeviceMonitorList/TestResults/Routes 等 0 列；Disposition 全為 Spare；CalStatus 全 0（校正資料以 Beamex CMX 為準）。",
+  "中文欄名後括號為原始欄名或來源表.欄；「推定」「(低信心)」字樣代表推論，非資料庫明示。各表註記見本頁第 5 節。",
+  "查詢：02_設備查詢卡 在 C3 輸入任何位號字串即顯示該設備（公式查表，來源 04_位號索引）；各表都有「設備別名 (alias)」欄可互相篩選，D0xxxx 別名與前簿相同。",
+  "前簿（20260910_AMS解析.xlsx）交叉核對：設備 GUID 對上 1,928/1,928；參數現值總數 344,943 = 前簿 204,562 HART + 140,381 FF；事件由 13,682 擴充為 29,773。"
+ ],
+ "kpis": [
+  [
+   "設備數",
+   "1,928 台（HART 1,577＝現場儀表 1,324 + GE Mark VIe HART I/O 模組(MUX) 253；FF 351）；網路 18 個 MUX 網路 + 1 個 FF HSE 網路（22 個 FF 連結裝置）"
+  ],
+  [
+   "事件",
+   "29,773 筆（1996–2026；2024-11 起本廠 22,063 筆）；前簿匯出只含 13,682 筆"
+  ],
+  [
+   "參數",
+   "現值 344,943 筆、變更歷程 6,179 筆、參數名 9,258 個"
+  ],
+  [
+   "識別狀態",
+   "IdentStatus=0（上次掃描未再識別）34 台；同一 MUX 通道雙設備 3 組"
+  ],
+  [
+   "刪除裝置事件",
+   "345 筆 / 177 台（168 台 FF 於 2025-03-31 與 04-09 各被刪一次），對應 Assets 345 筆孤立資產"
+  ],
+  [
+   "帳號",
+   "Windows 使用者 7、AMS 標準使用者 4；6 人擁有全部 46 項權限；共用帳號 HMI\\GEAdmin 佔 8,133 筆事件"
+  ],
+  [
+   "警報定義",
+   "140,438 筆 DD 警報定義（使用中機型 2,877 筆），無任何警報歷史"
+  ],
+  [
+   "範本",
+   "2,712 個 NamedConfigs（前簿 2,178 個範本）、範本參數 306,891 筆"
+  ]
+ ],
+ "top_findings": [
+  {
+   "severity": "高",
+   "text": "3 組『同一 MUX 通道掛兩台設備』= 現場已更換發射器但 AMS 位號未移轉：舊紀錄 IdentStatus=0 仍持有 KKS 位號，新設備 IdentStatus=1 只掛 HART 短位號；應在 AMS 把 KKS 位號改名到新設備並退役舊紀錄，否則歷史與參數斷鏈。",
+   "evidence": "H12_LU004 MUX10 ch10：G12HAP61BT002 (DeviceKey 309, ident=0, TMT82 裝置ID 12323370) vs 82_S807B80426C (1920, ident=1, 裝置ID 12322744, 2025-12-15 識別)；H12_LU004 MUX2 ch5：G12HBK11BP007 (239) vs 11BP007 (1918)；BOPM1A_LU006 MUX2 ch4：C10LAC50BL001 (1059, 3051) vs '50 BL001' (1899)",
+   "sheet": "03_設備總表 / 06_MUX多工器清單"
+  },
+  {
+   "severity": "高",
+   "text": "34 台設備 IdentStatus=0 (上次掃描未在原路徑再識別到)：21 台 FF (全在 FF Block 1，G11/G12 各約半，如 G12_96PG-2B、G11_96PH-W7A、G12_96AP-2)、12 台 HART、1 台 MUX 本體 (JK661YW-1C5B @ WSC1_CA016 MUX12)；其中 13 台 FF 從未有任何 BlockData 參數紀錄。建議逐台核對是拆除、斷線、更換或 LD/Link 重排。",
+   "evidence": "DeviceLocation IdentStatus=0 共 34：FF Block 1=21、H11_LU001=3、H11_LU002=3、H12_LU004=3、其餘 4 網路各 1；params：13 台 G11/G12_96 FF (12×3051 FF + 1×848) 無 BlockData",
+   "sheet": "03_設備總表 / 12_位號跨表對照"
+  },
+  {
+   "severity": "高",
+   "text": "2026-09-10 .ams_merge 文字匯出 (前簿 10_事件總帳) 只含 13,682 筆，DB 實有 29,773 筆，遺漏 16,091 筆：完全遺漏裝置同步 43/44/45 (4,673)、刪除裝置 52 (345)、帳號變更 58 (215)、AMS 啟停 51 (170)、掃描完成 69 (172)、重建階層 71 (53)，幾乎遺漏登入 46 (233→3)、由檔案合併 14 (8,542→146)。以前簿做稽核會漏掉全部同步失敗與刪除紀錄。",
+   "evidence": "事件稽核摘要 逐類別對帳；Category 28 Field change 6,001/6,001 兩者一致；前簿 Category 計數 {-1:3,0:3,1:5901,14:146,16:1,28:6001,46:3,49:1622,68:1,70:1}",
+   "sheet": "18_事件稽核摘要"
+  },
+  {
+   "severity": "高",
+   "text": "345 筆刪除裝置事件涉及 177 台 (168 台 FF 在 2025-03-31 與 2025-04-09 各被刪一次，皆 HMI\\GEAdmin @172.16.101.17)；169 台同序號已重新建檔 (DeviceKey 已變)，8 台已不在。AmsSp_DeleteDevice_1 實體刪除該裝置事件與參數歷史，這 177 台 2025-03-31 前的組態/同步歷史已不可考；Assets 表因此殘留 345 筆孤立 GUID (與刪除事件數完全相等，devices 域的未解問題已對帳)。",
+   "evidence": "EventLog Category 52 by day：2025-03-31×168、2025-04-09×168、2025-05-07×7、2026-04-29×1、2026-05-05×1；Assets 2,273 − DeviceAssets 1,928 = 345；_modules 中僅虛擬裝置刪除程序會 DELETE Assets",
+   "sheet": "21_刪除裝置事件 / 56_跨域對帳與殘留資料"
+  },
+  {
+   "severity": "高",
+   "text": "量程 (URV/LRV) 現場變更 48 次、涉及 27 台變送器，全部由 PS.AMS1SVR 掃描記錄為 Field change：C10MAG10/11/20/21BL001-003 (12 台 5300 雷達液位計) LRV 200→0、URV 1585→1385 (2025-05-06~08)；C10LCM10BL001-003 LRV 200→0、URV 2300→2100 (2025-10-21)；C10LAC50/60/70BL001 URV 260→360；C10MAJ20/30/40BL001 LRV -1000→0、URV 0→1000；G11HAG10BL001 LRV 10064→0、URV 0→10064 (2025-12-17)；G11/G12HBK11BP016、G12HBK11BP017 URV 100→10。應核對 DCS 量程是否同步。",
+   "evidence": "參數變更歷程 關鍵組態類別='量程' 48 列 (varURV/varLRV/upperRange_value/lowerRange_value)",
+   "sheet": "14_參數變更歷程"
+  },
+  {
+   "severity": "中",
+   "text": "G12HAP70BT001 upperRange_value 在 11 分鐘內 200→160 (2025-12-15 11:00:44 台灣, Field change / PS.AMS1SVR) 再 160→200 (11:11:22, HMI\\GEAdmin) —— 疑為誤改後復原，建議查核現場現值與 DCS 量程。",
+   "evidence": "參數變更歷程 列 4320/4321",
+   "sheet": "14_參數變更歷程"
+  },
+  {
+   "severity": "中",
+   "text": "HMI\\GEAdmin 為共用帳號：登入 167 次、8,133 筆事件，2024-11-20~2026-07-20 所有人工操作 (Routine Service 組態寫入、刪除裝置、位號指派) 皆掛此帳號，無法追溯個人；具名帳號 (HTPPAdmin、Admin1、u120396、u534521、u534558、u675532) 於 2026-06-18~07-17 才由 User Manager 建立授權 (215 筆 Category 58)。另兩台站台 172.16.101.17 (2,438 筆) 與 10.1.141.54 (1,918 筆) 曾執行 AMS，身分待現場確認。",
+   "evidence": "登入登出統計、使用者帳號變更、使用者與安全主體；Category 51 by UserKey×ComputerId：PS.AMS1SVR 在 172.16.101.17 啟動 20 次、10.1.141.54 12 次",
+   "sheet": "41_使用者與安全主體 / 25_登入登出統計 / 28_電腦清單"
+  },
+  {
+   "severity": "中",
+   "text": "裝置同步失敗 565 筆集中於 2025-04-09~2025-05-12 (FF 試運轉期)，涉及 332 台 FF 裝置：'failed during parameter update with database' 355 筆 (DB 端寫入失敗) 與 'failed on FUNCTION1600/1800/2200:CM Response code' 210 筆 (FF 功能區塊通訊回應碼)；最多 G12_96CW-01 (8 次)、G11_96CW-01 (6 次)。『最後失敗後曾成功同步』欄可看各裝置是否已恢復。",
+   "evidence": "同步失敗統計 332 列 (Category 45)；全為 PS.AMS1SVR 自動執行",
+   "sheet": "22_同步失敗統計"
+  },
+  {
+   "severity": "中",
+   "text": "位號品質問題集中：593 台識別時位號 (Devices.AmsDeviceTag) 含 HART 讀取殘碼 (389 非可列印 + 204 尾端殘碼)、143 台為空白/NULL；6 台現行 AMS 位號含殘碼 ('11BP007 …–'、'2HSD12BF101 …ï'、'2HSD12BF102 …ä'、'50 BL001 …ù'、'82_S807B80426C …ñ'、'82_S80A1E0426C …²')；14 台 HART 位號為 AMS 自動時間戳 (13 台 TTX200 從未掃到參數 + 1 台 8712EM)；408 台 HART 短位號只有 8 字元，完整 KKS 只在 AMS 位號；3 台 GE HART I/O 模組更換後沿用舊紀錄 (DeviceKey 72、1421、1422)。建議在 AMS 改名清理並補正式位號。",
+   "evidence": "設備總表 現行位號品質/識別位號品質；位號跨表對照 原值≠清理後 10 台；AmsSp_CreateAmsTagName_1 時間戳命名格式",
+   "sheet": "03_設備總表 / 12_位號跨表對照"
+  },
+  {
+   "severity": "中",
+   "text": "6 台 G11 燃機 3051 壓力變送器於 2025-12-03 18:39~18:47 (台灣) 由現場端啟用寫入保護 (write_protect 0→1)：G11_96AT-6C、G11_96GN-4B、G11_96GN-5C、G11_96PGT-2C、G11_96TF-1、G11_96TF-2B；全廠目前寫入保護=是 共 18 台 (另含 S10MAA10BP031-033、S10MAC10/20BP031-033、S10MKW49BP001-003)。阻尼變更 8 次 (G11HAP61BL001/002 2→5→8 s、BL003 2→8 s、C10PHC20BT004 0→3 s、G11HSD11BF101/102 flowDamping 0.4→1.0)；單位變更 64 次 30 台。",
+   "evidence": "參數變更歷程 關鍵組態類別='寫入保護' 11 列、'阻尼' 8 列、'單位' 64 列；設備參數統計 寫入保護 欄",
+   "sheet": "14_參數變更歷程 / 13_設備參數統計"
+  },
+  {
+   "severity": "中",
+   "text": "1,555/1,928 台設備至少改名過一次 (3,561 筆指派、1,633 筆已結束，高峰 2024-12-04~2025-01 批次改為 KKS)，1,540 個舊位號仍留在 ExtBlockTags 位號池、15 個位號從未掛過設備 (JK7L0VT、JK5X125、2HSD10BF101、G12HAD10QN004/005、G11HAD30BL001_old…)；事件當時位號≠目前位號者 3,759 筆事件，讀歷史時須用『事件當時位號』欄。",
+   "evidence": "位號指派歷程 3,561 列；非現行位號池 1,540+15；事件總帳『位號已變更』欄",
+   "sheet": "09_位號指派歷程 / 10_非現行位號池 / 19_事件總帳"
+  },
+  {
+   "severity": "低",
+   "text": "AMS 只當作設備組態/稽核資料庫使用：Alert Monitor 服務旗標=1 但 DeviceMonitorList/AlertList/AlertLog 0 列 (無任何裝置警報歷史，140,438 筆 DD 警報定義未用)；Disposition 全 Spare、CalStatus/SIS 全 0、TestResults 0、無自訂廠區階層；資料庫僅備份 1 次 (2025-04-23)、匯出 2 次 (2026-09-10)；系統選項『存取裝置時同步線上組態』2025-04-15 啟用後 04-23 停用；SnapOnData 缺 139 台 (FF 124、HART 15) 的 DD 檔案資訊。",
+   "evidence": "系統設定與警報監視狀態；系統資訊 PlantServer.AlertMonitorEnabled=1；_tables 空表清單；資料庫維護與系統事件 Category 12/16/53；SnapOn裝置檔案資訊 1,789/1,928",
+   "sheet": "32_系統設定與警報監視狀態 / 24_資料庫維護與系統事件 / 48_系統資訊"
+  },
+  {
+   "severity": "高",
+   "text": "7 個 Windows 使用者全部啟用，其中 6 個 (GEAdmin, HTPPAdmin, u534558, u534521, u675532, u120396) 擁有全部 46/46 權限 (等同 System Admin)，Admin1 43/46；所有人都能做資料庫還原/清除、使用者管理、SIS 裝置寫入、ValveLink 動閥診斷。沒有最小權限區分，內建 Read-Only / Maintenance / Database Admin 群組完全未被使用。",
+   "evidence": "Grants 418 筆：7 使用者各 43–46 筆；GroupPrincipalWindowsUserPrincipal 0 列；權限矩陣_依權限群組 等級欄 6 個「完整」。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "高",
+   "text": "7 個使用中 HART 機型版本 (318 台) 只有 AMS 通用的 9 個 HART 狀態位元警報 (全為 ABNORM)，無 DD 專屬診斷警報；即使日後啟用 Alert Monitor 也只能看到 PV 超限/組態變更/Device Malfunction 等泛用狀態，無法辨識感測器/電子模組等具體故障",
+   "evidence": "Endress+Hauser iTEMP TMT82 rev3 (276台, DeviceTypes.Description='iTEMP TMT82')、Rosemount 5300 rev4 (15台, Description='Generic Device Type 9809')、GE 53634 rev1 (9台, 'Generic Device Type 53634')、Metso NDX H7 rev5 (8台)、YTC 46093 rev2 (4台, 'Generic Device Type 46093')、Siemens SIPART PS2 rev7 (4台)、Magnetrol 706 rev2 (2台)；這些 AmsDevRevId 2143-2149 為最高號段，DeviceCategoryId=0 → 推論為未安裝正式 DD、以通用/預設 DD 登錄",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "高",
+   "text": "14 個現行 AMS 位號是時間戳字串而非位號(13 台 ABB TTX200 series + 1 台 Rosemount 8712EM/8732EM，2025-10-21 與 2025-12-15/16 新增)，另有前導/尾隨空白('  G12LAB65BF001'、'S10MAC10BP021 ')與 HART 長位號亂碼('50 BL001                  ù')；現行位號共 24 個含異常字元",
+   "evidence": "位號主檔 '位號含異常字元'=是 且狀態=現行：24；SQL glob '[0-9][0-9]/[0-9][0-9]/20[0-9][0-9] *' 於 BlockAsgms open → 14 列，Identifier 12022166、1247127、12022143…",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "4 個具名個人帳號 (u120396, u534521, u534558, u675532) 皆於 2026-07-17 02:14–02:19 UTC 由 HTPPAdmin 建立並各授予 46 權限 (HTPPAdmin 執行 138 筆帳號異動)；其中 u120396 與 Admin1 建立後從未登入 (事件 0 筆)。",
+   "evidence": "Category 58 'User added' 4 筆 UserKey 14；Users 15/13 在 EventLog 中 0 筆；登入成功次數 u534558 21、u534521 15、u675532 6。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "廠區階層完全未建置：Hierarchies 只有內建 8 節點，Manufacturer 之下沒有任何自訂區域，因此授權只能在 Site-wide/System/User Configurations 三個範圍 (244/156/18 筆)，無法依機組或系統區分權限；DeviceProtection 空、GlobalDeviceProtection=false，沒有任何裝置被鎖定寫入。",
+   "evidence": "Hierarchies AreaId>0 只有 1 (Manufacturer, ParentAreaId 0)；AreaViews 1 允許 3 層但 Labels Level 1/2 未使用；Grants 依 PlantLocationId 分布 3 種；SystemDefaults GlobalDeviceProtection=false。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "Windows 使用者皆未綁定 SID / AD (Sid 空、BindingMode 0、LastModified 預設 1900/0001)，AMS 僅以「網域\\\\帳號名稱」文字對應 Windows 登入；網域 'HMI' 為工作站/網域名稱，登入時大小寫不一致 (GEadmin/geadmin/GEAdmin/GEADMIN) 皆映射到同一 UserKey。",
+   "evidence": "Principals_WindowsPrincipal 11 列 Sid 全空；Category 46 Description 有 4 種大小寫變體均為 UserKey 8。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "AMS 主程式只記錄登入不記錄登出 (登出事件 19 筆全部來自 User Manager)，故無法由 EventLog 推算工作階段長度；登入失敗事件 6 筆 (GEAdmin 5、HTPPAdmin 1) 全記在 admin/127.0.0.1 之下。",
+   "evidence": "Category 47 全 Source='AMS Device Manager - User Manager'；Unsuccessful login 6 筆 UserKey 6。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "3 台 GE HART I/O 模組（MUX）已被更換為不同序號的模組，但 AMS 沿用舊設備紀錄、僅改了位號前綴：模組本身序號位號與 AMS 位號前綴不一致。",
+   "evidence": "DeviceKey 72：AMS 位號 JK7L0VT-1C5B 但 AmsDeviceTag=JK661X1（前一位號 JK661X1-1D4A，H12_LU003 MUX28）；DeviceKey 1421/1422：JKDR0DV-1M3A / JKDR0DV-1M3A-1 但 AmsDeviceTag=JK3C15U（G11S_CA004 MUX1/2）",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "389 台設備的識別時位號 (Devices.AmsDeviceTag) 含非可列印殘碼（26 個空白 + 1 個亂碼字元，如 'K11BP007                  –'），6 台的現行 AMS 位號也含殘碼（如 '11BP007 …–'、'2HSD12BF101 …ï'、'50 BL001 …ù'、'82_S807B80426C …ñ'）。這是 HART 長位號/短位號讀取殘碼，建議在 AMS 改名清理，否則報表與比對會失準。",
+   "evidence": "品質欄統計：AmsDeviceTag 含非可列印字元 389、空白 141、佔位字元('________'/'XXXX…') 10；現行位號含非可列印字元 6",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "408 台 HART 設備的 HART 短位號只有 8 字元（如 G12MAN30），完整 KKS（G12MAN30QN001）只存在 AMS 位號；現場用手持機讀到的短位號與 AMS 位號不同，需以 AMS 位號或序號對照。",
+   "evidence": "AMS位號=識別位號+後綴 AA999 型 = 408（HART）；HART 5 短位號規格 8 字元",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "Rosemount 主力機型的 DD 將多個 FAILED 等級警報預設為 DISABLED (AlertMonitorDefault)，若日後啟用 Alert Monitor 必須手動勾選，否則不會通知",
+   "evidence": "使用中 2,877 筆定義中 229 筆 DISABLED；含 FAILED 類別者 62 筆，例：3051 rev9 (248台) '8000000000000000 Device Malfunction' DISABLED；644 rev8 (231台) 25 筆 DISABLED，其中 14 筆 FAILED (RAM/ROM/ASIC Electronics Failure、Device Malfunction)；644 rev9 (72台) 32 筆 DISABLED；248 rev4 (38台) 20 筆 DISABLED",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "FF 網路的裝置主動警報 (FF Alert 多播) 未由 AMS 處理，351 台 FF 裝置的 FF-912 現場診斷 (FD_FAIL/OFFSPEC/MAINT/CHECK) 在 AMS 端不會被接收",
+   "evidence": "NetworkInfoProperty NetworkInfoKey 18 (FF HSE Network 1, 351 台)：FFAlertProcessingEnabled=No、FFAlertMulticastIP=239.255.0.33、FFAlertPort=45000、NoCommPollingInterval=15000；FF 使用中 7 個版本共 932 筆警報定義 (3051 FF 56、848 182、DVC6200f 196、TopWorx D2 119、Logix 3840 144、Levelflex 144、3144 91)",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "本廠 IP 僅 5 個：172.16.201.131 (17,695 筆，AMS1SVR 伺服器推定：備份/匯出/使用者管理/刪除裝置皆在此)、172.16.101.17 (2,438 筆，2025-01-07~04-09)、10.1.141.54 (1,918 筆，2025-03-12~05-09)、10.0.0.1 (5 筆 AMS 啟動)、10.1.113.54 (1 筆)。172.16.101.17 與 10.1.141.54 上也有 PS.AMS1SVR 服務帳號的 'Ams Device Manager has been started' 與 Field change 事件，表示試運轉期間有另外兩台安裝 AMS 的站台 (待現場確認身分)。",
+   "evidence": "電腦清單 表；Category 51 by UserKey×ComputerId：PS.AMS1SVR 在 -1408211695 (172.16.101.17) 啟動 20 次、在 167873846 (10.1.141.54) 12 次",
+   "sheet": "（events 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "544 台 HART 裝置 AMS 載入的 DD 版次(SnapOn XML DeviceInfo.DeviceRevision)與登錄版次不同：E+H iTEMP TMT82 登錄 rev3→XML rev2 (274 台)、GE PHRA 登錄 rev1→XML rev5 (228 台)、5300 雷達 rev4→3 (15)、53634 rev1→7 (9)、NDX H7 rev5→3 (8)、46093、SIPART PS2、Model 706；建議核對 DD 安裝與裝置實際版次",
+   "evidence": "SnapOn裝置檔案資訊 'XML版次與裝置登錄版次一致'=否 544 列(全部 HART)；1,245 列一致",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "校正管理功能完全未使用：TestDefinition 只有 AMS 三個預設定義，全部 3,484 位號都指派 -1 'Default Field Device'，週期單位=無(排程未啟用)，TestResults/TestResultAFAL/TestResultPoints 空",
+   "evidence": "TestDefinition 3 列 DefIntervalUnits=0；TestDefAsgms TestDefinitionId 全為 -1(sentinel 例外)；_tables TestResults=0",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "廠內 43 個裝置版次中 7 個沒有任何範本/特性紀錄(NamedConfigs)，包含 GE Mark VIe I/O 類；只有 36 個 T 範本、7 個 C 特性紀錄、5 個 S 使用者組態對應到廠內裝置，其餘 2,135 個 T 範本為 Emerson 出廠範本庫(2024-11-20 安裝時批次匯入)",
+   "evidence": "範本清單 '廠內使用此版次' 交叉表：T 36/2135、C 7/524、S 5/5；SQL distinct Devices.AmsDevRevId not in NamedConfigs = 7",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "廠內自建範本只有 2 個：ConfigKey 2710 'GE PHRA'(2025-04-29 15:20 台灣，對應 244 台 GE PHRA)與 2711 'GE YSIL'(2025-05-06 09:06 台灣，對應 0 台)；各 64 個離線參數",
+   "evidence": "NamedConfigs LastModified 非 2024-11-20 的 T 列；範本清單 GE PHRA 廠內裝置數 244",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "阻尼時間變更 8 次：G11HAP61BL001/002/003 於 2026-07-06 由 2 s→5 s→8 s（Field change），C10PHC20BT004 0→3 s（2025-10-21）",
+   "evidence": "參數變更歷程 關鍵組態類別='阻尼'",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "單位/比例變數單位變更 64 次、30 台：例如 C10LAC50/60/70BL001 scaled_variable_units 240→241 且 scaled_units_string_short DEFLT→mm（與 URV 260→360 同一事件）、C10LAB72BF001 DEFLT→mmH2O、S10LBA/LBB/MAV/MAX 系列多台單位碼變更（2025-05 / 2025-10）",
+   "evidence": "參數變更歷程 關鍵組態類別='單位' 64 列",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "28 台設備完全沒有 BlockData 參數紀錄（從未成功掃描/上傳組態）：13 台 FF（G11_96PG-2A、G11_96PH-W7A/W7B/F1、G11_96DT-6(848)、G12_96QS-5、G12_96PG-2A/2B、G12_96PH-W7A/W7B/F1、G12_96HDAS-1B、G12_96AP-2）、12 台位號空白的 E+H iTEMP TMT82、2 台亂碼位號（82_S807CB0426C…、82_S80A1E0426C…）、1 台空白位號 TTX200",
+   "evidence": "Devices 1,928 台 vs 設備參數統計 1,900 台；SQL not exists(BlockData) 清單",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "位號品質：140 台設備 Devices.AmsDeviceTag 為空白（其中 130 台有參數資料，位號僅存在 ExtBlockTags 目前指派）；5 台目前位號含不可列印字元（'11BP007 –'、'2HSD12BF101 ï'、'2HSD12BF102 ä'、'50 BL001 ù'、'82_S807B80426C ñ'）；1 台 8712EM 流量計位號為時間字串 '12/15/2025 11:25:12.520'；1,583 台 ExtBlockTag（含 -1A3B 等尾碼）與 AmsDeviceTag 不同",
+   "evidence": "參數現值/設備參數統計 位號 (ExtBlockTag) 與 AMS 設備位號 欄",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "FF 定位器/變送器 MODE_BLK TARGET 變更 23 次（Auto↔O/S、Auto↔Man），如 G11_90VA20-1 2026-01-20 Auto→Man→Auto、G11_90VA41-91 2025-12-19 Auto→O/S→Auto、G11_96CW-01 2025-04-28 多次 Auto↔O/S——皆為短時間內來回，屬維護操作痕跡",
+   "evidence": "參數變更歷程 關鍵組態類別='區塊模式 MODE_BLK'",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "1,928 台裝置 DispositionId 全為 2 (Spare) 且 Components 只掛了 3 個使用者組態，表示所有裝置都停在 Unassigned，從未指派到廠區階層 (Area/Unit/Equipment)；AmsVw_BlockLocation 的 Area/Unit 欄位對本廠無資料，位置只能靠 DeviceLocation.AmsPath/NetworkName。",
+   "evidence": "select DispositionId,count(*) from Devices → (0,1),(2,1928)；Hierarchies 僅 8 個系統節點 (無使用者建立的 Area/Unit)；Components 10 列全為 NamedConfigs",
+   "sheet": "（modules 領域）"
+  },
+  {
+   "severity": "中",
+   "text": "EventLog 29,773 筆中僅 22,064 筆 (2024-11 以後) 是本廠事件；其餘 7,709 筆為 Emerson 原廠隨附 (AmsMergeDoc 範本匯入 6,772 筆、1996~2019 原廠開發/測試事件，ComputerId 多為 155.177.x.x Emerson 網段、10.x 等) 與 2 筆哨兵列 (25569/0 1970-01-01、49710/0 2036-02-05)。事件統計應以 EventTime ≥ 2024-11 或排除 Type 6/Source AmsMergeDoc。",
+   "evidence": "events by year: 2013 4,152、2014~2019 2,819、2024 5,203、2025 15,087、2026 1,773、2036 1；Source='AmsMergeDoc' 6,772；EventLog(49710,0,'2036-02-05','Large event id (do not remove)')",
+   "sheet": "（modules 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "全部 1,928 台設備 Disposition=Spare、CalStatus 全 0、SisStatus 全 0、TestDefinitionId 全 -1、Hierarchies 無自訂廠區、無 DeviceMonitorList/AlertList：AMS 只當作設備組態/稽核資料庫使用，未啟用處置管理、校正管理、SIS、警報監視與廠區階層功能。",
+   "evidence": "Dispositions 統計 Spare=1,928；CalStatus sum(DevLastCalibrationDay<>0)=0；Hierarchies 8 列皆內建節點；AlertList/DeviceMonitorList 0 列",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "DD 型號庫 2,152 個設備版本中僅 43 個被使用（17 家製造商）；本廠主力型號：E+H iTEMP TMT82 ×276、Rosemount 3051 HART rev9 ×248 (+rev10 ×36)、GE PHRA ×244、Rosemount 644 ×231(+rev9 ×72)、Rosemount 3051 FF ×194、E+H Deltabar S ×95、Cerabar S ×76、ABB TTX200 ×73、Rosemount 848 FF ×61、Fisher DVC6200f ×58、Masoneilan SVI II AP ×46。",
+   "evidence": "DD型號庫 sheet 使用中設備數 >0 = 43 列；DeviceRevisions 總數 2,152",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "使用中版本有 29 筆警報定義的 Description 為空字串 (DD 未提供文字)，多為 COMM 類別 0001000000000000；另 22 筆 DDHelpText、1 筆 ExtendedHelpText 超過 500 字已截斷 (原長度另列)",
+   "evidence": "使用中機型警報定義 sheet 統計",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "資料庫備份僅 1 次 (2025-04-23 C:\\AMS\\Bin\\20250423.ams_bckup)；本次分析用的 20260912.ams_bckup 未見事件 (應在備份之後產生)；匯出 2 次皆 2026-09-10 由 HMI\\u534558 (S:\\TPC B1\\I&C\\AMS\\20260910.ams_merge 與桌面)，即前簿來源。系統選項 '存取裝置時同步線上組態' 於 2025-04-15 啟用、2025-04-23 停用。",
+   "evidence": "資料庫維護與系統事件 表 Category 12/16/53 列",
+   "sheet": "（events 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "掃描作業 211 次：FF Alert Polling 107 對 (每次 FF Polling Application 啟動)、Scan All 61、Scan New 43；171 完成、25 取消、8 未見結束 (用戶端中途關閉)、7 僅見結束；重建階層 53 次 (FF HSE Net 1 ×10、BOPM1B_LU010 ×6 等)。.mrg 裝置定義匯入 1,726 筆 (2010~2025-12-11，最後一批 2025-12-11 由 GEAdmin 匯入 FF/HART 新裝置定義)。",
+   "evidence": "裝置掃描作業、資料庫維護與系統事件 表",
+   "sheet": "（events 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "1,495 個範本沒有任何參數資料(只有名稱佔位，多為 HART 舊型號)；範本參數事件日期 1996~2019 為 Emerson 原始建檔時間；11,655 個參數鍵在範本內有多個歷史版本",
+   "evidence": "NamedConfigs 無 NamedConfigData 1,495；EventIdDay 範圍 35107~43693；歷史版本數>1 鍵 11,655",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "139 台裝置沒有 SnapOnData DD 檔案紀錄(FF 124 台、HART 15 台)，表示這些裝置尚未在 AMS 中完整開啟/同步過",
+   "evidence": "Devices 1,928 − SnapOnData 1,789 = 139；依協定分組 FF 124 / HART 15",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "S 型使用者組態 10 個(3051/3144/5300/644/848T/8800/8800D/DVC6200/TEC2000 的 UC-US/UC-Int)均放在 Standard Configurations，Migrated/Handheld 資料夾為空；NamedConfigAsgms 空 → 這些 UC 未曾套用到任何裝置",
+   "evidence": "Components 10 列 AreaId=-4；Hierarchies -5/-6 無 Components；NamedConfigAsgms 0 列",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "HART date 欄：18 台未設定（OLE 2.0 = 1900-01-01，舊匯出顯示 2000/01/01），4 台為負值 -363（1899-01-01，舊匯出顯示 1970/01/01，如 G11_96HT-IR-1A/1B）；另 15 次日期變更中多為 -363→2.0（2024-12 初次掃描）",
+   "evidence": "參數現值 參數='date'；設備參數統計 HART 日期 欄",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "描述(descriptor) 空白 1,075/1,562 台、訊息(message) 空白 1,510/1,562 台 HART 設備；位號類參數（tag/LongTag）變更 1,692 次多為 2024-12~2025-05 Routine Service 由 HMI\\GEAdmin 寫入 HART 短位號/長位號（如 '1-PIT-CW'→'CW014-1 '、'________'→'B65BF001'）",
+   "evidence": "設備參數統計 描述/訊息 欄；參數變更歷程 關鍵組態類別='位號' 1,692 列，使用者 HMI\\GEAdmin 4,115 次",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "重複跳動的參數：G12HAP60BL001 Pressure1InstallOffset 19 筆紀錄 16 個相異值、C10PHB12BT001 sensor_1_lower_trim_point_value 16 筆 15 相異值、G12HAP60BL002/G12LAB36BF001 Pressure1InstallOffset 14 相異值——顯示這些 E+H 壓力計的安裝偏移常被調整",
+   "evidence": "參數現值 相異值數 前 5 名",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "校正模組完全未使用：CalStatus 1,929 列全 0，TestResults/TestResultAFAL/TestResultPoints/Routes 皆空，ExtBlockTags 全掛預設 TestDefinitionId=-1 (Default Field Device)；SystemDefaults 校正參數 (FC_*) 為出廠值。EventLog 的 Category 49 'AMS tag assignment' 1,642 筆只是位號建立時自動指派測試方案。",
+   "evidence": "TestDefAsgms(-1 定義) 3,484 筆 EventIdDayOut=49710；TestResults 0 列；EventLog (Type 2, Cat 49) 1,642",
+   "sheet": "（modules 領域）"
+  },
+  {
+   "severity": "低",
+   "text": "資料庫結構為 AMS Device Manager V14.1.1 (schema 5.1, 2018-03-13)，模組程式碼最後修改 2019-07-30；SQL Server 相容層級 120 (2014)。Trex/行動裝置、專案、健康度、PROFIBUS Host、Instantiable FF 區塊、Device Protection、網路階層權限等功能對應的 36 張表全空。",
+   "evidence": "__version max (5,1,'2018-03-13','V14.1.1')；_dbinfo compatibility_level 120；36 張空表列於『資料表字典』notes",
+   "sheet": "（modules 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "AMS Device Manager 版本為 V14.1.1 (資料庫結構 5.1, 2018-03-13)，SQL Server 2014 (compatibility 120)，定序 SQL_Latin1_General_CP1_CI_AS；Plant Server 只有 AMS1SVR (AlertMonitorEnabled=是)；未登錄任何 Trex 手持器 (MobileDevices 空)，未定義 Network Location 授權、複合權限、複合範圍。",
+   "evidence": "__version 末列；_dbinfo；PlantServer 2 列；MobileDevices/Grants_NetworkLocation/Privileges_PermissionList/PlantLocations_ScopeList 皆 0 列。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "Users 表的 'admin' (6,900 筆事件, 1996–2019, IP 142.176.x/10.223.32.x/10.8.0.6) 與 'DBM: None' 為隨 AmsMergeDoc 範本匯入的原廠環境舊帳號，無安全主體、不能登入；PS.AMS1SVR (Plant Server 服務帳號) 是事件最多者 12,922 筆 (伺服器自動偵測現場變更)。",
+   "evidence": "Users 6/7 無對應 Principals；UserKey 6 事件 Category 14 (Merge from File) 6,796 筆；UserKey 12 事件 12,922 筆。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "HMI\\\\Admin1 原名 HMI\\\\Admin (2026-01-12 由 GEAdmin 建立, 2026-06-18 更名)，是唯一缺 3 個 Alert Monitor-SIS 權限 (43/46) 的使用者；此帳號從未登入。",
+   "evidence": "Category 58 'renamed as'；權限矩陣_逐權限 Admin1 列 Alert Monitor - SIS 三欄為否。",
+   "sheet": "（security 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "實體拓樸：AMS1SVR 經 18 個 COM 埠（COM10–COM27，19200 baud，Mux_PassThrough）連 18 個 GE Mark VIe 控制器/機櫃 HART 網路，共 253 個 HART I/O 模組、1,324 台 HART 現場裝置；另 1 個 FF HSE 網路（HSE IP 10.0.0.1）經 22 個連結設備（G11_LD02..G12_LD10）掛 351 台 FF 裝置。最大網路 H11_LU001（31 MUX、264 台）與 H12_LU003（31 MUX、259 台）。",
+   "evidence": "網路清單 sheet：SCAN_RANGE_STOP 等於各網路最大 MUX 位址（例 H11_LU001=31、BOPM1A_LU006=28）；Port 欄 COM10..COM27",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "與 20260910 工作簿完全對齊：1,928 台設備 GUID 全對上，位號 1,918 台完全相同、10 台僅差在舊工作簿已去除空白/殘碼；本 DB 備份（09-12）與 09-10 匯出之間設備數與位號無變動。",
+   "evidence": "cross-check by AmsDeviceId：1,928/1,928；tag equal 1,918；10 差異例：'11BP007' vs '11BP007                   –'、' G12LAB65BF001' 前導空白",
+   "sheet": "（devices 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "使用中 43 個機型版本 (HART 36、FF 7) 共 2,877 筆警報定義；全庫 140,438 筆 = FAILED 10,536 / MAINT 13,574 / ADVISE 14,580 / ABNORM 96,705 / COMM 1,574 / CHKFNC 3,469；2,127 個版本有定義 (DeviceRevisions 2,152 版本中 25 個無定義且非本廠使用)，1,574 個 HART 版本僅有通用 9 警報",
+   "evidence": "機型警報數量彙總 sheet；AlertTypeId group by",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "GE Mark VIe I/O (PHRA rev1, 244 台) 有 34 筆 DD 專屬警報 (1 FAILED / 3 MAINT / 3 ADVISE / 26 ABNORM / 1 COMM)，其 Cmd48 內容為 Mark VIe HART 模組狀態 (Self-test、Mismatched、Longitudinal parity error、Buffer overflow 等)",
+   "evidence": "AmsDevRevId 2142, DeviceType 128 'Generic Device Type 128'",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "Device Health / Plantweb 健康快照功能與 AMS Trex 行動裝置政策指派皆未使用；系統預設 GlobalDeviceProtection=false、SyncDbOnDeviceAccess=false",
+   "evidence": "DeviceHealth / DeviceHealthMonitor / DeviceHealthSnapshots / ProjectDeviceHealthSnapshots / PoliciesAsgms 皆 0 列；Policies 僅 1 筆 TrexSync (Enable=1, 7 個屬性)；SystemDefaults 10 列",
+   "sheet": "（alerts 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "事件當時位號 ≠ 目前 AMS 位號者 3,759 筆 (Cat 1×2,665、28×943、44×130、43×19、0×2)：多為 GE Mark VIe 模組首次識別時的亂碼預設位號 ('82_S807B70426C  a'、'ÿÿÿ…') 或 KKS 未定案前的暫用位號 (G12MAN30_04→G12MAN30BT012)；1,633 筆 'Renamed AMS tag' 事件即 BlockAsgms 的 Out 事件。",
+   "evidence": "事件總帳 '位號已變更' 欄；BlockAsgms Out 事件 1,633 筆全為 Category 1 'Renamed AMS tag'",
+   "sheet": "（events 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "Category 49 'AMS tag assignment' 1,642 筆 (Type 2) BlockKey 皆 -1 且不被 BlockAsgms 參照，對應 TestDefAsgms (測試方案指派，3,505 列) 域，事件本身無法連到裝置；Category 28 'Field change' 每筆平均寫入 ~58 個 BlockData 參數 (共 345,767 列)，Category 1 中 2,112 筆有參數值 (5,569 列)。",
+   "evidence": "BlockData GROUP BY EventId 與 EventLog join 統計",
+   "sheet": "（events 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "GroupPath 全 NULL、Archived 全 0、ExtBlockTagDesc 全空白；DevRevExtProperty 23 列 GsdId 全為 PROFIBUS 版次且廠內無裝置使用",
+   "evidence": "NamedConfigData group by GroupPath → 只有 NULL 318,558；DevRevExtProperty join Devices ndev=0",
+   "sheet": "（templates 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "6 台 GE Mark VIe HART 模組使用多點輪詢位址 1~3（JK0N0G9-1N3A、-1N3A-1、-1N3A-2；JKDR0DV-1M3A、-1M3A-1、-1M3A-2），其餘全部 polling_address=0 點對點",
+   "evidence": "設備參數統計 輪詢位址 欄",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "98 台 HART 設備的最後參數紀錄早於 2025-01-01（最早 2024-12-16），182 台在 2026 年仍有紀錄；BlockData 事件時間範圍 2024-12-05 ~ 2026-09-10（UTC）",
+   "evidence": "設備參數統計 最後記錄(台灣)",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "FF 功能區塊警報限值 HI_HI_LIM/HI_LIM/LO_LIM/LO_LO_LIM（800200fe/80020102/80020114/8002011a）各 614 筆現值為 +INF（=警報停用，屬正常預設），SP_RATE_UP 23 筆 INF；FF XD_SCALE 單位 0（未設定）14 台",
+   "evidence": "參數現值 現值='INF' 共 2,694 列",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "FF 全部 140,790 列 Archived=1、HART 全部 Archived=0（AMS 對 FF 參數的封存旗標用法，非資料遺失）；離線值 (ValueMode='o') 僅 12 列（C10MAN60QN001、G12MAN10QN001 的 cSubMode 及一台 644 的感測器設定）；所有現值事件 99% 為 'Change performed by foreign host'（Field change 掃描），4,944 筆為 AMS 使用者操作",
+   "evidence": "BlockData group by Archived/ValueMode；參數現值 事件分類",
+   "sheet": "（params 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "事件使用者：PS.AMS1SVR (伺服器自動 Field change 偵測) 12,922 筆、HMI\\GEAdmin 8,133 筆為主；具名個人帳號 (u534558 47 筆、u675532、u534521、u120396) 極少 → 大多數組態寫入無法追溯到個人。",
+   "evidence": "select UserName,count(*) from EventLog join Users … 前 8 名",
+   "sheet": "（modules 領域）"
+  },
+  {
+   "severity": "資訊",
+   "text": "ComputerId 事件來源電腦：172.16.201.131 (AMS1SVR 本機) 17,695 筆、142.176.55.74 3,936 筆、172.16.101.17 2,438、10.1.141.54 1,918、127.0.0.1 175；其餘 250+ 個 IP 幾乎全為 Emerson 原廠範本事件。",
+   "evidence": "代碼對照表 EventLog.ComputerId→IP 前 40 名",
+   "sheet": "（modules 領域）"
+  }
+ ],
+ "open_questions": [
+  "[security] Domains 'HMI' 是 Windows 網域名還是 HMI 工作站的本機電腦名？(使用者未綁 SID/AD，無法從 DB 判斷；需向廠方確認 AMS1SVR 是否加入網域)",
+  "[security] GEAdmin 於 2025-12-16 加入/移出 System Admin、三個管理帳號於 2026-07-10 加入/移出 Database Admin (同分鐘) 是測試操作還是誤操作？目前群組成員為空，權限全靠逐使用者直授。",
+  "[security] u120396 與 Admin1 從未登入、但擁有近乎全部權限——是否為預留/離職帳號，應否停用？",
+  "[security] ComputerId 172.16.201.131 (主要工作站) 與 172.16.101.17 / 10.1.141.54 (2025-02~05 試運轉期) 對應哪些實體電腦？DB 內 NetworkInfo 無 IP 對照，需廠方 IP 清單。",
+  "[security] EventLog.Type (0/1/2/3/4/6/8) 的語意在 _modules 中無註解 (登入/帳號類全為 4)，本模組未翻譯。",
+  "[security] _dbinfo.create_date 2026-09-12 11:36 判定為還原時間而非原始安裝日；原始安裝日只能由最早本廠事件 (2024-11-20 GEAdmin) 推估。",
+  "[devices] HostPath 第3段碼（4=MUX、5=一般 HART、6=Rosemount 644、9=Honeywell XNX）的確切意義未在 _modules 出現；推測與裝置回報的最少前導碼數或 GE HART I/O 的裝置類別碼有關，需 GE/Emerson 文件確認。",
+  "[devices] MUX AMS 位號後綴 '-1A3B'、'-1C5B'、'-1N3A-1' 是否對應 Mark VIe 機架/槽位（R/S/T pack、I/O pack 位置）？DB 內無定義，僅為工程師命名慣例，需現場確認。",
+  "[devices] 34 台 IdentStatus=0 的設備中 21 台 FF 集中在 G11/G12 的 96PG/96PH/96HDAS/90VA 等燃機儀表，是實際拆除還是 LD/Link 重排後未重新掃描？需與 FF 網路重掃結果比對。",
+  "[devices] 345 筆無設備對應的 Assets（Discriminator=1）是刪除設備殘留還是預留資產？本域未能從其他表（NamedConfigAssets、DeviceProtection 皆空）找到參照。",
+  "[devices] 45 筆 '1-TE-…/1-LI-CW101-1' 型位號（9-AA-AA999-9AA）與 82_S80…、2HSD12BF101、'50 BL001' 等非 KKS 位號的所屬機組/系統未能自動判定，需人工歸類。",
+  "[devices] MUX 序號式短位號（JK7L0PT 等）與 Devices.Identifier（如 15015766）皆為 GE 模組識別碼，兩者關係（是否同一序號不同表示法）未驗證。",
+  "[alerts] FF AlertId 的區塊代碼 (400/300/750/1000 等) 與參數索引的精確對應 (例 1000.55 vs 1000.79 何者為 FD_*_ACTIVE、何者為 FD_*_ALM) 需 DD/CFF 檔佐證；目前僅以 AI/AO/DO profile 與 FF-912 四類型態推論 (中等信心)",
+  "[alerts] AmsDevRevId 2142-2149 (TMT82 276 台等 318 台) 為何只有通用 9 警報：是未安裝廠商 DD (Generic Device Type) 還是 DD 本身無 AlertDescriptor 檔，需在 AMS 主機查看 Add Device Type 記錄確認",
+  "[alerts] PlantServer.AlertMonitorEnabled=1 與 StationProperty ALARM/PollingFactor=22944 是否為 AMS 安裝預設值 (從未有人改動) 無法由 DB 判定；建議與電廠確認是否曾規劃啟用 Alert Monitor 或 Plantweb Alerts",
+  "[alerts] HART 多位元 mask (1,501 筆) 的『枚舉值比對』語意為由樣本推論 (Incorrect password / Normal / OK)，未在 _modules 找到解析程式碼 (解析應在 AMS 應用端)",
+  "[events] 172.16.101.17 與 10.1.141.54 兩台站台的身分 (試運轉期間 GE/承商筆電或第二台 AMS 用戶端？) 需現場確認；兩者皆有 PS.AMS1SVR 服務帳號啟動 AMS 的紀錄。",
+  "[events] 2025-03-31 與 2025-04-09 兩次批次刪除同一批 168 台 FF 裝置的原因 (重建 FF HSE 網路階層？) 未在事件中說明；刪除前的組態歷史已被 AmsSp_DeleteDevice_1 實體清除，無法從本 DB 回復。",
+  "[events] Type 碼表為依共現推定 (無官方定義)；Type 6 同時涵蓋 1996~2019 範本事件與 Category 2 巡檢站事件，實際語意可能是 '匯入/非本機產生'。",
+  "[events] Category 45 'failed during parameter update with database' 355 筆之根因 (SQL 端逾時或 DD 參數型別不符) 無法由事件判斷；需對照 AMS 伺服器日誌。",
+  "[events] Other='4' (OtherBufLen 1) 的 1 筆 Category 14 匯入紀錄 (2016-03-15) 無檔名，來源不明。",
+  "[events] 前簿設備別名 D0xxxx 未併入本模組 (模組僅依 SQLite 獨立執行)；如需，可用位號 (03_設備總表 A/B 欄) 對照 '目前 AMS 位號' 欄。",
+  "[templates] SnapOnDataNote HART 前 16 字 hex(例 '000000d100800005')的完整結構未解讀(疑含擴充製造商/型號碼)；只確認第 17~24 字為 device id",
+  "[templates] XML DeviceInfo.DeviceRevision 與登錄版次不一致的 544 台：是 AMS 以相近版次 DD 開啟(裝置版次無 DD)，還是 DeviceRevisions 登錄錯誤，需在 AMS 上實機核對 GE PHRA 與 TMT82",
+  "[templates] ParamDataType 4 是否一律有號整數(80FFFFFF 解為 -128)——HART status 類參數可能應視為無號/位元遮罩；5 與 4 的差異依樣本推斷為 unsigned",
+  "[templates] TestDefinition.Type 99/2/5 的對應是依名稱與測試點推斷，_modules 無常數定義",
+  "[templates] 14 個時間戳位號的裝置(ABB TTX200、8712EM)是否為 2025-10~12 新增待命名裝置，需現場確認並改名",
+  "[templates] GE YSIL 範本(ConfigKey 2711)對應 0 台裝置，是否為預備建立或版次錯置",
+  "[params] FF 0x49 型別的前 4 個零位元組意義不明（可能為子型別/保留），本庫 1,262 列皆為 00000000，若他庫出現非零值需重新確認解碼",
+  "[params] AMS 文字匯出對 HART date 的呈現規則：OLE 2.0 顯示為 2000/01/01、-363 顯示為 1970/01/01，推測匯出端以 HART 3 位元組日期（年-1900）重算，尚無法從 DB 驗證",
+  "[params] 舊工作簿 22 的 FF Block Tag（如 90LT1_1000）不存在於本庫：BlockAsgms/ExtBlockTags 對 R/T/F 區塊無指派，BlockData 也僅 1 個區塊有 00020000:01（TAG）——區塊位號僅存在於文字匯出的區塊標頭，來源待查（可能為 DeltaV/HSE 主機端）",
+  "[params] ParamDataType 9 的 706 列（read_loop_status_data / read_scan_list_from_index_response）內容類似記憶體結構（指標+長度+資料），無法有意義解碼，僅列十六進位",
+  "[params] EventLog.ComputerId 有 3 個值（-1408211695、-1408185981、167873846）但無對照表，無法轉為電腦名稱",
+  "[params] 140 台 Devices.AmsDeviceTag 空白但 ExtBlockTags 有目前位號，AMS 何時填寫 AmsDeviceTag 的規則不明；5 台位號含不可列印字元與 1 台位號為時間字串是否為匯入/更名程序錯誤，需現場確認",
+  "[params] NamedConfigData（318,558 列，範本/使用者組態參數）不在本域，其 ParamData 應可用相同規則解碼但未在本次驗證",
+  "[params] 13 台 G11/G12_96 FF 設備（3051 FF、848）完全無 BlockData：是從未上線掃描、或組態被存到其他 PlantServer？需與網路/事件域交叉確認",
+  "[modules] EventLog.Type 0/1/2/3/4/6 的正式列舉名稱 (僅 5 StatusAlert 與 8 DBW_ET_DEVICE_SCAN 於程式碼明示)；本模組以 Category/Source 分佈推得，信心中，需事件領域代理以 Description 樣本再確認 Type 1 vs 2 邊界 (Cat 39 外部實驗室校正在 Type 2)。",
+  "[modules] ParamDataType 5 (4 位元組，69 筆) 與 7 (8 位元組，10 筆 totalizer preset) 僅在範本 NamedConfigData 出現，推測為無號整數/雙精度，無程式碼證據。",
+  "[modules] SnapOnData.SnapOnDataType 1 vs 3 的差異 (1,562 / 227 筆，內容皆 UTF-16 XML) 未在程式碼中找到定義；SnapOnDataNote 28 位十六進位識別碼的意義未明。",
+  "[modules] 390 個含非 ASCII 字元的 AmsDeviceTag 是否為 HART 7 long tag 未初始化 (0xFF 填充) 所致，需 HART 參數領域代理以 tag.000000A3/long_tag 參數比對。",
+  "[modules] 工作簿 10_事件總帳 13,682 與 DB 22,064 (2024-11 起) 的差額 8,382 筆屬於哪些 Type/Source，需事件領域代理逐類對帳。",
+  "[modules] EventLog 中 1996~2019 的 Emerson 原廠事件 (155.177.x.x 等 IP、使用者 admin/install) 是否應在所有報表中整體排除 — 建議統一規則：EventTime ≥ 2024-11-01 或 Source 不在 ('AmsMergeDoc','FMS') 且排除 2 筆哨兵。"
+ ],
+ "cross_checks": [
+  "[security] 電腦 IP 解碼：本模組由 ComputerId 解出 172.16.201.131 (17,695 筆)、10.1.141.54、172.16.101.17、10.8.0.6、10.223.32.77/108/73、10.20.0.13、127.0.0.1，與前版 17_使用者與電腦 列出的 IP 字串完全一致 (前版 172.16.201.131 9,760 筆為裝置事件子集)。",
+  "[security] 事件總數：前版 10_事件總帳 13,682 筆 (ams_merge 匯出僅含裝置相關事件)；DB EventLog 29,773 筆 (Archived 全 0)，差額為登入 233、帳號異動 215、掃描 204+172+31、Rebuild Hierarchy 53、Application 170、以及 1996–2019 範本匯入事件 (Category 14 8,542 筆) 等非裝置事件。",
+  "[security] 依使用者事件數：前版 PS.AMS1SVR 8,235 / HMI\\\\GEAdmin 5,266 / admin 146 / HMI\\\\u534558 15 / Plant Server 14 / HMI\\\\u675532 2 / HMI\\\\u534521 1；DB 全量 12,922 / 8,133 / 6,900 / 47 / 547 / 11 / 15。順序一致，DB 較大是因含非裝置事件 (admin 6,796 筆 Merge from File 在前版被歸為 TEMPLATE 只留 146)。",
+  "[security] 前版 17 記載 u534558 為匯出者且 GEAdmin 為共用帳號；DB 證實 u534558 最後登入 2026-09-12 09:28 (台灣)，備份 11:36 產生；GEAdmin 162 次登入為最多。",
+  "[security] 前版 10 只有 3 筆 Category 46 (Log In) 事件；DB 有 233 筆 → 前版匯出遺漏了絕大多數登入事件，使用者活動分析應以本模組為準。",
+  "[security] 前版帳號名單 (PS.AMS1SVR, GEAdmin, u534558, u675532, u534521, Plant Server, admin) 全部存在於 Users 表；DB 另有 8 個前版未出現的帳號 (HTPPAdmin, Admin1, u120396, install, FS.AMS1SVR, AmsServiceUser, DBM: None, None)。",
+  "[devices] 設備數：DB Devices(DeviceKey>=0)=1,928 = 舊工作簿 03_設備總表 1,928 列；HART 1,577 / FF 351 與已知事實一致；MUX_DEVICE 253 台 = 已知 GE Mark VIe I/O 模組 253 台。",
+  "[devices] GUID 比對：Devices.AmsDeviceId 對 03_設備總表『AmsDeviceId (GUID)』1,928/1,928 全對上（100%）；以現行位號比對 1,918/1,928（99.5%），其餘 10 筆為舊工作簿已清理空白/殘碼之同一設備。",
+  "[devices] 別名規則：舊工作簿『設備別名』D0xxxx 不是 D%05d(DeviceKey)（僅 57 筆相同），已改以 GUID 對應並在設備總表提供『舊工作簿別名』欄。",
+  "[devices] 位號指派：BlockAsgms 3,561 筆 = 現行 1,928 + 已結束 1,633；In/Out 事件在 EventLog 全數命中（3,561 / 1,633），時間範圍 2024-12-04 13:18（台灣）~ 2026-05-04 16:22。",
+  "[devices] HostPath 解碼一致性：第1段=COM 埠號 18/18 網路、第2段=MUX 位址 1,577/1,577、第6段=通道 1,577/1,577、第8段=Devices.ProtocolRevision 1,577/1,577；HART 版本統計 rev5 906、rev7 660、rev6 11 與 ProtocolRevision 分佈一致。",
+  "[devices] FF 區塊：Blocks BlockIndex>0 共 5,138（R 351 = FF 設備數 351、T 809、F 3,978），每台 FF 設備恰 1 個資源區塊，與舊工作簿 11_FF區塊之設備數概念一致（未逐列比對區塊數）。",
+  "[devices] KKS 解析：五段完整解析 1,216 台；機組 G11 570 / G12 571 / C10 382 / S10 79，與舊工作簿『子機組/機組』欄同一規則（舊工作簿另以人工判定補 FF 與 BOP 位號之系統碼，本表僅做正規表示式解析）。",
+  "[alerts] 前一版 20260910_AMS解析.xlsx 的 25_附錄_型號庫『使用設備數』：43 個版本 ndev>0、總和 1,928 — 與本模組 (製造商×機型×協定×版本) 外部合併 43 筆全部 both、每一筆設備數完全相同 (例 TMT82 rev3 276、3051 HART rev9 248、PHRA rev1 244、644 rev8 231、3051 FF rev8 194)",
+  "[alerts] 前一版 01_摘要/14_統計表 K1 設備總數 1,928、HART 1,577、FF 351 — 本模組 Devices (DeviceKey>=0) 1,928 台、FF HSE 網路 DeviceLocation 351 台、18 個 Mux 網路合計 1,577 台，一致",
+  "[alerts] 前一版 25_附錄_型號庫 2,126 列版本 vs 本 DB DeviceRevisions 2,152 列 / 有警報定義 2,127 列 (含 -1 預設列)：差 25 個無警報定義且無設備的版本，屬 DD 程式庫內容，不影響本廠",
+  "[alerts] 前一版工作簿沒有任何警報定義/Alert Monitor 相關工作表 (28 張中無)，本域為新增內容；EventLog 事件類別 (10_事件總帳 13,682 筆) 中不含警報類別事件，與本 DB EventLog Category 20/21/30/31/62/63 = 0 筆互相印證",
+  "[events] 前簿 10_事件總帳 13,682 列 vs DB EventLog 29,773 列 (差 16,091)；逐類別：-1 3/3、0 3/56、1 5,901/7,243、14 146/8,542、16 1/2、28 6,001/6,001、46 3/233、49 1,622/1,642、68 1/204、70 1/31；DB 另有前簿完全沒有的 2/12/43/44/45/47/51/52/53/58/69/71。",
+  "[events] DB 設備事件 (BlockKey>=0) 17,072 筆 vs 前簿有設備別名者 (Cat 0/1/28) 10,044 筆 + Cat 49 1,622 + 範本 146 + 系統 8 = 13,682；前簿 Category 1 有別名 4,040、無別名 1,861。",
+  "[events] 前簿 'Device identified' 2,234 筆 vs DB 2,105 筆 (1,928 現存裝置各 1 筆 + 177 已刪裝置殘留)：前簿多 129 筆為 .ams_merge 重複輸出。",
+  "[events] ComputerId 解碼結果與前簿 17_使用者與電腦 C 表完全一致：172.16.201.131 / 10.1.141.54 / 172.16.101.17 / 10.8.0.6 / 10.223.32.77 / 10.223.32.108 / 10.223.32.73 / 10.20.0.13；前簿 172.16.201.131 事件 9,760 筆 vs DB 17,695 筆 (差為前簿遺漏的同步/系統事件)。",
+  "[events] 前簿 17 表 PS.AMS1SVR Field change 於 172.16.201.131 4,220 + 10.1.141.54 1,453 + 172.16.101.17 328 = 6,001 = DB Category 28 總數 (完全一致)。",
+  "[events] 前簿 17 表 D 區 3 筆 1970 'Test event log' 占位 vs DB 僅 1 筆 (EventIdDay 25569)：前簿 3 筆為 .ams_merge 每個測試定義歷史重複輸出同一哨兵事件。",
+  "[events] EventTime vs EventIdDay/Fraction 換算：29,773 列差異全部 <2 秒 (0 列例外)。",
+  "[events] BlockAsgms 3,561 列的 In 事件全部存在於 EventLog (Category 1)；Out 事件 1,633 列存在 (Category 1 'Renamed AMS tag') + 1,928 列為 49710 哨兵 = 3,561。",
+  "[templates] 前版工作簿 26_附錄_範本 2,178 個(T 2,171 + C 7) vs 本庫 NamedConfigs 2,713：以範本名稱(去空白)比對，2,178 個全部找到(T 2,171 全中、C 7 全中)；差異 535 = C 多 524(本庫 531 個 Char! 特性紀錄，LastModified 皆 2025-12-11 UTC，前版 .ams_merge 只匯出廠內裝置用到的 7 個 C) + S 10(前版無此類型) + sentinel 1",
+  "[templates] 前版 C 7 個 = 本庫 7 個「廠內裝置有用到版次」的 C 紀錄(Levelflex FMP5x、DVC6200f、Logix 3840、3051 FF、3144 FF、848 FF、TopWorx D2-FF)，完全一致",
+  "[templates] 前版範本區塊數(前版區塊數欄)與本庫 FF區塊數(NamedConfigBlocks)以欄位並列供比對；GE PHRA=T00811、GE YSIL=T00820 前版皆存在",
+  "[templates] 已知事實核對：1,928 台裝置 = BlockAsgms 現行列 1,928 = 每台一個現行位號；HART 1,577 / FF 351 與 SnapOn 1,562+15 / 227+124 相加一致",
+  "[templates] EventId 換算核對：TestDefAsgms 結束事件 (45643, 258530088) → 2024-12-17 02:53:21 UTC = EventLog.EventTime 同列，換算正確",
+  "[params] 現值筆數：本庫相異 (BlockKey, ParamName) = 344,943 = HART 204,562 + FF 140,381，與舊工作簿 21_HART參數現值 204,562 列、22_FF參數現值 140,381 列完全一致",
+  "[params] 逐筆值比對（以 AmsDeviceId GUID 對應設備別名，1,928/1,928 台對上）：HART 204,562 筆中 203,843 筆值相同，719 筆僅呈現格式差異（494 筆 type 9 舊匯出加 '&' 前綴、40 筆 NULL 字串舊為空白、185 筆日期 2.0 舊顯示 2000/01/01）；FF 140,381 筆中 136,435 筆相同，3,946 筆為 0x49 日期字串格式與 float INF 顯示差異，無數值不符",
+  "[params] 03_設備總表關鍵組態比對（HART）：URV 1,272/1,272 相符、LRV 1,272/1,272、阻尼 1,305/1,305、描述 825/825、HART 日期 1,540/1,562（22 筆差異全為 2.0/-363 的顯示規則差異）",
+  "[params] 參數字典：HART 基底參數名 5,828 個 = 舊工作簿 20_參數字典 HART 5,828；FF item:member 本庫 3,430 個 vs 舊工作簿 3,443（舊表為 ff_items 全集，含 13 個本庫無值的 item）",
+  "[params] 事件對應：BlockData 8,116 個相異事件 100% 存在於 EventLog（缺漏 0），EventLog.BlockKey 與 BlockData.BlockKey 全部一致；EventLog 時間為 UTC，(台灣) 欄 = +8h，與舊工作簿 21/22 的最後記錄(台灣) 一致（例 G11_96AT-6A date 最後記錄 2025-05-09 11:25:30）",
+  "[params] ParamDataSize 與 BLOB 實際長度不一致 0 列；FF 十六進位文字非法字元 0 列；FF 0x49 前 4 位元組全為 0",
+  "[modules] ComputerId→IP 解碼 vs 前次工作簿 17_使用者與電腦：工作簿列出的電腦 172.16.201.131、10.1.141.54、172.16.101.17、10.8.0.6、10.223.32.77、10.223.32.108、10.223.32.73、10.20.0.13 全部與本模組以 struct.pack('>i') 還原的 IP 一致；127.0.0.1 = 2130706433 為定錨驗證。",
+  "[modules] ParamDataType vs 工作簿 20_參數字典 vtype 眾數：5,828 個 HART 參數 (以 ParamName 首段對照) 得 4↔Long 2,958、6↔Float 2,656、8↔Time 20、9↔Binary 2、12↔TString 192，零例外；型別 3 (Archived 舊列) 與 5/7 未出現於文字匯出。",
+  "[modules] EventIdDay/Fraction 公式 vs EventLog.EventTime：前 5,000 筆換算差 >1 秒者 0 筆。",
+  "[modules] 事件數：工作簿 10_事件總帳 13,682 筆 (自 .ams_merge 文字匯出) vs DB EventLog 29,773 筆；DB 中 2024-11 以後本廠事件 22,064 筆，Source='AmsMergeDoc' 範本事件 6,772 筆、1996~2019 原廠事件 ~935 筆、哨兵 2 筆。差異來源需事件領域代理再核對 (文字匯出可能不含 Type 4 系統事件 1,097、Type 3 資料庫維護 2,074、Type 8 同步 4,673 等)。",
+  "[modules] 裝置數：BlockAsgms EventIdDayOut=49710 列 = 1,928 = Devices (扣 -1 哨兵) = DeviceAssets 1,928 = DeviceLocation 1,928 = 工作簿 03_設備總表 1,928 列；Blocks 裝置層級 ('' 型) 1,929 含哨兵。",
+  "[modules] BlockType 分佈 R 351 = FF 裝置數 351 (每台一個 Resource block)，與已知 351 FF 裝置一致；Devices.ProtocolRevision=0 者 352 = 351 FF + 1 哨兵。",
+  "[modules] PlantLocations_Scope 8 筆 GUID 與 Hierarchies.AreaIdentifier 8 筆 join 全部命中，且 AmsSp_HasPermission 內的 5 個範圍 GUID 常數都存在於本 DB (非另一套安裝)。"
+ ]
+}

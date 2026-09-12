@@ -134,7 +134,8 @@
     });
     U.$('#sheet-count').textContent = `${D.sheets.length} 張`;
     const wb = D.manifest.workbook || {};
-    U.$('#sidebar-foot').innerHTML = `${wb.xlsx ? `來源：${U.esc(wb.xlsx)}<br>` : ''}${wb.source ? `資料：${U.esc(wb.source)}<br>` : ''}${wb.built ? `建置：${U.esc(wb.built)}` : ''}`;
+    const rel = Array.isArray(wb.related) ? wb.related.filter((x) => x && x.label && typeof x.href === 'string' && /^(\.\.?\/|[\w-]+\/)/.test(x.href)) : [];
+    U.$('#sidebar-foot').innerHTML = `${wb.xlsx ? `來源：${U.esc(wb.xlsx)}<br>` : ''}${wb.source ? `資料：${U.esc(wb.source)}<br>` : ''}${wb.built ? `建置：${U.esc(wb.built)}` : ''}${rel.length ? '<br>' + rel.map((x) => `<a class="lk" href="${U.esc(x.href)}">${U.esc(x.label)} ›</a>`).join('<br>') : ''}`;
   }
   function setActive(id) {
     U.$$('.sheet-link').forEach((a) => {
