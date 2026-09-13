@@ -2,6 +2,15 @@
 """AMS database workbook (20260912_AMS資料庫解析) -> static site data for docs/db/ (CONTRACT.md formats).
 
 Usage:  py tools/db/extract_db.py <sheets_final.pkl> docs/db/data
+        py tools/db/build_card_aux.py <cardwork_dir> docs/db/data     (02 查詢卡附加資料 card/*.json；重算 build 並重新 stamp)
+        py tools/stamp_assets.py docs                                (改了 docs/assets 時：舊站 docs/index.html 的版本戳)
+
+card aux 前置（各產生器輸出放 <cardwork_dir>，不進 repo）：
+  py tools/db/card_ams_extra.py <AmsDb.sqlite> <cardwork>/ams.json 2026-09-12 --sheets docs/db/data/sheets
+  py tools/db/docmap_terminal.py <文件庫根> docs/db/data/sheets <cardwork>/terminal.json
+  py tools/db/docmap_instlist.py --root <文件庫根> --sheets docs/db/data/sheets --out <cardwork>/instlist.json
+  py tools/db/docmap_eomr.py --root <文件庫根> --sheets docs/db/data/sheets --sqlite <AmsDb.sqlite> --cache <dir> --out <cardwork>/eomr.json
+  py tools/db/docmap_docindex.py --root <文件庫根> --sheets03 docs/db/data/sheets/03.json --cache <txt dir> --out <cardwork>/docindex.json
 
 Input is the post-processed sheet set written by tools/db/build_workbook.py (same sheets, numbers and columns as the
 Excel workbook), so the web site and the workbook never disagree.  Writes manifest.json, sheets/<id>.json
@@ -245,6 +254,23 @@ def grid_01(cfg, title, num_of):
 
 
 # ---------------------------------------------------------------- card spec
+# 來源分級（CONTRACT.md「src 契約」）：raw 原始｜decoded 解碼｜inferred 推論｜doc 文件·設計｜factory 出廠
+SRC_DEFS = {
+    'raw': {'label': '原始', 'desc': '直接取 AMS 資料庫某一欄（可經 JOIN）'},
+    'decoded': {'label': '解碼', 'desc': '以固定規則換算：時間、字串切段、二進位 int32/float32/UTF-16、FF hex、碼表'},
+    'inferred': {'label': '推論', 'desc': '經驗規則、寫死的對照表、外部對照檔或機組範本推論（非資料庫/文件直接記載）'},
+    'doc': {'label': '文件', 'desc': '設計文件（DCS 端子表、儀器清單、P&ID、Hook-up…）：「應該是什麼」'},
+    'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
+}
+SRC_PREFIX = {k: v['label'] for k, v in SRC_DEFS.items()}
+
+
+def src(lvl, text):
+    """欄位來源 {lvl, text}；text 形如「原始 · 表.欄」，可含 {cNN}（同一列第 NN 欄的值，由前端代入）。"""
+    assert lvl in SRC_DEFS, lvl
+    return {'lvl': lvl, 'text': f'{SRC_PREFIX[lvl]} · {text}'}
+
+
 def card_spec(final, sheets_by_name, num_of, link_index, web_df):
     def ci(sheet_name, prefix):
         df = web_df.get(sheet_name, sheets_by_name[sheet_name]['df'])
@@ -255,21 +281,61 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
             if c.startswith(prefix):
                 return i
         raise KeyError(f'{sheet_name}: {prefix}')
-    T = lambda label, pre, **kw: dict({'label': label, 'col': ci('設備總表', pre)}, **kw)
-    D = lambda label, pre: {'label': label, 'col': ci('設備總表', pre), 'raw': True, 'fmt': 'yyyy-mm-dd hh:mm:ss'}
+    T = lambda label, pre, lvl, text, **kw: dict({'label': label, 'col': ci('設備總表', pre), 'src': src(lvl, text)}, **kw)
+    D = lambda label, pre, lvl, text: {'label': label, 'col': ci('設備總表', pre), 'raw': True, 'fmt': 'yyyy-mm-dd hh:mm:ss', 'src': src(lvl, text)}
+    DL = 'Blocks(BlockIndex=0)→DeviceLocation'
+    proto_col = ci('設備總表', '協定 (')
     sections = [
-        {'label': '1. 識別與位號', 'fields': [T('現行 AMS 位號', '現行AMS位號'), T('設備別名', ALIAS), T('設備鍵', '設備鍵'), T('識別時裝置位號', '識別時裝置位號'),
-                                         T('現行位號品質', '現行位號品質'), T('識別位號品質', '識別位號品質'), T('前一個 AMS 位號', '前一個AMS位號'), T('位號指派次數', '位號指派次數'),
-                                         D('現行位號指派時間(台灣)', '現行位號指派時間'), T('指派者', '指派者'), D('首次識別時間(台灣)', '首次識別時間'),
-                                         T('機組', '機組 ('), T('機組說明', '機組說明'), T('KKS 系統碼', 'KKS系統碼'), T('KKS 設備碼', 'KKS設備碼')]},
-        {'label': '2. 設備', 'fields': [T('節點種類', '節點種類'), T('協定＋版本', '協定+版本'), T('製造商', '製造商 ('), T('型號', '型號 ('), T('型號代碼', '型號代碼'), T('設備版本', '設備版本 ('),
-                                     T('主類別', '主類別'), T('次類別', '次類別'), T('裝置ID (HART Device ID)', '裝置ID'), T('處置', '處置 ('), T('設備 GUID', '設備GUID')]},
-        {'label': '3. 實體位置', 'fields': [T('網路名稱', '網路名稱'), T('網路種類', '網路種類'), T('MUX 位址', 'MUX位址'), T('通道', '通道 ('), T('COM 埠號', 'COM埠號'), T('HART 版本', 'HART版本'),
-                                       T('MUX HART UID', 'MUX HART UID'), T('裝置 HART UID', '裝置 HART UID'), T('FF 連結設備', 'FF連結設備名稱'), T('FF Link 編號', 'FF Link編號'),
-                                       T('主機位號 (HostTag)', '主機位號'), T('識別狀態', '識別狀態'), T('AMS 路徑', 'AMS路徑', span=2), T('主機路徑', '主機路徑', span=2),
-                                       T('FF R/T/F 區塊數', 'FF資源區塊數'), T('伺服器', '伺服器')]},
+        {'label': '1. 識別與位號', 'fields': [
+            T('現行 AMS 位號', '現行AMS位號', 'decoded', 'ExtBlockTags.ExtBlockTag（BlockAsgms EventIdDayOut=49710，清除殘碼）'),
+            T('設備別名', ALIAS, 'inferred', '20260910_AMS解析.xlsx 設備別名（以 Devices.AmsDeviceId GUID 對照）'),
+            T('設備鍵', '設備鍵', 'raw', 'Devices.DeviceKey'),
+            T('識別時裝置位號', '識別時裝置位號', 'decoded', 'Devices.AmsDeviceTag（清除殘碼）'),
+            T('現行位號品質', '現行位號品質', 'inferred', '位號品質規則（正規式分類：空白／殘碼／自動時間戳／正常）'),
+            T('識別位號品質', '識別位號品質', 'inferred', '位號品質規則（Devices.AmsDeviceTag）'),
+            T('位號關係（現行 vs 識別時）', 'AMS位號與識別位號關係', 'inferred', '現行位號與 Devices.AmsDeviceTag 字串比較（相同／後綴／改名）'),
+            T('前一個 AMS 位號', '前一個AMS位號', 'decoded', 'BlockAsgms 已結束指派（EventIdDayOut≠49710）最後一筆 → ExtBlockTags'),
+            T('位號指派次數', '位號指派次數', 'decoded', 'BlockAsgms 筆數（設備層 BlockKey）'),
+            D('現行位號指派時間(台灣)', '現行位號指派時間', 'decoded', 'BlockAsgms.EventIdDayIn/FractionIn → UTC+8'),
+            T('現行指派事件', '現行位號指派事件', 'raw', 'EventLog.Description（對上 BlockAsgms EventIdDayIn/FractionIn）', span=2),
+            T('指派者', '指派者', 'raw', 'EventLog.UserKey → Users.UserName'),
+            D('首次指派時間（自動識別）', '首次識別時間', 'decoded', 'BlockAsgms.EventIdDayIn 最早一筆 → UTC+8（多為 PS.AMS1SVR 自動識別寫入）'),
+            T('機組', '機組 (', 'inferred', '位號切字（KKS 規則／前綴 G11/G12/S10/C10/C53）'),
+            T('機組說明', '機組說明', 'inferred', '內建機組對照表 UNIT_ZH'),
+            T('KKS 系統碼', 'KKS系統碼', 'decoded', '現行位號 KKS 切字（第 2 組）'),
+            T('KKS 系統編號', 'KKS系統編號', 'decoded', '現行位號 KKS 切字（第 3 組）'),
+            T('KKS 設備碼', 'KKS設備碼', 'decoded', '現行位號 KKS 切字（第 4 組）'),
+            T('KKS 流水號', 'KKS流水號', 'decoded', '現行位號 KKS 切字（第 5 組）')]},
+        {'label': '2. 設備', 'fields': [
+            T('節點種類', '節點種類', 'inferred', 'DeviceLocation.AmsPath 末段 MUX_DEVICE／DeviceProtocols.Name'),
+            T('協定＋版本', '協定+版本', 'decoded', 'DeviceProtocols.Name + Devices.ProtocolRevision'),
+            T('製造商', '製造商 (', 'raw', 'Devices.AmsDevRevId → DeviceRevisions → DeviceTypes → MfrProtocols → Manufacturers.Name'),
+            T('型號', '型號 (', 'raw', 'DeviceTypes.Name'),
+            T('型號代碼', '型號代碼', 'raw', 'DeviceTypes.DeviceType'),
+            T('設備版本', '設備版本 (', 'raw', 'DeviceRevisions.DeviceRevision'),
+            T('主類別', '主類別', 'raw', 'DeviceCategories → MajorDeviceCategories.Name'),
+            T('次類別', '次類別', 'raw', 'DeviceCategories → MinorDeviceCategories.Name'),
+            T('裝置ID (HART Device ID)', '裝置ID', 'raw', 'Devices.Identifier（HART：Device ID＝HostPath 第 5 段末 6 碼，非銘牌序號；FF：裝置識別字串）',
+              label_by={'col': proto_col, 'map': {'FF': '裝置ID (FF 裝置識別字串)'}, 'default': '裝置ID (HART Device ID)'}),
+            T('設備 GUID', '設備GUID', 'decoded', 'Devices.AmsDeviceId（轉大寫）')]},
+        {'label': '3. 實體位置', 'fields': [
+            T('網路名稱', '網路名稱', 'raw', f'{DL}→NetworkInfo.NetworkName'),
+            T('網路種類', '網路種類', 'raw', 'NetworkInfo.NetworkKindAsString'),
+            T('MUX 位址', 'MUX位址', 'decoded', f'{DL}.AmsPath 第 4 段', proto='HART'),
+            T('通道', '通道 (', 'decoded', f'{DL}.AmsPath 第 5 段', proto='HART'),
+            T('COM 埠號', 'COM埠號', 'decoded', f'{DL}.HostPath 第 1 段', proto='HART'),
+            T('HART 版本', 'HART版本', 'decoded', f'{DL}.HostPath 第 8 段', proto='HART'),
+            T('MUX HART UID', 'MUX HART UID', 'decoded', f'{DL}.HostPath 第 4 段', proto='HART'),
+            T('裝置 HART UID', '裝置 HART UID', 'decoded', f'{DL}.HostPath 第 5 段', proto='HART'),
+            T('FF 連結設備', 'FF連結設備名稱', 'decoded', f'{DL}.AmsPath 第 4 段（6 段路徑）', proto='FF'),
+            T('FF Link 編號', 'FF Link編號', 'decoded', f'{DL}.AmsPath 第 5 段 Link #n', proto='FF'),
+            T('主機位號 (HostTag)', '主機位號', 'decoded', f'{DL}.HostTag（清除殘碼）'),
+            T('識別狀態', '識別狀態', 'decoded', f'{DL}.IdentStatus → AmsUdf_DevBlkIdentStatusAsString'),
+            T('AMS 路徑', 'AMS路徑', 'raw', f'{DL}.AmsPath', span=2),
+            T('主機路徑', '主機路徑', 'raw', f'{DL}.HostPath', span=2),
+            {'label': 'FF R/T/F 區塊數', 'col': [ci('設備總表', 'FF資源區塊數'), ci('設備總表', 'FF轉換區塊數'), ci('設備總表', 'FF功能區塊數')],
+             'join': ' / ', 'prefixes': ['R', 'T', 'F'], 'blank_if_zero': True, 'proto': 'FF', 'src': src('decoded', 'Blocks.BlockType 依 R/T/F 計數（BlockIndex>0）')}]},
     ]
-    st = sheets_by_name['設備參數統計']
     links = [
         {'label': '→ 設備總表', 'sheet': '03', 'self': True},
         {'label': '→ 參數現值', 'param': {'sheet_col': ci('設備總表', '參數現值表'), 'row_col': ci('設備總表', '參數現值起始列'), 'count_col': ci('設備總表', '參數現值筆數')}, 'none': '→ 參數現值（無）', 'fmt': '→ 參數現值 {n} 筆'},
@@ -278,19 +344,68 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
                     ('同步失敗統計', '同步失敗'), ('刪除裝置事件', '刪除裝置事件'), ('SnapOn裝置檔案資訊', 'SnapOn 檔案'), ('測試定義指派', '測試定義指派'), ('位號跨表對照', '位號跨表對照')]:
         if nm in sheets_by_name and ALIAS in sheets_by_name[nm]['df'].columns:
             links.append({'label': f'→ {lab}', 'sheet': num_of[nm], 'match_col': ci(nm, ALIAS), 'count_mode': 'eq', 'count_col': ci(nm, ALIAS), 'fmt': f'→ {lab} {{n}} 筆', 'none': f'→ {lab}（無）'})
-    rc = {'title': '6. 最近 10 筆參數變更（來源 參數變更歷程，k=1 最新）', 'sheet': num_of['參數變更歷程'], 'key_col': ci('參數變更歷程', '別名#序'), 'k_max': 10, 'noun': '參數變更', 'alias_col': ci('參數變更歷程', ALIAS),
-          'columns': [{'label': '變更記錄時間(台灣)', 'col': ci('參數變更歷程', '變更記錄時間(台灣)'), 'fmt': 'yyyy-mm-dd hh:mm'}, {'label': '參數', 'col': ci('參數變更歷程', '參數 (')},
-                      {'label': '中文名稱', 'col': ci('參數變更歷程', '參數中文名稱')}, {'label': '類別', 'col': ci('參數變更歷程', '關鍵組態類別')},
-                      {'label': '前值 → 新值', 'cols': [ci('參數變更歷程', '前值'), ci('參數變更歷程', '新值')], 'join': ' → '},
-                      {'label': '事件', 'col': ci('參數變更歷程', '事件說明')}, {'label': '使用者', 'col': ci('參數變更歷程', '使用者 (')}]}
+    CAT_DCS = 'Change performed by foreign host'
+    rc = {'title': '最近 10 筆參數變更（來源 參數變更歷程，k=1 最新）', 'sheet': num_of['參數變更歷程'], 'key_col': ci('參數變更歷程', '別名#序'), 'k_max': 10, 'noun': '參數變更', 'alias_col': ci('參數變更歷程', ALIAS),
+          'columns': [{'label': '變更記錄時間(台灣)', 'col': ci('參數變更歷程', '變更記錄時間(台灣)'), 'fmt': 'yyyy-mm-dd hh:mm',
+                       'src': src('decoded', 'EventLog.EventTime（新值那筆 BlockData 的 EventIdDay/Fraction）UTC → +8')},
+                      {'label': '參數', 'col': ci('參數變更歷程', '參數 ('), 'src': src('decoded', 'BlockData.ParamName 基底 / item:member')},
+                      {'label': '中文名稱', 'col': ci('參數變更歷程', '參數中文名稱'), 'src': src('inferred', '舊工作簿 20_參數字典（機器斷詞對照）')},
+                      {'label': '組態類別', 'col': ci('參數變更歷程', '關鍵組態類別'), 'src': src('inferred', '關鍵語意規則 KEY_CONFIG（參數名 → 量程/單位/阻尼…）')},
+                      {'label': '前值 → 新值', 'cols': [ci('參數變更歷程', '前值'), ci('參數變更歷程', '新值')], 'join': ' → ',
+                       'src': src('decoded', 'BlockData 同 (BlockKey, ParamName) 相鄰兩筆 ValueMode=h 值（依 ParamDataType：int32/float32/OLE 日期/UTF-16LE；FF hex）')},
+                      {'label': '類別', 'col': ci('參數變更歷程', '事件分類'), 'map': {CAT_DCS: 'DCS·外部主機', 'Change performed by AMS Device Manager': '人工 AMS'}, 'warn_eq': CAT_DCS,
+                       'title': 'EventLog.Category → EventCategories：Cat 28「Change performed by foreign host」＝DCS／外部主機寫入；其他＝AMS 人工',
+                       'src': src('raw', 'EventLog.Category → EventCategories.Description（Cat 28＝DCS·外部主機，其他＝人工 AMS）')},
+                      {'label': '事件', 'col': ci('參數變更歷程', '事件說明'), 'src': src('raw', 'EventLog.Description')},
+                      {'label': '使用者', 'col': ci('參數變更歷程', '使用者 ('), 'src': src('raw', 'EventLog.UserKey → Users.UserName')}]}
     rules = [
         {'when': {'col': ci('設備總表', '識別狀態碼'), 'eq': '0'}, 'targets': [ci('設備總表', '識別狀態')], 'style': {'fc': '#9C0006', 'bg': '#FFC7CE'}},
         {'when': {'col': ci('設備總表', '現行位號品質'), 'ne': '正常'}, 'targets': [ci('設備總表', '現行位號品質')], 'style': {'bg': '#FCE4D6'}},
         {'when': {'count_gt': 1}, 'targets': ['count'], 'style': {'b': 1, 'fc': '#C00000'}},
     ]
+    S = lambda label, pre, lvl, text, **kw: dict({'label': label, 'col': ci('設備參數統計', pre), 'src': src(lvl, text)}, **kw)
+    stats_fields = [
+        S('參數數', '參數數', 'decoded', 'BlockData 參數基底數（每參數最新一筆）'),
+        S('變更次數', '變更次數', 'decoded', 'BlockData 同參數相鄰 ValueMode=h 值不同的次數'),
+        S('LRV 量程下限', 'LRV', 'decoded', 'BlockData（{c16} 對應下限參數）float32 · 最後記錄 {c36}', cmp='ams_lo', flt=True, proto='HART'),
+        S('URV 量程上限', 'URV', 'decoded', 'BlockData {c16} float32 · 最後記錄 {c36}', cmp='ams_hi', flt=True, proto='HART'),
+        S('量程參數', '量程參數', 'decoded', 'BlockData.ParamName 基底（KEY_CONFIG 候選字母序第一個）', proto='HART'),
+        S('單位', '單位(解碼)', 'decoded', 'BlockData {c19}={c17} → HART 單位碼表', cmp='ams_unit', proto='HART'),
+        S('阻尼 (s)', '阻尼(s)', 'decoded', 'BlockData {c21} float32', flt=True, proto='HART'),
+        S('寫入保護', '寫入保護', 'decoded', 'BlockData write_protect={c25} → 碼表', proto='HART'),
+        S('轉換函數', '轉換函數', 'decoded', 'BlockData transfer_function={c27} → 碼表', proto='HART'),
+        S('輪詢位址', '輪詢位址', 'decoded', 'BlockData polling_address int32', proto='HART'),
+        S('銘牌序號', '最終組裝號', 'decoded', 'BlockData final_assembly_number int32（Rosemount＝銘牌序號後 7 碼；0＝未寫入）', serial=True, proto='HART'),
+        S('描述 (descriptor)', '描述 (', 'decoded', 'BlockData descriptor UTF-16LE', proto='HART'),
+        S('訊息 (message)', '訊息 (', 'decoded', 'BlockData message UTF-16LE', proto='HART'),
+        S('HART 日期', 'HART 日期', 'decoded', 'BlockData date OLE 日期', proto='HART'),
+        S('FF XD_SCALE EU0', 'FF XD_SCALE EU0', 'decoded', 'BlockData 80020192:02 FF hex float32（區塊 {c34}）', flt=True, proto='FF'),
+        S('FF XD_SCALE EU100', 'FF XD_SCALE EU100', 'decoded', 'BlockData 80020192:01 FF hex float32（區塊 {c34}）', flt=True, proto='FF'),
+        S('FF XD_SCALE 單位', 'FF XD_SCALE 單位', 'decoded', 'BlockData 80020192:03 FF 單位碼 → 碼表（區塊 {c34}）', proto='FF'),
+        S('首次記錄(台灣)', '首次記錄', 'decoded', 'BlockData 最早 EventIdDay/Fraction → UTC+8'),
+        S('最後記錄(台灣)', '最後記錄', 'decoded', 'BlockData 最新 EventIdDay/Fraction → UTC+8'),
+        S('最後事件說明', '最後事件說明', 'raw', 'EventLog.Description（最後記錄事件）'),
+        S('最後使用者', '最後使用者', 'raw', 'EventLog.UserKey → Users.UserName（最後記錄事件）'),
+    ]
+    sections_aux = [
+        {'key': 'sync', 'label': '維護狀態（AMS 同步）', 'empty': '（無同步紀錄）'},
+        {'key': 'change', 'label': '最後修改（人工 AMS／DCS·外部主機寫入）', 'empty': '（排除動態值後，無參數修改紀錄）',
+         'note': '依 BlockData 相鄰值不同判定；排除 pv_value、OperatingHours 等動態/計數值與 7 位有效數字相同的浮點殘差，故可能與 14_參數變更歷程 略有不同。Cat 28「Change performed by foreign host」＝DCS／外部主機寫入。'},
+        {'key': 'compare', 'label': 'DCS 比對（量程；以 DCS 為主）', 'empty': '（無 DCS 基準：DCS 端子表查無此位號，AMS 事件也無 Cat28 量程寫入）',
+         'note': '基準＝AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考），否則 DCS 端子表 DEVICE_LO/HI。其他來源與基準差超過 ±0.5% span 標「⚠ 與 DCS 不符」；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」。端子表為設計文件，非 DCS 現行組態。'},
+        {'key': 'ff', 'label': 'FF 診斷（僅 FF 設備）', 'only_ff': True, 'empty': '（此 FF 設備在 AMS 無 FF 參數紀錄）', 'note': 'WRITE_LOCK 依 FF 規範 1＝未鎖定、2＝鎖定。'},
+        {'key': 'terminal', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
+        {'key': 'instlist', 'label': '設計規格（儀器清單）', 'kind': 'instlist'},
+        {'key': 'eomr', 'label': '出廠紀錄（EOMR 校正證書）', 'kind': 'eomr', 'note': '目前只解析 Rosemount/Emerson 格式證書；銘牌序號後 7 碼與 AMS final_assembly_number 比對。'},
+        {'key': 'docindex', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'PDF 文字層逐頁比對；p.N 為 PDF 頁序。R2/R3 為 GE/ST 不分機組編號（同編號各機組共用此頁）。'},
+        {'key': 'ident', 'label': '位號歷程補充（刪除重建／方法執行）', 'empty': '（無刪除重建或方法執行紀錄）'},
+        {'key': 'alarm', 'label': '類比輸出警報與飽和電流', 'empty': '（無警報／飽和電流參數）'},
+        {'key': 'device', 'label': '設備補充（銘牌序號／版次）', 'empty': '（無參數紀錄）'},
+    ]
     return {
         'id': '02', 'name': '02_設備查詢卡', 'mode': 'card', 'title': '02_設備查詢卡',
-        'notes': ['輸入目前/舊 AMS 位號、識別時位號、HostTag、裝置ID、設備鍵、設備 GUID 或別名（大小寫不拘），按 Enter。字串經 04_位號索引 換成別名，再從 03_設備總表、設備參數統計、參數變更歷程等取值。'],
+        'notes': ['輸入目前/舊 AMS 位號、識別時位號、HostTag、裝置ID、設備鍵、設備 GUID 或別名（大小寫不拘），按 Enter。字串經 04_位號索引 換成別名，再從 03_設備總表、設備參數統計、參數變更歷程、AMS DB 補充與工程文件比對（card aux）取值。',
+                  '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR。'],
         'default_query': final.get('default_query', 'G12HAP70BT001'),
         'input': {'label': '查詢位號', 'prompt': '位號／舊位號／識別時位號／HostTag／裝置ID／設備鍵／別名', 'suggest': {'sheet': '04', 'col': 0, 'hint_cols': [2, 4]}},
         'lookup': {'index_sheet': '04', 'key_col': 0, 'src_col': 2, 'alias_col': 4, 'count_col': 7, 'target_sheet': '03', 'target_alias_col': 1, 'target_tag_col': 0,
@@ -299,16 +414,28 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
                            'no_device': '（無對應設備）', 'device': ' → 目前位號 {tag}', 'multi': '只顯示優先序最高的一台'},
                    'labels': {'alias': '設備別名 alias', 'count': '此字串對應設備數'}},
         'sections': sections,
-        'links_title': '5. 快速連結（附筆數；點擊跳到該表並篩選此設備）', 'links': links,
+        'links_title': '快速連結（附筆數；點擊跳到該表並篩選此設備）', 'links': links,
         'recent_changes': rc, 'rules': rules, 'link_index': link_index,
         'home_link': {'t': '⌂ 目錄', 'l': {'s': '00', 'r': 1}},
+        'src_defs': SRC_DEFS, 'src_default': {'wide': 'full', 'narrow': 'badge', 'breakpoint': 640},
+        'protocol_col': proto_col,
         'stats': {'title': '4. 關鍵組態現值（設備參數統計：量程／單位／阻尼／寫入保護…）', 'sheet': num_of['設備參數統計'], 'alias_col': ci('設備參數統計', ALIAS),
-                  'fields': [{'label': l, 'col': ci('設備參數統計', p)} for l, p in [('參數數', '參數數'), ('變更次數', '變更次數'), ('LRV 量程下限', 'LRV'), ('URV 量程上限', 'URV'), ('量程參數', '量程參數'),
-                                                                                  ('單位', '單位(解碼)'), ('阻尼 (s)', '阻尼(s)'), ('寫入保護', '寫入保護'), ('轉換函數', '轉換函數'), ('輪詢位址', '輪詢位址'),
-                                                                                  ('描述 (descriptor)', '描述 ('), ('訊息 (message)', '訊息 ('), ('HART 日期', 'HART 日期'), ('FF XD_SCALE EU0', 'FF XD_SCALE EU0'),
-                                                                                  ('FF XD_SCALE EU100', 'FF XD_SCALE EU100'), ('FF XD_SCALE 單位', 'FF XD_SCALE 單位'), ('首次記錄(台灣)', '首次記錄'),
-                                                                                  ('最後記錄(台灣)', '最後記錄'), ('最後事件說明', '最後事件說明'), ('最後使用者', '最後使用者')]]},
+                  'fields': stats_fields},
+        'aux': {'index': 'card/index.json', 'number_from': 5},
+        'sections_aux': sections_aux,
     }
+
+
+def data_build(outdir, manifest):
+    """資料建置雜湊：sheets/*.json＋card/*.json＋不含 build 的 manifest（決定性）。無 card/ 時與舊算法相同。"""
+    h = hashlib.sha256()
+    for p in sorted(glob.glob(os.path.join(outdir, 'sheets', '*.json'))) + sorted(glob.glob(os.path.join(outdir, 'card', '*.json'))):
+        rel = os.path.relpath(p, outdir).replace('\\', '/')
+        name = os.path.basename(p) if rel.startswith('sheets/') else rel
+        h.update(name.encode('utf-8') + b'\0'); h.update(open(p, 'rb').read())
+    man = {k: v for k, v in manifest.items() if k != 'build'}
+    h.update(json.dumps(man, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8'))
+    return h.hexdigest()[:10]
 
 
 # ---------------------------------------------------------------- main
@@ -384,7 +511,7 @@ def main(pkl, outdir):
     head_toc = [
         {'id': '00', 'name': '00_說明', 'desc': '來源、閱讀須知、工作表目錄與各表註記', 'row_unit': '版面', 'rows': None, 'cols': None, 'sources': ''},
         {'id': '01', 'name': '01_摘要', 'desc': '關鍵數字、重點發現（依嚴重度）、待決事項', 'row_unit': '版面', 'rows': None, 'cols': None, 'sources': ''},
-        {'id': '02', 'name': '02_設備查詢卡', 'desc': '輸入任何位號字串（目前/舊位號、識別時位號、HostTag、裝置ID、設備鍵、GUID、別名）即顯示單台設備：識別、位置、關鍵組態、最近變更、事件與連結', 'row_unit': '版面（查詢卡）', 'rows': None, 'cols': None, 'sources': '04、03、設備參數統計、參數變更歷程'},
+        {'id': '02', 'name': '02_設備查詢卡', 'desc': '輸入任何位號字串（目前/舊位號、識別時位號、HostTag、裝置ID、設備鍵、GUID、別名）即顯示單台設備：識別、位置、關鍵組態、同步狀態、DCS 比對、工程文件（端子表／儀器清單／EOMR／文件索引）、最近變更與連結；每欄附資料來源', 'row_unit': '版面（查詢卡）', 'rows': None, 'cols': None, 'sources': '04、03、設備參數統計、參數變更歷程、card aux'},
     ]
     entries_public = head_toc + [{k: v for k, v in e.items()} for e in manifest_sheets]
     g00 = grid_00(cfg, entries_public, title, sub)
@@ -410,13 +537,15 @@ def main(pkl, outdir):
         'search': {'index_sheet': '04', 'key_col': 0, 'alias_col': 4, 'count_col': 7, 'src_col': 2, 'tag_col': 3},
         'default_sheet': '00',
     }
-    write(os.path.join(outdir, 'manifest.json'), manifest)
-    # build hash (content based)
-    h = hashlib.sha256()
-    for p in sorted(glob.glob(os.path.join(outdir, 'sheets', '*.json'))):
-        h.update(os.path.basename(p).encode('utf-8') + b'\0'); h.update(open(p, 'rb').read())
-    h.update(json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8'))
-    manifest['build'] = h.hexdigest()[:10]
+    aux_card = {'index': 'card/index.json', 'desc': '02_設備查詢卡附加資料：AMS DB 補充（同步、最後修改/DCS 寫入、FF 診斷、版次、警報）與工程文件比對（DCS 端子表、儀器清單、EOMR、文件索引）＋DCS 基準量程比對；依 alias 分塊按需載入。產生：tools/db/build_card_aux.py'}
+    ix_path = os.path.join(outdir, 'card', 'index.json')
+    if os.path.exists(ix_path):
+        ix = json.load(open(ix_path, encoding='utf-8'))
+        aux_card['parts'] = ix.get('parts')
+        aux_card['bytes'] = sum(os.path.getsize(q) for q in glob.glob(os.path.join(outdir, 'card', '*.json')))
+    manifest['aux'] = {'card': aux_card}
+    # build hash (content based; includes card/*.json when present)
+    manifest['build'] = data_build(outdir, manifest)
     write(os.path.join(outdir, 'manifest.json'), manifest)
     print('manifest sheets:', len(manifest['sheets']), 'build', manifest['build'])
     return manifest
