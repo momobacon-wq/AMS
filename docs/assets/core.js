@@ -103,6 +103,37 @@
     });
   };
 
+  /* ------------------------------------------------------------------ 查詢卡：值處理與來源分級 */
+  // float32 FLT_MIN（1.1754943508222875e-38）＝裝置「未使用」哨兵；float32 殘差（10000.0009765625）以 7 位有效數字顯示
+  U.isFltMin = (v) => typeof v === 'number' && v !== 0 && Math.abs(v) < 1e-30;
+  U.g7 = function (v) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return String(v);
+    if (Number.isInteger(v) && Math.abs(v) < 1e15) return String(v);
+    const n = Number(v.toPrecision(7));
+    return Math.abs(n) >= 1e-6 || n === 0 ? String(n) : n.toExponential();
+  };
+  /** 查詢卡欄位值 → 顯示文字；'' 表示空白（CSS 顯示「—」）。opt: {serial: 0→未寫入, fmt: Excel 格式碼} */
+  U.cardValue = function (v, opt) {
+    opt = opt || {};
+    v = U.raw(v);
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'number') {
+      if (U.isFltMin(v)) return '未使用';
+      if (opt.serial && v === 0) return '未寫入';
+      if (opt.fmt && opt.fmt !== 'General') return U.fmt(v, opt.fmt);
+      return U.g7(v);
+    }
+    if (v === true) return 'TRUE';
+    if (v === false) return 'FALSE';
+    const s = String(v);
+    if (s.trim() === '') return ''; // 全空白字串（descriptor／message 常見）
+    if (/^-?1\.17549435\d*e-38$/i.test(s.trim())) return '未使用';
+    if (opt.serial && /^0+(\.0+)?$/.test(s.trim())) return '未寫入';
+    return opt.fmt && opt.fmt !== 'General' ? U.fmt(s, opt.fmt) : s;
+  };
+  U.SRC_LVLS = ['raw', 'decoded', 'inferred', 'doc', 'factory'];
+  U.SRC_LABEL = { raw: '原始', decoded: '解碼', inferred: '推論', doc: '文件', factory: '出廠' };
+
   /* ------------------------------------------------------------------ Excel 數字格式子集 */
   const fmtCache = new Map();
   function splitSections(fmt) {
@@ -485,6 +516,21 @@
     const pr = D.fetchJSON(s.files[0], (f) => { U.progress(key, f); onProgress && onProgress(f); }, D.estBytes(s));
     pr.then(() => U.progress(key, null), () => U.progress(key, null));
     return pr;
+  };
+
+  /* 查詢卡附加資料（card aux，CONTRACT.md）：index.json 一次、aux-NN.json 依 alias 按需載入 */
+  D.loadAuxIndex = function (path) {
+    const p = path || (D.manifest && D.manifest.aux && D.manifest.aux.card && D.manifest.aux.card.index) || 'card/index.json';
+    return D.fetchJSON(p);
+  };
+  /** alias → {sec, compare, flags}（無資料回 null）；index 不存在時 reject */
+  D.loadAux = async function (alias, path) {
+    const ix = await D.loadAuxIndex(path);
+    const k = ix && ix.alias ? ix.alias[alias] : undefined;
+    if (k == null) return { ix, aux: null };
+    const f = (ix.files && ix.files[k]) || ('card/aux-' + String(k).padStart(ix.part_width || 2, '0') + '.json');
+    const j = await D.fetchJSON(f);
+    return { ix, aux: (j.by_alias && j.by_alias[alias]) || null };
   };
 
   /* 分塊表：依序載入；可先載入指定部分 */

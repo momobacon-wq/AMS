@@ -1,4 +1,5 @@
-/* AMS 解析網頁 — card 模式（02_設備查詢卡）：05 索引 → alias → 03 欄位、快速連結、最近變更、參數現值 */
+/* AMS 解析網頁 — card 模式（02_設備查詢卡）：索引 → alias → 03 欄位、關鍵組態、附加資料（AMS DB 補充＋工程文件比對）、快速連結、最近變更、參數現值
+ * 欄位可帶 src:{lvl,text}（CONTRACT.md「src 契約」）；卡片上方「來源：隱藏｜徽章｜完整」三段切換（規格有 src_defs 才顯示）。 */
 'use strict';
 (function () {
   const AMS = window.AMS;
@@ -51,6 +52,13 @@
       { when: { count_gt: 1 }, targets: ['count'], style: { b: 1, fc: '#C00000' } },
     ],
   };
+  const SRC_MODES = ['hide', 'badge', 'full'];
+  const SRC_MODE_LABEL = { hide: '隱藏', badge: '徽章', full: '完整' };
+  const STORE_MODE = 'card.srcMode';
+  const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ok: '✓ 與 DCS 一致' };
+  const cmpCls = (st) => (st === 'mismatch' ? 'bad' : st === 'ok' ? 'ok' : 'soft');
+  let uid = 0;
+
   const fill = (tpl, o) => String(tpl).replace(/\{(\w+)\}/g, (_, k) => (o[k] == null ? '' : String(o[k])));
   /** 站內工作表連結（已跳脫，可直接放進 href="…"）：id 以 encodeURIComponent、r 只接受非負整數（SEC-1） */
   function sheetHref(sid, o) {
@@ -61,6 +69,7 @@
     if (o.f) p.push('f=' + encodeURIComponent(JSON.stringify(o.f)));
     return U.esc('#/s/' + encodeURIComponent(String(sid)) + (p.length ? '?' + p.join('&') : ''));
   }
+  const lvlOf = (l) => (U.SRC_LVLS.includes(l) ? l : 'raw');
 
   class CardView {
     constructor(root, meta, route) {
@@ -68,6 +77,15 @@
       this.route = route;
       root.className = 'view card-view';
       root.innerHTML = `<header class="sv-head"><div class="sv-crumb"><span class="mode-badge">查詢卡</span> ${U.esc(meta.group || '')}</div><h1 class="sv-title">${U.esc(meta.name)}</h1></header><div class="loading-box"><div class="spinner"></div><p class="lb-msg">載入查詢卡、位號索引與設備總表…</p><div class="lb-bar"><div></div></div></div>`;
+      // 列印：展開 <details>（參數現值除外：展開會觸發非同步載入，列印時來不及畫出）並強制「完整」來源模式
+      this._bp = () => {
+        this._printing = true; this._opened = [];
+        this.root.querySelectorAll('details:not([open])').forEach((d) => { if (!d.classList.contains('pdet')) { d.open = true; this._opened.push(d); } });
+        this.applyMode();
+      };
+      this._ap = () => { this._printing = false; (this._opened || []).forEach((d) => { d.open = false; }); this._opened = []; this.applyMode(); };
+      window.addEventListener('beforeprint', this._bp);
+      window.addEventListener('afterprint', this._ap);
       this.load();
     }
     async load() {
@@ -84,6 +102,8 @@
         this.spec.recent_changes = Object.assign({}, DEFAULT.recent_changes, (spec && spec.recent_changes) || {});
         if (!Array.isArray(this.spec.rules)) this.spec.rules = DEFAULT.rules;
         this.linkIndex = spec && spec.link_index ? spec.link_index : null;
+        this.hasSrc = !!(spec && spec.src_defs);
+        this.srcDefs = this.hasSrc ? spec.src_defs : {};
         this.renderShell();
         this.run(this.queryFromRoute(this.route));
       } catch (e) {
@@ -98,10 +118,17 @@
     }
     update(route) { this.route = route; if (this.spec) this.run(this.queryFromRoute(route)); }
 
+    srcLabel(lvl) { return (this.srcDefs[lvl] && this.srcDefs[lvl].label) || U.SRC_LABEL[lvl] || lvl; }
+
     renderShell() {
       const s = this.spec; const root = this.root;
       const notes = Array.isArray(s.notes) ? s.notes : (s.notes ? [s.notes] : []);
       const home = s.home_link && s.home_link.l ? `<a class="lk soft" href="${U.esc(AMS.linkHref(s.home_link.l))}">${U.esc(s.home_link.t || '⌂ 目錄')}</a>` : '<a class="lk soft" href="#/s/00">⌂ 目錄</a>';
+      const srcbar = this.hasSrc ? `<div class="cq-srcbar">
+          <span class="cq-srclabel" id="cq-srclabel">來源：</span>
+          <div class="seg" role="group" aria-labelledby="cq-srclabel">${SRC_MODES.map((m) => `<button type="button" class="seg-btn" data-mode="${m}" aria-pressed="false">${SRC_MODE_LABEL[m]}</button>`).join('')}</div>
+          <span class="src-legend" aria-label="來源分級">${U.SRC_LVLS.map((l) => `<span class="src-chip lvl-${l}" title="${U.esc((this.srcDefs[l] && this.srcDefs[l].desc) || '')}">${U.esc(this.srcLabel(l))}</span>`).join('')}</span>
+        </div>` : '';
       root.innerHTML = `
         <header class="sv-head">
           <div class="sv-crumb"><span class="mode-badge">查詢卡</span> ${U.esc(this.meta.group || '')} · ${home}</div>
@@ -114,18 +141,49 @@
           <div class="cq-field"><input id="cq-input" class="cq-input" type="search" spellcheck="false" placeholder="${U.esc(s.input && s.input.prompt || '')}" aria-describedby="cq-status"></div>
           <button class="btn primary" type="submit">查詢</button>
         </form>
+        ${srcbar}
         <div id="cq-status" class="cq-status" role="status" aria-live="polite"></div>
         <div class="cq-meta"></div>
+        <div class="cq-flags" hidden></div>
         <div class="cq-alts" hidden></div>
         <div class="cq-body"></div>
         </div>`;
       this.input = root.querySelector('#cq-input');
+      this.scrollEl = root.querySelector('.card-scroll');
+      this.bodyEl = root.querySelector('.cq-body');
       const form = root.querySelector('.cq');
       form.addEventListener('submit', (e) => { e.preventDefault(); this.go(this.input.value); });
       this.ac = new AMS.Autocomplete(this.input, Object.assign({}, AMS.tagSuggestSource, {
         onPick: (it) => this.go(it.key),
         onEnter: (t) => this.go(t),
       }));
+      root.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => { U.store.set(STORE_MODE, b.dataset.mode); this.applyMode(); }));
+      // 斷點依卡片容器寬度（不是視窗寬度）：iPad 直向／側欄展開時內容寬可能只有 450–700px
+      if ('ResizeObserver' in window) { this.ro = new ResizeObserver(() => this.applyWidth()); this.ro.observe(this.scrollEl); }
+      this.applyWidth();
+    }
+    applyWidth() {
+      if (!this.scrollEl || !this.bodyEl) return;
+      const bp = (this.spec.src_default && this.spec.src_default.breakpoint) || 640;
+      const w = this.scrollEl.clientWidth;
+      const narrow = w > 0 && w < bp;
+      if (narrow !== this.narrow) { this.narrow = narrow; this.bodyEl.classList.toggle('narrow', narrow); this.applyMode(); }
+      else if (!this.modeApplied) this.applyMode();
+    }
+    currentMode() {
+      if (!this.hasSrc) return 'hide';
+      if (this._printing) return 'full';
+      const st = U.store.get(STORE_MODE, null);
+      if (SRC_MODES.includes(st)) return st;
+      const d = this.spec.src_default || {};
+      return this.narrow ? (d.narrow || 'badge') : (d.wide || 'full');
+    }
+    applyMode() {
+      if (!this.bodyEl) return;
+      this.modeApplied = true;
+      const m = this.currentMode();
+      for (const x of SRC_MODES) this.bodyEl.classList.toggle('src-' + x, x === m);
+      this.root.querySelectorAll('.seg-btn').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
     }
     go(q) {
       q = String(q == null ? '' : q).trim();
@@ -161,6 +219,7 @@
       this.lastQuery = q;
       if (this.input && document.activeElement !== this.input) this.input.value = q == null ? '' : q;
       const res = (this.res = this.lookup(q));
+      this.aux = null; this.statsReady = false;
       const root = this.root;
       const L = this.spec.lookup;
       root.querySelector('.cq-status').textContent = res.status;
@@ -175,6 +234,8 @@
           <div class="kv"><span class="k">${U.esc(L.labels.count)}</span><span class="v" style="${countStyle}">${res.count == null ? '' : U.esc(U.fmt(res.count))}</span>
           ${typeof res.count === 'number' && res.count > 1 ? `<span class="warn-text">${U.esc(L.msg.multi)}</span>` : ''}</div>`;
       }
+      const flagsEl = root.querySelector('.cq-flags');
+      flagsEl.hidden = true; flagsEl.innerHTML = '';
       // 其他對應設備
       const alts = root.querySelector('.cq-alts');
       if (typeof res.count === 'number' && res.count > 1) {
@@ -189,16 +250,27 @@
       body.innerHTML = '';
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) { document.title = '設備查詢卡 · AMS'; return; }
+      // 區段編號：有 sections_aux 時，附加區段／快速連結／最近變更依實際顯示的區段連續編號（FF 診斷僅 FF 設備）
+      const auxList = row ? this.auxSections(row) : [];
+      this.nums = null;
+      if (Array.isArray(this.spec.sections_aux)) {
+        let n = (this.spec.aux && this.spec.aux.number_from) || 5;
+        auxList.forEach((sa) => { sa._n = n++; });
+        this.nums = { links: n, recent: n + 1 };
+      }
       body.appendChild(this.renderSections(row, res));
       if (this.spec.stats && this.spec.stats.sheet) body.appendChild(this.renderStats(row, res));
+      if (auxList.length) body.appendChild(this.renderAux(row, res, auxList));
       body.appendChild(this.renderLinks(row, res));
       body.appendChild(this.renderRecent(row, res));
       body.appendChild(this.renderParams(row, res));
+      this.applyMode();
       // 分頁標題以使用者分享的位號為主，alias 附在括號（書籤／歷史紀錄才認得出來；LIVE-5）
       const tag0 = row ? U.text(row[L.target_tag_col]) : '';
       const head = res.empty ? '' : (tag0 || res.key || String(q || ''));
       document.title = [head, res.alias && res.alias !== head ? `（${res.alias}）` : ''].join('') + (head ? ' · ' : '') + '設備查詢卡 · AMS';
     }
+    numbered(key, title) { return this.nums && this.nums[key] ? `${this.nums[key]}. ${title}` : title; }
 
     /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */
     renderNotFound(res) {
@@ -251,50 +323,113 @@
       return css;
     }
 
-    /* ---------- 欄位區段 ---------- */
+    /* ---------- 欄位（共用） ---------- */
     fieldValue(f, row) {
       if (!row) return '';
       const cols = Array.isArray(f.col) ? f.col : [f.col];
       if (cols.length > 1 || f.join != null) {
-        let s = cols.map((c) => { const v = U.raw(row[c]); return v == null ? '' : String(v); }).join(f.join != null ? f.join : ' ');
+        const vals = cols.map((c) => U.raw(row[c]));
+        if (f.blank_if_zero && vals.every((v) => v == null || v === '' || Number(v) === 0)) return '';
+        let s = vals.map((v, i) => {
+          const t = U.cardValue(v);
+          return (f.prefixes && f.prefixes[i] != null && t !== '' ? f.prefixes[i] : '') + t;
+        }).join(f.join != null ? f.join : ' ');
         if (f.trim !== false) s = s.replace(/ +/g, ' ').trim();
         return s;
       }
-      const v = row[cols[0]];
-      const raw = U.raw(v);
-      if (!f.raw) return raw == null ? '' : (raw === true ? 'TRUE' : raw === false ? 'FALSE' : String(raw));
+      const raw = U.raw(row[cols[0]]);
       if (raw == null || raw === '') return '';
-      const fmt = f.fmt && f.fmt !== 'General' ? f.fmt : null;
-      if (typeof raw === 'number') return fmt ? U.fmt(raw, fmt) : U.general(raw);
-      return fmt ? U.fmt(raw, fmt) : String(raw);
+      const fmt = f.raw && f.fmt && f.fmt !== 'General' ? f.fmt : null;
+      return U.cardValue(raw, { fmt, serial: f.serial });
+    }
+    /** 來源文字中的 {cNN} 以同一列第 NN 欄的值代入（13 表的量程參數／單位參數…） */
+    fillSrc(text, row) {
+      return String(text || '').replace(/\{c(\d+)\}/g, (_, n) => { const v = row ? U.cardValue(row[Number(n)]) : ''; return v === '' ? '—' : v; });
+    }
+    /** 協定專用欄位（f.proto＝HART|FF）：設備協定不同且值空白時不顯示 */
+    protoSkip(f, row, devRow) {
+      const pc = this.spec.protocol_col;
+      if (!f.proto || pc == null || !devRow) return false;
+      const p = U.text(devRow[pc]);
+      return !!p && p !== f.proto && this.fieldValue(f, row) === '';
+    }
+    /** 規格欄位 → DOM（sections 與 stats 共用）；mode 由 .cq-body 的 class 控制，這裡只產生三種模式都用得到的結構 */
+    renderField(f, row, mode, ctx) {
+      ctx = ctx || {};
+      const val = this.fieldValue(f, row);
+      const col0 = Array.isArray(f.col) ? f.col[0] : f.col;
+      let label = f.label;
+      if (f.label_by && row) {
+        const pv = U.text(row[f.label_by.col]);
+        label = (f.label_by.map && f.label_by.map[pv]) || f.label_by.default || f.label;
+      }
+      const head = ctx.columns && ctx.columns[col0];
+      const tip = head ? `${ctx.sheetLabel || '03'} 欄：${head.label}` : '';
+      return this.fieldEl({
+        label, val, tip, span: f.span, cmp: f.cmp,
+        css: ctx.noRules ? '' : this.ruleStyleFor(col0, row, this.res),
+        num: typeof U.raw(row ? row[col0] : null) === 'number',
+        src: f.src ? { lvl: f.src.lvl, text: this.fillSrc(f.src.text, row), detail: f.src.detail } : null,
+      }, mode);
+    }
+    /** o: {label, val, tip, span, css, num, warn, soft, flags:[{t,cls}], cmp, src:{lvl,text,detail:[[k,v]]}} */
+    fieldEl(o) {
+      const item = U.h('div', { class: 'cf' + (o.span === 2 ? ' span2' : '') + (o.src ? ' has-src' : '') });
+      if (o.cmp) item.dataset.cmp = o.cmp;
+      item.appendChild(U.h('div', { class: 'cf-k', title: o.tip || null }, o.label));
+      const blank = o.val === '' || o.val == null;
+      const v = U.h('div', { class: 'cf-v' + (blank ? ' blank' : '') + (o.num && !blank ? ' num' : '') + (o.warn ? ' warn' : '') + (o.soft ? ' soft' : '') });
+      if (o.css) v.setAttribute('style', o.css);
+      v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(o.val, true)));
+      for (const fl of o.flags || []) v.appendChild(U.h('span', { class: 'cmp-flag ' + (fl.cls || '') }, fl.t));
+      item.appendChild(v);
+      if (o.src) {
+        const lvl = lvlOf(o.src.lvl); const lab = this.srcLabel(lvl);
+        const id = 'cfs' + (++uid);
+        const text = String(o.src.text || '');
+        const body = text.startsWith(lab + ' · ') ? text.slice(lab.length + 3) : text;
+        const btn = U.h('button', { type: 'button', class: 'src-dot lvl-' + lvl, 'aria-expanded': 'false', 'aria-controls': id, title: text, 'aria-label': '來源：' + text },
+          U.h('span', { class: 'dot', 'aria-hidden': 'true' }), U.h('span', { class: 'sl' }, lab));
+        btn.addEventListener('click', () => { const on = item.classList.toggle('open'); btn.setAttribute('aria-expanded', String(on)); });
+        v.appendChild(btn);
+        const s = U.h('div', { class: 'cf-src lvl-' + lvl, id });
+        s.appendChild(U.h('span', { class: 'src-tag' }, lab));
+        s.appendChild(U.h('span', { class: 'src-text' }, body));
+        if (o.src.detail && o.src.detail.length) {
+          const det = U.h('details', { class: 'src-more' }, U.h('summary', {}, '文件資訊'));
+          const dl = U.h('dl', {});
+          for (const [k, x] of o.src.detail) { if (x == null || x === '') continue; dl.appendChild(U.h('dt', {}, k)); dl.appendChild(U.h('dd', {}, String(x))); }
+          det.appendChild(dl);
+          s.appendChild(det);
+        }
+        item.appendChild(s);
+      }
+      return item;
+    }
+    colHead() {
+      return U.h('div', { class: 'cf-head', 'aria-hidden': 'true' }, U.h('span', {}, '欄位'), U.h('span', {}, '數據'), U.h('span', {}, '來源'));
     }
     renderSections(row) {
       const wrap = U.h('div', { class: 'card-sections' });
+      const ctx = { columns: AMS.devices.sheet.columns, sheetLabel: '03' };
       for (const sec of this.spec.sections) {
         const s = U.h('section', { class: 'csec' });
         s.appendChild(U.h('h2', { class: 'csec-h' }, sec.label));
+        if (this.hasSrc) s.appendChild(this.colHead());
         const grid = U.h('div', { class: 'cfields' });
-        for (const f of sec.fields || []) {
-          const val = this.fieldValue(f, row);
-          const col0 = Array.isArray(f.col) ? f.col[0] : f.col;
-          const css = this.ruleStyleFor(col0, row, this.res);
-          const item = U.h('div', { class: 'cf' + (f.span === 2 ? ' span2' : '') });
-          const head03 = AMS.devices.sheet.columns && AMS.devices.sheet.columns[col0];
-          const tip = head03 && head03.label !== f.label ? `03 欄：${head03.label}` : (head03 ? `03 欄：${head03.label}` : '');
-          item.innerHTML = `<div class="cf-k" title="${U.esc(tip)}">${U.esc(f.label)}</div><div class="cf-v${val === '' ? ' blank' : ''}${f.raw && /^-?[\d,.]+%?$/.test(val) ? ' num' : ''}" style="${css}">${U.esc(U.visible(val, true))}</div>`;
-          grid.appendChild(item);
-        }
+        for (const f of sec.fields || []) { if (!this.protoSkip(f, row, row)) grid.appendChild(this.renderField(f, row, this.currentMode(), ctx)); }
         s.appendChild(grid);
         wrap.appendChild(s);
       }
       return wrap;
     }
 
-    /* ---------- 另一張表的關鍵值（spec.stats：{sheet, alias_col, fields:[{label,col,fmt?}]}，依設備別名對到該表的一列） ---------- */
+    /* ---------- 另一張表的關鍵值（spec.stats：{sheet, alias_col, fields:[{label,col,fmt?,src?,cmp?,serial?}]}，依設備別名對到該表的一列） ---------- */
     renderStats(row, res) {
       const st = this.spec.stats;
       const s = U.h('section', { class: 'csec stats' });
       s.appendChild(U.h('h2', { class: 'csec-h' }, st.title || `關鍵組態現值（${D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet}）`));
+      if (this.hasSrc) s.appendChild(this.colHead());
       const grid = U.h('div', { class: 'cfields' });
       s.appendChild(grid);
       if (!row || !res.alias) { grid.innerHTML = '<p class="muted cl-empty">（無對應設備）</p>'; return s; }
@@ -304,28 +439,193 @@
         if (this.destroyed || this.res.alias !== alias) return;
         const ac = st.alias_col != null ? st.alias_col : (j.columns || []).findIndex((c) => /設備別名|alias/i.test(c.label));
         const i = j.rows.findIndex((r) => U.text(r[ac]) === alias);
-        if (i < 0) { grid.innerHTML = `<p class="muted cl-empty">此設備在 ${U.esc(D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet)} 無資料（沒有參數紀錄）。</p>`; return; }
+        if (i < 0) { grid.innerHTML = `<p class="muted cl-empty">此設備在 ${U.esc(D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet)} 無資料（沒有參數紀錄）。</p>`; this.statsReady = true; return; }
         const r = j.rows[i];
         grid.innerHTML = '';
+        const ctx = { columns: j.columns || [], sheetLabel: st.sheet, noRules: true };
         for (const f of st.fields || []) {
-          const raw = U.raw(r[f.col]);
-          const col = (j.columns || [])[f.col] || {};
-          const val = raw == null || raw === '' ? '' : (typeof raw === 'number' ? (f.fmt ? U.fmt(raw, f.fmt) : U.general(raw)) : (f.fmt ? U.fmt(raw, f.fmt) : String(raw)));
-          const item = U.h('div', { class: 'cf' + (f.span === 2 ? ' span2' : '') });
-          item.innerHTML = `<div class="cf-k" title="${U.esc(col.label || '')}">${U.esc(f.label)}</div><div class="cf-v${val === '' ? ' blank' : ''}${typeof raw === 'number' ? ' num' : ''}">${U.esc(U.visible(val, true))}</div>`;
-          grid.appendChild(item);
+          const ff = Object.assign({ raw: !!f.fmt }, f);
+          if (!this.protoSkip(ff, r, row)) grid.appendChild(this.renderField(ff, r, this.currentMode(), ctx));
         }
-        const more = U.h('p', { class: 'muted small' });
+        const more = U.h('p', { class: 'muted small cf-more' });
         more.innerHTML = `<a class="lk" href="${sheetHref(st.sheet, { r: i })}">在 ${U.esc(D.meta(st.sheet) ? D.meta(st.sheet).name : st.sheet)} 開啟此設備的完整一列 ›</a>`;
         s.appendChild(more);
+        this.statsReady = true;
+        this.applyCmp();
       }).catch((e) => { grid.innerHTML = `<p class="muted">無法載入：${U.esc(e.message)}</p>`; });
       return s;
+    }
+    /** DCS 比對結果 → 在 data-cmp 欄位（AMS 量程）旁加 ⚠（aux 與 13 表各自非同步到達，兩邊完成時都呼叫） */
+    applyCmp() {
+      const cm = this.aux && this.aux.flags && this.aux.flags.cmp;
+      if (!cm || !this.bodyEl) return;
+      this.bodyEl.querySelectorAll('.cf[data-cmp]').forEach((el) => {
+        if (el.dataset.cmpDone) return;
+        const k = el.dataset.cmp; const unitOnly = k.endsWith('_unit');
+        const stt = cm[unitOnly ? k.slice(0, -5) : k];
+        if (!stt || stt === 'ok' || (unitOnly && !/^unit_/.test(stt))) return;
+        const v = el.querySelector('.cf-v');
+        const src = v.querySelector('.src-dot');
+        v.insertBefore(U.h('span', { class: 'cmp-flag ' + cmpCls(stt), title: '見「DCS 比對」區段' }, CMP_TEXT[stt] || stt), src);
+        el.dataset.cmpDone = '1';
+      });
+    }
+
+    /* ---------- 附加資料（card aux：AMS DB 補充＋工程文件比對） ---------- */
+    auxSections(row) {
+      const list = this.spec.sections_aux;
+      if (!Array.isArray(list) || !row) return [];
+      const pc = this.spec.protocol_col;
+      const isFF = pc != null && U.text(row[pc]) === 'FF';
+      return list.filter((sa) => !sa.only_ff || isFF).map((sa) => Object.assign({}, sa));
+    }
+    renderAux(row, res, list) {
+      const wrap = U.h('div', { class: 'card-sections card-aux' });
+      const els = {};
+      for (const sa of list) {
+        const s = U.h('section', { class: 'csec aux aux-' + sa.key });
+        const h = U.h('h2', { class: 'csec-h' }, `${sa._n ? sa._n + '. ' : ''}${sa.label}`, U.h('span', { class: 'hflags' }));
+        s.appendChild(h);
+        if (this.hasSrc && sa.key !== 'compare') s.appendChild(this.colHead());
+        const grid = U.h('div', { class: sa.key === 'compare' ? 'cmp-body' : 'cfields' });
+        grid.innerHTML = '<p class="muted cl-empty">載入中…</p>';
+        s.appendChild(grid);
+        if (sa.note) s.appendChild(U.h('p', { class: 'muted small aux-note' }, sa.note));
+        wrap.appendChild(s);
+        els[sa.key] = { s, h, grid };
+      }
+      const alias = res.alias;
+      const path = this.spec.aux && this.spec.aux.index;
+      D.loadAux(alias, path).then(({ ix, aux }) => {
+        if (this.destroyed || this.res.alias !== alias) return;
+        this.aux = aux; this.auxIx = ix;
+        for (const sa of list) {
+          const { h, grid } = els[sa.key];
+          grid.innerHTML = '';
+          try { this.fillAuxSection(sa, aux, ix, grid, h); } catch (e) { console.error(e); grid.innerHTML = `<p class="muted cl-empty">無法顯示：${U.esc(e.message)}</p>`; }
+        }
+        this.renderFlags(aux);
+        this.applyCmp();
+      }).catch((e) => {
+        for (const sa of list) els[sa.key].grid.innerHTML = `<p class="muted cl-empty">無法載入附加資料：${U.esc(e.message)}</p>`;
+      });
+      return wrap;
+    }
+    renderFlags(aux) {
+      const el = this.root.querySelector('.cq-flags');
+      const f = (aux && aux.flags) || {};
+      const out = [];
+      if (f.last_change_dcs) out.push(['bad', '⚠ 最後修改＝DCS·外部主機寫入']);
+      else if (f.has_dcs_write) out.push(['warn', '曾有 DCS·外部主機寫入']);
+      if (f.sync_unrecovered) out.push(['bad', '⚠ 同步失敗後未再成功']);
+      const bad = Object.entries(f.cmp || {}).filter(([k, v]) => v === 'mismatch' && !/_(lo|hi)$/.test(k)).map(([k]) => ({ ams: 'AMS 現值', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' }[k] || k));
+      if (bad.length) out.push(['bad', '⚠ 量程與 DCS 不符：' + bad.join('、')]);
+      el.innerHTML = out.map(([c, t]) => `<span class="pill ${c}">${U.esc(t)}</span>`).join('');
+      el.hidden = !out.length;
+    }
+    docDetail(ix, key, extra) {
+      const d = key && ix.docs ? ix.docs[key] : null;
+      const out = [];
+      if (d) { out.push(['檔名', d.title]); out.push(['資料夾（工程文件庫根目錄下）', !d.folder || d.folder === '.' ? '（工程文件庫根目錄）' : d.folder]); if (d.why) out.push(['選版', d.why]); }
+      for (const x of extra || []) out.push(x);
+      return out;
+    }
+    searchedList(ix, kind) {
+      const seen = new Set(); const out = [];
+      for (const s of (ix.searched && ix.searched[kind]) || []) {
+        if (!s.used) continue;
+        const id = s.ref || (s.doc_id + (s.rev ? '-' + s.rev : ''));
+        if (!seen.has(id)) { seen.add(id); out.push({ id, cat: s.category }); }
+      }
+      return out;
+    }
+    fillAuxSection(sa, aux, ix, grid, h) {
+      const sec = aux && aux.sec ? aux.sec[sa.key] : null;
+      const flags = (aux && aux.flags) || {};
+      const mode = this.currentMode();
+      const empty = (txt) => { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, txt)); };
+      if (sa.key === 'compare') { this.fillCompare(aux, grid); return; }
+      if (sa.kind) { // 工程文件
+        if (!sec) {
+          const used = this.searchedList(ix, sa.kind);
+          if (sa.kind === 'docindex') {
+            const p = U.h('div', { class: 'cl-empty' });
+            p.appendChild(U.h('p', { class: 'muted' }, `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
+            const det = U.h('details', { class: 'src-more' }, U.h('summary', {}, '已比對的文件編號'));
+            det.appendChild(U.h('p', { class: 'small mono-list' }, used.map((x) => x.id).join('、')));
+            p.appendChild(det);
+            grid.appendChild(p);
+          } else empty(`查無（已比對：${used.map((x) => x.id).join('、') || '—'}）`);
+          return;
+        }
+        if (sec.entries) {
+          for (const ent of sec.entries) {
+            const sub = U.h('div', { class: 'cf-sub span2' },
+              U.h('span', { class: 'src-chip lvl-' + lvlOf(ent.lvl) }, this.srcLabel(lvlOf(ent.lvl))),
+              U.h('span', { class: 'sub-h' }, ent.h), ent.rule ? U.h('span', { class: 'muted small' }, ' · 規則 ' + ent.rule) : null,
+              ent.note ? U.h('div', { class: 'muted small sub-note' }, ent.note) : null);
+            grid.appendChild(sub);
+            const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
+            for (const r of ent.rows) {
+              const st = r[2];
+              const flags2 = CMP_TEXT[st] && st !== 'ok' ? [{ t: CMP_TEXT[st], cls: cmpCls(st) }] : [];
+              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
+            }
+          }
+          return;
+        }
+        for (const r of sec.rows || []) { // docindex
+          const ex = r[4] || {};
+          grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode));
+        }
+        return;
+      }
+      if (!sec || !(sec.rows || []).length) { empty(sa.empty || '（無資料）'); return; }
+      if (sa.key === 'change') {
+        const hf = h.querySelector('.hflags');
+        if (flags.last_change_dcs) hf.appendChild(U.h('span', { class: 'pill bad' }, '⚠ 最後修改＝DCS·外部主機寫入'));
+        else if (flags.has_dcs_write) hf.appendChild(U.h('span', { class: 'pill warn' }, '曾有 DCS·外部主機寫入'));
+      }
+      if (sa.key === 'sync' && flags.sync_unrecovered) h.querySelector('.hflags').appendChild(U.h('span', { class: 'pill bad' }, '⚠ 失敗後未再成功'));
+      for (const r of sec.rows) {
+        const val = U.cardValue(r[1]);
+        const warn = /⚠/.test(val);
+        const dcs = sa.key === 'change' && /DCS·外部主機/.test(val);
+        grid.appendChild(this.fieldEl({ label: r[0], val, warn: warn || dcs, src: r[3] ? { lvl: r[2], text: r[3] } : null }, mode));
+      }
+    }
+    fillCompare(aux, grid) {
+      const list = (aux && aux.compare) || [];
+      const sa = (this.spec.sections_aux || []).find((x) => x.key === 'compare') || {};
+      if (!list.length) { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, sa.empty || '（無 DCS 基準）')); return; }
+      const num = (x) => (x == null ? '' : U.g7(x));
+      const srcCell = (o) => {
+        const lvl = lvlOf(o.lvl); const lab = this.srcLabel(lvl);
+        const t = String(o.src || ''); const body = t.startsWith(lab + ' · ') ? t.slice(lab.length + 3) : t;
+        return `<td class="c-src" data-label="來源依據"><div class="c-in"><button type="button" class="src-chip lvl-${lvl}" title="${U.esc(t)}" aria-label="${U.esc('來源：' + t)}">${U.esc(lab)}</button> <span class="src-text">${U.esc(body)}</span></div></td>`;
+      };
+      const td = (label, inner, cls) => `<td${cls ? ` class="${cls}"` : ''} data-label="${U.esc(label)}"><div class="c-in">${inner}</div></td>`;
+      let html = '';
+      for (const c of list) {
+        const b = c.baseline;
+        const bb = Array.isArray(b.bounds) ? b.bounds : ['lo', 'hi'];
+        const bnum = (k) => U.esc(num(b[k])) + (b[k] != null && !bb.includes(k) ? ' <span class="muted small nocmp" title="這一端沒有 DCS 寫入，顯示值僅供參考">（不比較）</span>' : '');
+        html += `<div class="tbl-scroll"><table class="mini cmp"><caption class="sr-only">${U.esc(c.item)}：DCS 基準比對</caption><thead><tr><th>${U.esc(c.item)}來源</th><th>下限</th><th>上限</th><th>單位</th><th>判定</th><th class="c-src">來源依據</th></tr></thead><tbody>`;
+        html += `<tr class="base">${td(c.item + '來源', `<span class="pill base">DCS 基準</span> ${U.esc(b.label || '')}`)}${td('下限', bnum('lo'), 'ar')}${td('上限', bnum('hi'), 'ar')}${td('單位', U.esc(b.unit || '—'))}${td('判定', b.note ? U.esc(b.note) : '—')}${srcCell(b)}</tr>`;
+        for (const o of c.others || []) {
+          const cls = cmpCls(o.status);
+          html += `<tr class="st-${cls}">${td(c.item + '來源', U.esc(o.label || o.kind))}${td('下限', U.esc(num(o.lo)), 'ar')}${td('上限', U.esc(num(o.hi)), 'ar')}${td('單位', U.esc(o.unit || '—'))}${td('判定', `<span class="cmp-flag ${cls}">${U.esc(CMP_TEXT[o.status] || o.status)}</span>${o.note ? `<div class="muted small">${U.esc(o.note.replace(/^⚠ 與 DCS 不符/, ''))}</div>` : ''}`)}${srcCell(o)}</tr>`;
+        }
+        html += '</tbody></table></div>';
+      }
+      grid.innerHTML = html;
+      grid.querySelectorAll('.c-src .src-chip').forEach((btn) => btn.addEventListener('click', () => btn.closest('td').classList.toggle('show')));
     }
 
     /* ---------- 快速連結 ---------- */
     renderLinks(row, res) {
       const s = U.h('section', { class: 'csec links' });
-      s.appendChild(U.h('h2', { class: 'csec-h' }, this.spec.links_title || DEFAULT.links_title));
+      s.appendChild(U.h('h2', { class: 'csec-h' }, this.numbered('links', this.spec.links_title || DEFAULT.links_title)));
       const grid = U.h('div', { class: 'clinks' });
       s.appendChild(grid);
       if (!row) { grid.innerHTML = '<p class="muted cl-empty">（無對應設備）</p>'; return s; }
@@ -401,7 +701,7 @@
     renderRecent(row, res) {
       const rc = this.spec.recent_changes;
       const s = U.h('section', { class: 'csec recent' });
-      s.appendChild(U.h('h2', { class: 'csec-h' }, rc.title || DEFAULT.recent_changes.title));
+      s.appendChild(U.h('h2', { class: 'csec-h' }, this.numbered('recent', rc.title || DEFAULT.recent_changes.title)));
       const body = U.h('div', { class: 'recent-body' });
       s.appendChild(body);
       if (!row || !res.alias) { body.innerHTML = '<p class="muted">（無）</p>'; return s; }
@@ -429,23 +729,47 @@
         const sheetLabel = D.meta(rc.sheet) ? D.meta(rc.sheet).name : rc.sheet;
         if (!take.length) { body.innerHTML = `<p class="muted">（此設備沒有${U.esc(noun)}）</p>`; return; }
         const cols = rc.columns || DEFAULT.recent_changes.columns;
+        // 空白（null／全空白字串）一律顯示「—」，與卡片欄位同規則
+        const part = (v) => { v = U.raw(v); if (v == null) return '—'; const t = typeof v === 'number' ? U.cardValue(v) : String(v); return t.trim() === '' ? '—' : t; };
         const cellText = (r, c) => {
-          if (c.cols) return c.cols.map((k) => { const v = U.raw(r[k]); return v == null ? '' : String(v); }).join(c.join != null ? c.join : ' ');
+          if (c.cols) return c.cols.map((k) => part(r[k])).join(c.join != null ? c.join : ' ');
           const v = U.raw(r[c.col]);
-          if (v == null) return '';
-          return c.fmt ? U.fmt(v, c.fmt) : String(v);
+          if (v == null || String(v).trim() === '') return '—';
+          if (c.map) return c.map[String(v)] != null ? c.map[String(v)] : String(v);
+          return c.fmt ? U.fmt(v, c.fmt) : part(v);
         };
-        let html = `<div class="tbl-scroll"><table class="mini"><thead><tr><th>k</th>${cols.map((c) => `<th>${U.esc(c.label)}</th>`).join('')}</tr></thead><tbody>`;
+        const hasColSrc = this.hasSrc && cols.some((c) => c.src);
+        const thSrc = (c) => {
+          if (!hasColSrc || !c.src) return '';
+          const lvl = lvlOf(c.src.lvl); const lab = this.srcLabel(lvl);
+          return ` <button type="button" class="src-chip th-src lvl-${lvl}" title="${U.esc(c.src.text)}" aria-label="${U.esc('來源：' + c.src.text)}" aria-controls="rc-src-${uid + 1}">${U.esc(lab)}</button>`;
+        };
+        let html = `<div class="tbl-scroll"><table class="mini"><thead><tr><th>k</th>${cols.map((c) => `<th${c.title ? ` title="${U.esc(c.title)}"` : ''}>${U.esc(c.label)}${thSrc(c)}</th>`).join('')}</tr></thead><tbody>`;
         for (const [k, i] of take) {
           const r = j.rows[i];
-          html += `<tr><td class="ac"><a class="lk" href="${sheetHref(rc.sheet, { r: i })}" title="在 08 開啟此列">${U.esc(k)}</a></td>${cols.map((c, ci) => `<td${ci === 0 ? ' class="nowrap"' : ''}>${U.esc(U.visible(cellText(r, c), true))}</td>`).join('')}</tr>`;
+          html += `<tr><td class="ac"><a class="lk" href="${sheetHref(rc.sheet, { r: i })}" title="在 ${U.esc(sheetLabel)} 開啟此列">${U.esc(k)}</a></td>${cols.map((c, ci) => {
+            const t = U.visible(cellText(r, c), true);
+            if (c.map) {
+              const hot = c.warn_eq != null && U.text(r[c.col]) === String(c.warn_eq);
+              return `<td class="nowrap"><span class="pill ${hot ? 'bad' : 'plain'}">${U.esc(t)}</span></td>`;
+            }
+            return `<td${ci === 0 ? ' class="nowrap"' : ''}>${U.esc(t)}</td>`;
+          }).join('')}</tr>`;
         }
         html += '</tbody></table></div>';
         const more = list.length > kmax ? `共 ${U.int(list.length)} 筆${U.esc(noun)}，顯示最新 ${kmax} 筆。` : `共 ${U.int(list.length)} 筆${U.esc(noun)}。`;
         const ac = this.findAliasCol(j, rc);
         const fl = ac != null ? sheetHref(rc.sheet, { f: { [ac]: '=' + alias } }) : U.esc('#/s/' + encodeURIComponent(rc.sheet) + '?q=' + encodeURIComponent(alias + '#'));
         html += `<p class="muted small">${more} <a class="lk" href="${fl}">在 ${U.esc(sheetLabel)} 查看此設備全部${U.esc(noun)} ›</a></p>`;
+        if (hasColSrc) {
+          const id = 'rc-src-' + (++uid);
+          html += `<dl class="rc-src" id="${id}">${cols.filter((c) => c.src).map((c) => {
+            const lvl = lvlOf(c.src.lvl); const lab = this.srcLabel(lvl); const t = String(c.src.text || '');
+            return `<dt>${U.esc(c.label)}</dt><dd><span class="src-chip lvl-${lvl}">${U.esc(lab)}</span> ${U.esc(t.startsWith(lab + ' · ') ? t.slice(lab.length + 3) : t)}</dd>`;
+          }).join('')}</dl>`;
+        }
         body.innerHTML = html;
+        body.querySelectorAll('.th-src').forEach((b) => b.addEventListener('click', () => { const on = s.classList.toggle('show-src'); body.querySelectorAll('.th-src').forEach((x) => x.setAttribute('aria-expanded', String(on))); }));
       }).catch((e) => { body.innerHTML = `<p class="muted">無法載入 ${U.esc(D.meta(rc.sheet) ? D.meta(rc.sheet).name : rc.sheet)}：${U.esc(e.message)}</p>`; });
       return s;
     }
@@ -520,7 +844,7 @@
             cnt++;
             html += `<tr><td class="ar muted"><a class="lk soft" href="${sheetHref(sid, { r: g0 + k })}">${k + 1}</a></td>${show.map((i) => {
               const v = r[i]; const raw = U.raw(v);
-              const txt = U.isBlank(raw) ? '' : U.display(v, cols[i].fmt);
+              const txt = U.isBlank(raw) ? '' : (U.isFltMin(raw) ? '未使用' : U.display(v, cols[i].fmt));
               const ws = typeof raw === 'string' && raw.trim() === '' && raw.length ? ' ws' : '';
               return `<td class="${typeof raw === 'number' ? 'ar' : ''}${ws}">${U.esc(U.visible(txt))}</td>`;
             }).join('')}</tr>`;
@@ -537,7 +861,12 @@
       }
     }
     onTheme() { if (this.spec) this.run(this.lastQuery); }
-    destroy() { this.destroyed = true; }
+    destroy() {
+      this.destroyed = true;
+      if (this.ro) { this.ro.disconnect(); this.ro = null; }
+      window.removeEventListener('beforeprint', this._bp);
+      window.removeEventListener('afterprint', this._ap);
+    }
   }
   AMS.CardView = CardView;
 })();
