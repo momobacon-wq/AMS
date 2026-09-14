@@ -907,7 +907,12 @@
         else { this.hide(); this.o.onEnter && this.o.onEnter(this.input.value); }
       } else if (e.key === 'Escape') { if (open) { e.preventDefault(); this.hide(); } }
     }
-    pick(i) { const it = this.items[i]; if (!it) return; this.hide(); this.o.onPick(it); }
+    pick(i) {
+      const it = this.items[i]; if (!it) return;
+      // 點選時焦點仍留在輸入框（mousedown 已 preventDefault），呼叫端「焦點在框內就不改值」的保護會讓框內留著打到一半的字 → 這裡先帶入
+      if (it.key != null) this.input.value = String(it.key);
+      this.hide(); this.o.onPick(it);
+    }
   }
   AMS.Autocomplete = Autocomplete;
   AMS.hilite = function (text, q) {
