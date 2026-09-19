@@ -271,6 +271,53 @@ def src(lvl, text):
     return {'lvl': lvl, 'text': f'{SRC_PREFIX[lvl]} · {text}'}
 
 
+def summary_spec(ci3, ci13):
+    """「一目了然」摘要（登入後查詢頁最上方）：ci3／ci13 = 欄名前綴 → 03_設備總表／設備參數統計 的欄索引。
+    item 來源：col（03 欄）、stats（設備參數統計欄 {lo,hi,unit}）、kind+key(s)（card aux 工程文件區段的列名）、docindex（整段）。
+    其餘完整資料（識別、位置、同步、變更、DCS 比對、文件比對、連結、參數現值）放在摘要之後的「完整資料」。"""
+    T = lambda label, pre, lvl, text, **kw: dict({'label': label, 'col': ci3(pre), 'src': src(lvl, text)}, **kw)
+    K = lambda label, kind, key, **kw: dict({'label': label, 'kind': kind, 'key': key}, **kw)
+    return {
+        'title': '一目了然',
+        'more_title': '完整資料（識別與位號、設備、實體位置、關鍵組態、同步狀態、最後修改、DCS 比對、工程文件、快速連結、參數變更、參數現值）',
+        'hero': {'tag': ci3('現行AMS位號'), 'alias': ci3(ALIAS), 'unit': ci3('機組說明'), 'mfr': ci3('製造商 ('), 'model': ci3('型號 ('), 'proto': ci3('協定+版本'),
+                 'service': {'kind': 'instlist', 'key': '服務說明'}},
+        'groups': [
+            {'key': 'dev', 'label': '設備', 'items': [
+                T('現行 AMS 位號 (KKS)', '現行AMS位號', 'decoded', 'ExtBlockTags.ExtBlockTag（BlockAsgms EventIdDayOut=49710，清除殘碼）', big=True),
+                T('AMS 廠牌／型號', '製造商 (', 'raw', 'Manufacturers.Name + DeviceTypes.Name（Devices.AmsDevRevId → DeviceRevisions → DeviceTypes → MfrProtocols）', col=[ci3('製造商 ('), ci3('型號 (')], join=' '),
+                K('設計廠牌（儀器清單）', 'instlist', '廠牌'),
+                K('設計完整型號碼（儀器清單）', 'instlist', '完整型號碼'),
+                T('AMS 協定＋版本', '協定+版本', 'decoded', 'DeviceProtocols.Name + Devices.ProtocolRevision'),
+                K('出廠型號（EOMR）', 'eomr', '出廠型號'),
+                K('銘牌序號（EOMR）', 'eomr', '銘牌序號'),
+            ]},
+            {'key': 'range', 'label': '量程、單位與警報／跳機設定值', 'items': [
+                {'label': 'AMS 量程（現值）', 'stats': {'lo': ci13('LRV'), 'hi': ci13('URV'), 'unit': ci13('單位(解碼)')}, 'proto': 'HART', 'cmp': 'ams',
+                 'src': src('decoded', 'BlockData {c16} float32 → HART 單位碼表 · 最後記錄 {c36}')},
+                {'label': 'AMS FF XD_SCALE（現值）', 'stats': {'lo': ci13('FF XD_SCALE EU0'), 'hi': ci13('FF XD_SCALE EU100'), 'unit': ci13('FF XD_SCALE 單位')}, 'proto': 'FF', 'cmp': 'ams',
+                 'src': src('decoded', 'BlockData 80020192 FF hex float32／單位碼（區塊 {c34}）')},
+                K('DCS 量程（端子表）', 'terminal', 'DCS 量程 (DEVICE_LO/HI/UNITS)', cmp='terminal'),
+                K('設計量程（儀器清單）', 'instlist', '設計量程（原文）', cmp='instlist'),
+                K('出廠校正量程（EOMR）', 'eomr', '出廠校正量程（原文）', cmp='eomr'),
+                K('警報／跳機設定值（儀器清單）', 'instlist', '警報/跳機設定值'),
+                K('DCS 警報設定（端子表）', 'terminal', ['警報 1_HI', '警報 1_LO', '警報 2_HI', '警報 2_LO', '警報 3_HI', '警報 3_LO'], kv=True),
+            ]},
+            {'key': 'ctrl', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'per_entry': True,
+             'head': ['訊號名', '說明 DESC', '訊號等級', 'HART'],
+             'items': ['系統', '控制器', '位置', '盤櫃 CABINET', 'Case', '卡位 COL_ROW', '點號 POINT', 'PACK_TYPE', '端子 TB_PT_1/2', 'P&ID', '邏輯圖'],
+             'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
+            {'key': 'draw', 'label': '圖面', 'items': [
+                K('P&ID', 'terminal', 'P&ID', alt={'kind': 'instlist', 'key': 'P&ID'}),
+                K('邏輯圖', 'terminal', '邏輯圖'),
+                K('Hook-up 圖', 'instlist', 'Hook-up 圖'),
+                K('位置圖', 'instlist', '位置圖'),
+            ]},
+            {'key': 'docs', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'p.N 為 PDF 頁序；同編號只取最高版次。'},
+        ],
+    }
+
+
 def card_spec(final, sheets_by_name, num_of, link_index, web_df):
     def ci(sheet_name, prefix):
         df = web_df.get(sheet_name, sheets_by_name[sheet_name]['df'])
@@ -403,7 +450,8 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
         {'key': 'device', 'label': '設備補充（銘牌序號／版次）', 'empty': '（無參數紀錄）'},
     ]
     return {
-        'id': '02', 'name': '02_設備查詢卡', 'mode': 'card', 'title': '02_設備查詢卡',
+        'id': '02', 'name': '02_設備查詢卡', 'mode': 'card', 'title': '設備查詢',
+        'summary': summary_spec(lambda p: ci('設備總表', p), lambda p: ci('設備參數統計', p)),
         'notes': ['輸入目前/舊 AMS 位號、識別時位號、HostTag、裝置ID、設備鍵、設備 GUID 或別名（大小寫不拘），按 Enter。字串經 04_位號索引 換成別名，再從 03_設備總表、設備參數統計、參數變更歷程、AMS DB 補充與工程文件比對（card aux）取值。',
                   '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR。'],
         'default_query': final.get('default_query', 'G12HAP70BT001'),
@@ -536,6 +584,7 @@ def main(pkl, outdir):
         'sheets': head + manifest_sheets,
         'search': {'index_sheet': '04', 'key_col': 0, 'alias_col': 4, 'count_col': 7, 'src_col': 2, 'tag_col': 3},
         'default_sheet': '00',
+        'landing': 'card',  # 沒有網址片段時直接開設備查詢（登入後即查詢頁）
     }
     aux_card = {'index': 'card/index.json', 'desc': '02_設備查詢卡附加資料：AMS DB 補充（同步、最後修改/DCS 寫入、FF 診斷、版次、警報）與工程文件比對（DCS 端子表、儀器清單、EOMR、文件索引）＋DCS 基準量程比對；依 alias 分塊按需載入。產生：tools/db/build_card_aux.py'}
     ix_path = os.path.join(outdir, 'card', 'index.json')

@@ -58,6 +58,8 @@
     U.$$('.modal').forEach((m) => m.dispatchEvent(new CustomEvent('ams-close')));
     let rt = R.parse(location.hash);
     if (!rt) {
+      // manifest.landing = 'card'：沒有網址片段時直接開設備查詢（登入後即查詢頁）
+      if (D.manifest && D.manifest.landing === 'card' && D.sheets.some((s) => s.mode === 'card')) { location.replace('#/card/'); return; }
       const first = (D.manifest && D.manifest.default_sheet) || (D.sheets[0] && D.sheets[0].id) || '00';
       location.replace('#/s/' + first);
       return;
@@ -224,7 +226,6 @@
       U.store.set('sidebarCollapsed', on);
       window.dispatchEvent(new Event('resize'));
     });
-    if (U.store.get('sidebarCollapsed', false)) { document.body.classList.add('sidebar-collapsed'); U.$('#btn-collapse').setAttribute('aria-expanded', 'false'); }
     U.$('#btn-theme').addEventListener('click', () => setTheme(U.theme() === 'dark' ? 'light' : 'dark', true));
     U.$('#btn-legend').addEventListener('click', toggleLegend);
     document.addEventListener('pointerdown', (e) => { const p = U.$('#legend-pop'); if (!p.hidden && !p.contains(e.target) && !U.$('#btn-legend').contains(e.target)) { p.hidden = true; U.$('#btn-legend').setAttribute('aria-expanded', 'false'); } });
@@ -267,6 +268,9 @@
       U.$('#view').innerHTML = `<div class="error-box"><h2>無法載入 manifest.json</h2><p>${U.esc(e.message)}</p><p class="muted">資料目錄：<code>${U.esc(D.base)}</code>（可用 <code>?data=路徑/</code> 指定）</p></div>`;
       return;
     }
+    // 側欄：有記住的偏好就照偏好；否則查詢優先的站台（landing=card）桌機預設收合，讓查詢頁乾淨
+    const sc = U.store.get('sidebarCollapsed', null);
+    if (sc == null ? (D.manifest.landing === 'card' && !U.isMobile()) : !!sc) { document.body.classList.add('sidebar-collapsed'); U.$('#btn-collapse').setAttribute('aria-expanded', 'false'); }
     const wb = D.manifest.workbook || {};
     if (wb.title) { U.$('#wb-title').textContent = wb.title; }
     if (wb.subtitle) { U.$('#wb-subtitle').textContent = wb.subtitle; U.$('#wb-subtitle').title = wb.subtitle; }
