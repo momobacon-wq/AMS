@@ -19,6 +19,8 @@ then stamps docs/db/index.html + version.json (same scheme as tools/stamp_assets
 Deterministic: no run timestamps inside the data (the build hash is content based).
 """
 import os, sys, json, glob, pickle, hashlib, re, math, datetime
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import encrypt_data  # noqa: E402  (tools/encrypt_data.py：最後一步加密／重建前解密)
 import pandas as pd
 
 MAX_PART_BYTES = 7 * 1024 * 1024
@@ -493,7 +495,9 @@ def main(pkl, outdir):
     ordered = final['ordered']
     sheets_by_name = {s['name']: s for _, s in ordered}
     num_of = {s['name']: num for num, s in ordered}
-    for p in glob.glob(os.path.join(outdir, 'sheets', '*.json')):
+    if encrypt_data.is_encrypted(outdir):  # 上一版是加密輸出：先原地解密，card/ 附加資料才保得住
+        encrypt_data.decrypt_dir(outdir, encrypt_data.passphrase_and_salt(persist=False)[0])
+    for p in glob.glob(os.path.join(outdir, 'sheets', '*.json')) + glob.glob(os.path.join(outdir, 'sheets', '*.bin')):
         os.remove(p)
     os.makedirs(os.path.join(outdir, 'sheets'), exist_ok=True)
     manifest_sheets = []
@@ -601,9 +605,11 @@ def main(pkl, outdir):
 
 
 def stamp(docs_db, assets_dir):
-    """Version-stamp docs/db/index.html (assets live in ../assets) and write docs/db/version.json."""
-    man = json.load(open(os.path.join(docs_db, 'data', 'manifest.json'), encoding='utf-8'))
-    build = man['build']
+    """Version-stamp docs/db/index.html (assets live in ../assets) and write docs/db/version.json.
+    加密站（encrypt_data）：manifest 是 .bin，build 讀明文 meta.json，preload 指向 meta.json。"""
+    encrypted = encrypt_data.is_encrypted(os.path.join(docs_db, 'data'))
+    src = 'meta.json' if encrypted else 'manifest.json'
+    build = json.load(open(os.path.join(docs_db, 'data', src), encoding='utf-8'))['build']
     fh = {}
     for p in sorted(glob.glob(os.path.join(assets_dir, '*.js')) + glob.glob(os.path.join(assets_dir, '*.css'))):
         fh[os.path.basename(p)] = hashlib.sha256(open(p, 'rb').read()).hexdigest()[:10]
@@ -615,7 +621,7 @@ def stamp(docs_db, assets_dir):
         return m.group(1) + '../assets/' + name + ('?v=' + fh[name] if name in fh else '') + m.group(4)
     html = re.sub(r'((?:src|href)=")\.\./assets/([\w.-]+\.(?:js|css))(\?v=[0-9a-zA-Z]*)?(")', ref, html)
     html = re.sub(r'<meta name="ams-build"[^>]*>', '<meta name="ams-build" content="%s" data-app="%s" data-chart="%s">' % (build, app, fh.get('chart.umd.min.js', '')), html)
-    html = re.sub(r'(<link rel="preload" href=")data/manifest\.json(\?v=[0-9a-zA-Z]*)?(")', r'\g<1>data/manifest.json?v=%s\g<3>' % build, html)
+    html = re.sub(r'(<link rel="preload" href=")data/(?:meta|manifest)\.json(\?v=[0-9a-zA-Z]*)?(")', r'\g<1>data/%s?v=%s\g<3>' % (src, build), html)
     open(ix, 'w', encoding='utf-8', newline='\n').write(html)
     open(os.path.join(docs_db, 'version.json'), 'w', encoding='utf-8', newline='\n').write(json.dumps({'build': build, 'app': app}, separators=(',', ':')))
     print('stamped', build, app)
@@ -624,5 +630,9 @@ def stamp(docs_db, assets_dir):
 if __name__ == '__main__':
     pkl, outdir = sys.argv[1], sys.argv[2]
     main(pkl, outdir)
+    if '--no-encrypt' in sys.argv[3:]:
+        print('[encrypt] SKIPPED (--no-encrypt): plaintext output, do not push')
+    else:  # 最後一步：明文 → .bin＋meta.json（build 已以明文算好）
+        encrypt_data.encrypt_dir(outdir, *encrypt_data.passphrase_and_salt())
     docs_db = os.path.dirname(os.path.abspath(outdir))
     stamp(docs_db, os.path.join(os.path.dirname(docs_db), 'assets'))

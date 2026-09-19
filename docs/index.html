@@ -7,6 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AMS 設備資產與組態變更解析</title>
 <meta name="description" content="新複循環廠 AMS Device Manager 匯出檔解析（20260910_AMS解析.xlsx 的網頁版）">
+<meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#1F4E79" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171C23" media="(prefers-color-scheme: dark)">
@@ -20,14 +21,14 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <!-- 版本戳記：tools/stamp_assets.py 依檔案內容寫入（build＝資料建置雜湊、app／chart＝程式雜湊） -->
-<meta name="ams-build" content="dfe4a09251" data-app="848e6ab2a4" data-chart="81ffafe13c">
+<meta name="ams-build" content="dfe4a09251" data-app="234399b048" data-chart="81ffafe13c">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4E79'/%3E%3Ctext x='16' y='21' font-size='12' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'%3EAMS%3C/text%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
-<link rel="preload" href="data/manifest.json?v=dfe4a09251" as="fetch" crossorigin>
+<link rel="preload" href="data/meta.json?v=dfe4a09251" as="fetch" crossorigin>
 <script src="assets/boot.js?v=0783d4f386"></script>
 <meta name="ams-auth-config" content="auth-config.json" data-site="AMS 匯出檔解析（20260910）">
 <script src="assets/auth.js?v=8ac3fe2b80"></script>
-<link rel="stylesheet" href="assets/app.css?v=7cce65b79a">
+<link rel="stylesheet" href="assets/app.css?v=98a7aa591c">
 </head>
 <body>
 <a class="skip-link" href="#main">跳到主要內容</a>
@@ -55,6 +56,7 @@
   <button id="btn-legend" class="icon-btn" type="button" aria-label="圖例（各狀態色的意義）" title="圖例（各狀態色的意義）" aria-haspopup="dialog" aria-expanded="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.2"/><rect x="3.5" y="14" width="6" height="6" rx="1.2"/><path d="M13 7h7.5M13 17h7.5"/></svg>
   </button>
+  <button id="btn-key" class="btn sm" type="button" title="忘掉此裝置記住的密語並重新載入" hidden>清除密語</button>
   <button id="btn-theme" class="icon-btn" type="button" aria-label="切換深色／淺色主題" title="切換深色／淺色主題">
     <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
     <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
@@ -104,10 +106,10 @@
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <!-- Chart.js 只在有圖表的工作表（01、16）由 grid.js 動態載入 -->
-<script src="assets/core.js?v=ad94e1fa56"></script>
+<script src="assets/core.js?v=1d9d1406d1"></script>
 <script src="assets/table.js?v=6b6a2e1150"></script>
 <script src="assets/grid.js?v=93821d2ae1"></script>
 <script src="assets/card.js?v=73c9479b83"></script>
-<script src="assets/app.js?v=607d387fa2"></script>
+<script src="assets/app.js?v=ed2f0686c6"></script>
 </body>
 </html>

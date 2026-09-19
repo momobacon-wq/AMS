@@ -216,8 +216,12 @@
 
   /* ------------------------------------------------------------ 啟動 */
   async function boot() {
+    // data/meta.json（加密資訊）與登入閘門並行載入；登入後才問密語
+    const metaP = D.loadMeta(); metaP.catch(() => {});
     // 登入閘門（assets/auth.js；auth-config.json 的 endpoint 空白時直接通過）
     if (window.AMSAuth && window.AMSAuth.ready) { try { await window.AMSAuth.ready(); } catch (e) { console.error('auth', e); } }
+    const bk = U.$('#btn-key');
+    if (bk) bk.addEventListener('click', () => { if (confirm('清除此裝置記住的密語並重新載入？')) D.forgetKey(); });
     U.$('#btn-menu').addEventListener('click', () => (document.body.classList.contains('drawer-open') ? closeDrawer() : openDrawer()));
     U.$('#scrim').addEventListener('click', closeDrawer);
     U.$('#btn-collapse').addEventListener('click', () => {
@@ -263,9 +267,18 @@
     }));
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') maybeCheckVersion(); });
     try {
+      await metaP;
+      if (D.enc()) {
+        if (!D.cryptoOK()) {
+          U.$('#view').innerHTML = '<div class="error-box"><h2>瀏覽器過舊或非安全連線</h2><p>本站資料已加密，需要 Web Crypto 與 DecompressionStream（Safari 16.4+／Chrome、Edge 80+／Firefox 113+），且必須以 https 開啟。</p></div>';
+          return;
+        }
+        await D.unlock(); // 密語（或此裝置記住的金鑰）
+        if (bk) bk.hidden = false;
+      }
       await D.loadManifest();
     } catch (e) {
-      U.$('#view').innerHTML = `<div class="error-box"><h2>無法載入 manifest.json</h2><p>${U.esc(e.message)}</p><p class="muted">資料目錄：<code>${U.esc(D.base)}</code>（可用 <code>?data=路徑/</code> 指定）</p></div>`;
+      U.$('#view').innerHTML = `<div class="error-box"><h2>無法載入資料</h2><p>${U.esc(e.message)}</p><p class="muted">資料目錄：<code>${U.esc(D.base)}</code>（可用 <code>?data=路徑/</code> 指定）</p></div>`;
       return;
     }
     // 側欄：有記住的偏好就照偏好；否則查詢優先的站台（landing=card）桌機預設收合，讓查詢頁乾淨

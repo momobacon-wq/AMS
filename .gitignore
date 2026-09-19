@@ -12,3 +12,9 @@ Thumbs.db
 tools/db/__pycache__/
 tools/auth/mock_log.jsonl
 tools/auth/mock_server.out
+
+# 加密站：docs/*/data 只能 commit 密文 .bin 與明文 meta.json（tools/encrypt_data.py）
+docs/data/**/*.json
+!docs/data/meta.json
+docs/db/data/**/*.json
+!docs/db/data/meta.json

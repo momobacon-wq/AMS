@@ -42,14 +42,22 @@ def stamp(docs):
     docs = os.path.abspath(docs)
     data_dir = os.path.join(docs, "data")
     man_path = os.path.join(data_dir, "manifest.json")
-    with open(man_path, "rb") as f:
-        man = json.loads(f.read().decode("utf-8"))
-    build = man.get("build")
-    if not build:
-        build = data_build(data_dir)
-        man["build"] = build
-        with open(man_path, "wb") as f:
-            f.write(json.dumps(man, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
+    meta_path = os.path.join(data_dir, "meta.json")
+    encrypted = os.path.exists(meta_path) and not os.path.exists(man_path)
+    if encrypted:  # 加密站（tools/encrypt_data.py）：manifest 已是 .bin，build 記在明文 meta.json
+        with open(meta_path, "rb") as f:
+            build = json.loads(f.read().decode("utf-8")).get("build")
+        if not build:
+            raise SystemExit("meta.json has no build")
+    else:
+        with open(man_path, "rb") as f:
+            man = json.loads(f.read().decode("utf-8"))
+        build = man.get("build")
+        if not build:
+            build = data_build(data_dir)
+            man["build"] = build
+            with open(man_path, "wb") as f:
+                f.write(json.dumps(man, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
     assets = os.path.join(docs, "assets")
     fh = {}
     for p in sorted(glob.glob(os.path.join(assets, "*.js")) + glob.glob(os.path.join(assets, "*.css"))):
@@ -69,8 +77,8 @@ def stamp(docs):
     html = re.sub(r'((?:src|href)=")assets/([\w.-]+\.(?:js|css))(\?v=[0-9a-zA-Z]*)?(")', ref, html)
     html = re.sub(r'<meta name="ams-build"[^>]*>',
                   '<meta name="ams-build" content="%s" data-app="%s" data-chart="%s">' % (build, app, chart), html)
-    html = re.sub(r'(<link rel="preload" href=")data/manifest\.json(\?v=[0-9a-zA-Z]*)?(")',
-                  r'\g<1>data/manifest.json?v=%s\g<3>' % build, html)
+    html = re.sub(r'(<link rel="preload" href=")data/(?:meta|manifest)\.json(\?v=[0-9a-zA-Z]*)?(")',
+                  r'\g<1>data/%s.json?v=%s\g<3>' % ("meta" if encrypted else "manifest", build), html)
     if html != orig:
         with open(ix_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(html)

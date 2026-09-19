@@ -457,11 +457,43 @@
     D.chartVersion = mv ? mv.getAttribute('data-chart') || '' : '';
   })();
   D.cache = new Map(); // path → Promise<json>
-  /** 實際網址：資料檔加上 ?v=<manifest.build>，同一建置的檔案才會共用快取 */
+
+  /* ---- 加密資料（tools/encrypt_data.py；CONTRACT.md「加密與封裝」）：data/meta.json 明文，其餘 <rel>.bin
+   *   = 12B IV ‖ AES-256-GCM(gzip(JSON))，AAD＝相對路徑；金鑰＝PBKDF2-SHA256(密語, salt, 200000)。
+   *   meta.json 404 或 enc:0 → 明文（本機開發／mock）。記住的金鑰存 localStorage ams.key（與 signal-atlas 同源，勿用 atlas.key）。 */
+  D.encMeta = null;          // {enc,gzip,build,kdf,check}
+  D.key = null;           // AES-GCM CryptoKey（解鎖後）
+  const KEY_STORE = 'ams.key';
+  const utf8 = (s) => new TextEncoder().encode(s);
+  const b64enc = (u8) => { let s = ''; for (const c of u8) s += String.fromCharCode(c); return btoa(s); };
+  const b64dec = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  D.enc = () => !!(D.encMeta && D.encMeta.enc);
+  D.cryptoOK = () => !!(window.crypto && crypto.subtle && typeof crypto.subtle.deriveKey === 'function' && window.DecompressionStream && window.TextDecoder);
+  D.loadMeta = async function () {
+    let r;
+    try { r = await fetch(D.base + 'meta.json' + (D.pageBuild ? '?v=' + encodeURIComponent(D.pageBuild) : '')); }
+    catch (e) { throw new Error('無法連線：' + D.base + 'meta.json'); }
+    if (r.status === 404) { D.encMeta = { enc: 0 }; return D.encMeta; }
+    if (!r.ok) throw new Error('meta.json HTTP ' + r.status);
+    D.encMeta = await r.json();
+    if (D.encMeta.enc && (!D.encMeta.kdf || !D.encMeta.check)) throw new Error('meta.json 缺少 kdf/check');
+    if (D.encMeta.build) D.pageBuild = D.encMeta.build; // manifest.json.bin 的 ?v= 以資料建置為準
+    return D.encMeta;
+  };
+  async function decryptJSON(buf, rel) {
+    let plain;
+    try {
+      plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.subarray(0, 12), additionalData: utf8(rel) }, D.key, buf.subarray(12));
+    } catch (e) { throw new Error('解密失敗：' + rel + '（密語或資料版本不符，請按「清除密語」後重新輸入）'); }
+    const ab = D.encMeta.gzip === 0 ? plain : await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    return JSON.parse(new TextDecoder('utf-8').decode(ab));
+  }
+  /** 實際網址：資料檔加上 ?v=<manifest.build>，同一建置的檔案才會共用快取；加密版檔名加 .bin */
   D.url = function (path) {
-    if (path === 'manifest.json') return D.base + path + (D.pageBuild ? '?v=' + encodeURIComponent(D.pageBuild) : '');
+    const file = D.enc() ? path + '.bin' : path;
+    if (path === 'manifest.json') return D.base + file + (D.pageBuild ? '?v=' + encodeURIComponent(D.pageBuild) : '');
     const v = D.manifest && D.manifest.build;
-    return D.base + path + (v ? (path.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(v) : '');
+    return D.base + file + (v ? (file.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(v) : '');
   };
   D.fetchJSON = function (path, onProgress, estBytes) {
     if (D.cache.has(path)) return D.cache.get(path);
@@ -472,24 +504,30 @@
       const cacheMode = path === 'manifest.json' && !D.pageBuild ? 'no-cache' : 'default';
       try { res = await fetch(url, { cache: cacheMode }); } catch (e) { throw new Error('無法連線：' + url); }
       if (!res.ok) throw new Error(`HTTP ${res.status}：${url}`);
-      if (!res.body || !onProgress) { const j = await res.json(); if (onProgress) onProgress(1); return j; }
-      const enc = res.headers.get('content-encoding');
-      let total = Number(res.headers.get('content-length')) || 0;
-      if (enc && enc !== 'identity') total = 0; // 壓縮後長度不能當分母
-      if (!total && estBytes) total = estBytes;
-      const reader = res.body.getReader();
-      const chunks = []; let got = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value); got += value.length;
-        if (total) onProgress(Math.min(0.98, got / total));
+      const encd = D.enc();
+      let buf;
+      if (!res.body || !onProgress) {
+        if (!encd) { const j = await res.json(); if (onProgress) onProgress(1); return j; }
+        buf = new Uint8Array(await res.arrayBuffer());
+      } else {
+        const ce = res.headers.get('content-encoding');
+        let total = Number(res.headers.get('content-length')) || 0;
+        if (ce && ce !== 'identity') total = 0; // 壓縮後長度不能當分母
+        if (!total && estBytes && !encd) total = estBytes; // 密文已 gzip，content-length 就是精確值；估計值是明文大小不適用
+        const reader = res.body.getReader();
+        const chunks = []; let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value); got += value.length;
+          if (total) onProgress(Math.min(0.98, got / total));
+        }
+        buf = new Uint8Array(got); let o = 0;
+        for (const c of chunks) { buf.set(c, o); o += c.length; }
       }
-      const buf = new Uint8Array(got); let o = 0;
-      for (const c of chunks) { buf.set(c, o); o += c.length; }
-      const txt = new TextDecoder('utf-8').decode(buf);
-      onProgress(1);
-      return JSON.parse(txt);
+      const j = encd ? await decryptJSON(buf, path) : JSON.parse(new TextDecoder('utf-8').decode(buf));
+      if (onProgress) onProgress(1);
+      return j;
     })();
     D.cache.set(path, p);
     p.catch(() => D.cache.delete(path));
@@ -532,6 +570,73 @@
     const j = await D.fetchJSON(f);
     return { ix, aux: (j.by_alias && j.by_alias[alias]) || null };
   };
+
+  /* ------------------------------------------------------------------ 密語 → 金鑰（PBKDF2-HMAC-SHA-256 → AES-256-GCM） */
+  async function verifyKey(key) {
+    try {
+      const buf = b64dec(D.encMeta.check);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.subarray(0, 12), additionalData: utf8('check') }, key, buf.subarray(12));
+      return new TextDecoder().decode(pt) === 'ams-ok';
+    } catch (e) { return false; }
+  }
+  async function deriveKey(pass) {
+    const kdf = D.encMeta.kdf;
+    const km = await crypto.subtle.importKey('raw', utf8(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: kdf.hash || 'SHA-256', salt: b64dec(kdf.salt), iterations: Number(kdf.iter) || 200000 }, km,
+      { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+  }
+  D.forgetKey = function () { try { localStorage.removeItem(KEY_STORE); } catch (e) { /* ignore */ } location.reload(); };
+  /** 解鎖：先試 localStorage 記住的金鑰，否則顯示密語視窗；resolve 後 D.key 可用 */
+  D.unlock = async function () {
+    let stored = null;
+    try { stored = localStorage.getItem(KEY_STORE); } catch (e) { /* 私密模式 */ }
+    if (stored) {
+      try {
+        const key = await crypto.subtle.importKey('raw', b64dec(stored), { name: 'AES-GCM' }, true, ['decrypt']);
+        if (await verifyKey(key)) { D.key = key; return; }
+      } catch (e) { /* 壞掉的儲存值 */ }
+      try { localStorage.removeItem(KEY_STORE); } catch (e) { /* ignore */ }
+    }
+    await new Promise((resolve) => showKeyModal(resolve));
+  };
+  function showKeyModal(resolve) {
+    const input = U.h('input', { id: 'key-pass', name: 'passphrase', type: 'password', autocomplete: 'current-password', autocapitalize: 'off', spellcheck: 'false', required: true, placeholder: '密語' });
+    const remember = U.h('input', { id: 'key-remember', type: 'checkbox', checked: true });
+    const msg = U.h('div', { class: 'auth-msg', role: 'status', 'aria-live': 'polite' });
+    const btn = U.h('button', { id: 'key-submit', class: 'btn primary auth-btn', type: 'submit' }, '解鎖');
+    const form = U.h('form', { class: 'auth-card key-card', autocomplete: 'on', novalidate: true },
+      U.h('div', { class: 'auth-brand' }, U.h('span', { class: 'brand-mark', 'aria-hidden': 'true' }, 'AMS'),
+        U.h('div', null, U.h('h1', { id: 'key-title' }, '輸入密語'), U.h('p', { class: 'auth-sub' }, '本站資料已加密，輸入密語後才會在你的裝置上解密顯示。'))),
+      U.h('label', { class: 'auth-field' }, U.h('span', {}, '密語'), input),
+      U.h('label', { class: 'key-remember' }, remember, ' 記住此裝置（金鑰存在此瀏覽器，不再詢問）'),
+      msg, btn,
+      U.h('p', { class: 'auth-foot' }, '密語請向站台管理者索取'));
+    const overlay = U.h('div', { id: 'key-gate', class: 'auth-gate key-gate', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'key-title' }, form);
+    let busy = false;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      const pass = input.value;
+      if (!pass) { msg.textContent = '請輸入密語。'; msg.className = 'auth-msg bad'; input.focus(); return; }
+      busy = true; btn.disabled = true; msg.textContent = '驗證中…'; msg.className = 'auth-msg';
+      try {
+        const key = await deriveKey(pass);
+        if (await verifyKey(key)) {
+          D.key = key;
+          if (remember.checked) { try { localStorage.setItem(KEY_STORE, b64enc(new Uint8Array(await crypto.subtle.exportKey('raw', key)))); } catch (e2) { /* ignore */ } }
+          overlay.remove(); document.body.classList.remove('auth-locked');
+          resolve();
+          return;
+        }
+        msg.textContent = '密語不正確'; msg.className = 'auth-msg bad'; input.select();
+      } catch (err) {
+        msg.textContent = '無法驗證：' + ((err && err.message) || err); msg.className = 'auth-msg bad';
+      } finally { busy = false; btn.disabled = false; }
+    });
+    document.body.appendChild(overlay);
+    document.body.classList.add('auth-locked');
+    setTimeout(() => input.focus(), 0);
+  }
 
   /* 分塊表：依序載入；可先載入指定部分 */
   const chunkedMap = new Map();

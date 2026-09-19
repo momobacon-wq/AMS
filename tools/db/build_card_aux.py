@@ -25,6 +25,7 @@ import os, sys, json, re, math, glob, argparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, '..'))  # tools/encrypt_data.py
 
 FLT_MIN = 1.1754943508222875e-38
 SRC_DEFS = {
@@ -252,6 +253,11 @@ def main():
     ap.add_argument('--no-stamp', action='store_true')
     a = ap.parse_args()
     cw, outdir = a.cardwork, a.outdir
+    import extract_db, encrypt_data
+    if encrypt_data.is_encrypted(outdir):  # 已發布的加密資料：先原地解密（結尾會重新加密）
+        encrypt_data.decrypt_dir(outdir, encrypt_data.passphrase_and_salt(persist=False)[0])
+    for q in glob.glob(os.path.join(outdir, 'card', '*.bin')):
+        os.remove(q)
     ams = load(os.path.join(cw, 'ams.json'))
     kinds = {k: load(os.path.join(cw, k + '.json')) for k in ('terminal', 'instlist', 'eomr', 'docindex')}
     s03 = load(os.path.join(outdir, 'sheets', '03.json'))
@@ -540,8 +546,7 @@ def main():
     print('card aux: %d aliases, %d parts, max %d KB, total %d KB, index %d KB' % (len(alias_map), len(parts), max(sizes) // 1024, sum(sizes) // 1024, len(idata.encode('utf-8')) // 1024))
     print(json.dumps(stats, ensure_ascii=False))
 
-    # ---- manifest build（含 card/*.json）＋ stamp
-    import extract_db
+    # ---- manifest build（含 card/*.json）＋ 加密 ＋ stamp
     man_path = os.path.join(outdir, 'manifest.json')
     man = load(man_path)
     man.setdefault('aux', {})['card'] = dict(man.get('aux', {}).get('card') or {}, index='card/index.json', parts=len(parts),
@@ -549,6 +554,7 @@ def main():
     man['build'] = extract_db.data_build(outdir, man)
     open(man_path, 'wb').write(dumps(man).encode('utf-8'))
     print('manifest build', man['build'])
+    encrypt_data.encrypt_dir(outdir, *encrypt_data.passphrase_and_salt())
     if not a.no_stamp:
         docs_db = os.path.dirname(os.path.abspath(outdir))
         extract_db.stamp(docs_db, os.path.join(os.path.dirname(docs_db), 'assets'))

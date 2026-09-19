@@ -122,12 +122,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("xlsx")
     ap.add_argument("outdir")
+    ap.add_argument("--no-encrypt", action="store_true", help="留明文（只供本機測試，不可 push）")
     args = ap.parse_args(argv)
     t0 = time.time()
     outdir = os.path.abspath(args.outdir)
     sheets_dir = os.path.join(outdir, "sheets")
     os.makedirs(sheets_dir, exist_ok=True)
-    for p in glob.glob(os.path.join(sheets_dir, "*.json")) + [os.path.join(outdir, "manifest.json")]:
+    for p in (glob.glob(os.path.join(sheets_dir, "*.json")) + glob.glob(os.path.join(sheets_dir, "*.bin"))
+              + [os.path.join(outdir, "manifest.json"), os.path.join(outdir, "manifest.json.bin"), os.path.join(outdir, "meta.json")]):
         if os.path.exists(p):
             os.remove(p)
 
@@ -304,12 +306,18 @@ def main(argv=None):
     manifest["build"] = stamp_assets.data_build(outdir)
     size = write_json(os.path.join(outdir, "manifest.json"), manifest)
     log("[manifest] %d sheets  %.1f KB  build %s" % (len(manifest_sheets), size / 1024.0, manifest["build"]))
+
+    # ---- self-check（明文上） ----------------------------------------------------------
+    problems = self_check(ctx, outdir, manifest, table_rows, grid_info, card)
+    # ---- 加密（最後一步；build 已以明文算好）→ 戳記 -------------------------------------------
+    if args.no_encrypt:
+        log("[encrypt] SKIPPED (--no-encrypt): plaintext output, do not push")
+    else:
+        import encrypt_data
+        encrypt_data.encrypt_dir(outdir, *encrypt_data.passphrase_and_salt(), log=log)
     docs_dir = os.path.dirname(outdir)
     if os.path.exists(os.path.join(docs_dir, "index.html")):
         log("[stamp] %s" % json.dumps(stamp_assets.stamp(docs_dir)))
-
-    # ---- self-check -----------------------------------------------------------------
-    problems = self_check(ctx, outdir, manifest, table_rows, grid_info, card)
     total_bytes = sum(e.get("bytes", 0) for e in manifest_sheets)
     log("[done] %d files, %.1f MB, %.1fs" % (sum(len(e.get("files", [])) for e in manifest_sheets) + 1,
                                             total_bytes / 1048576.0, time.time() - t0))

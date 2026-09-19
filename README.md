@@ -35,6 +35,22 @@ py tools/db/extract_db.py tools/db/sheets_final.pkl docs/db/data          # 寫 
 py tools/stamp_assets.py docs                                             # 前端程式有改時，主站也重新戳記
 ```
 
+## 資料加密（兩站；push 前必做）
+
+`docs/*/data` 只發布密文：每個 JSON 以 AES-256-GCM 加密成 `<檔名>.bin`，金鑰由密語經 PBKDF2 導出，瀏覽器在登入後輸入密語解密（作法同 signal-atlas，細節見 [CONTRACT.md](CONTRACT.md)「加密與封裝」）。密語放在 `%LOCALAPPDATA%\AMS\web.key`（第 1 行；第 2 行是固定 salt，首次執行自動產生），不在 repo 裡。
+
+```bash
+py tools/encrypt_data.py docs/data              # 產生器已自動做；手動把明文目錄轉成 .bin + meta.json
+py tools/encrypt_data.py docs/db/data
+py tools/stamp_assets.py docs                   # 加密後重新戳記（build 讀 meta.json）
+py -c "import sys; sys.path.insert(0,'tools/db'); import extract_db; extract_db.stamp('docs/db','docs/assets')"
+py tools/verify_encrypted.py                    # 兩站重新解密驗證；0 錯誤才可 push
+py tools/encrypt_data.py docs/db/data --decrypt # 要重跑 build_card_aux / verify_data 時先還原明文（結尾會再加密）
+```
+
+只重建查詢卡附加資料：`encrypt_data.py --decrypt` → `build_card_aux.py`（結尾自動加密＋戳記）→ `verify_encrypted.py`。
+`extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
+
 ## 登入閘門（員工代號）與登入紀錄
 
 兩個網站共用 `docs/assets/auth.js`：開站先要求輸入員工代號，對照 Google 試算表的 **Users** 分頁（姓名由分頁帶出），登入／造訪／登出都寫進同一份試算表的 **AMS_Log** 分頁。驗證與寫入由綁在試算表上的 Apps Script 網頁應用程式（`tools/auth/Code.gs`）處理；部署步驟與本機測試方式見 [tools/auth/README.md](tools/auth/README.md)。`docs/auth-config.json` 的 `endpoint` 留空時閘門關閉。
@@ -57,7 +73,7 @@ py tools/verify_data.py "<路徑>/20260910_AMS解析.xlsx" docs/data # 逐格對
 docs/                 GitHub Pages 根目錄
   index.html
   assets/             core.js / table.js / grid.js / card.js / app.js / app.css / chart.umd.min.js
-  data/manifest.json
-  data/sheets/*.json  每張表一檔；21、22 依設備區塊切塊
-tools/                extract.py、verify_data.py、amsx/（公式與條件式格式引擎）
+  data/meta.json      唯一明文（加密參數與 build）
+  data/manifest.json.bin、data/sheets/*.json.bin  每張表一檔（AES-GCM 密文）；21、22 依設備區塊切塊
+tools/                extract.py、verify_data.py、encrypt_data.py、verify_encrypted.py、amsx/（公式與條件式格式引擎）
 ```
