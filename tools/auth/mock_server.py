@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Local test double for tools/auth/Code.gs: serves docs/ statically AND answers POST /mock-auth with the same
 JSON contract, so the login gate can be tested without deploying Apps Script.
-GET auth-config.json (and db/../auth-config.json) is overridden to point at /mock-auth.
+GET auth-config.json (and db/../auth-config.json) is overridden to point at /mock-auth; db/stock-config.json → /mock-stock
+(tools/stock/mock_stock.py: 備品庫存 API 的替身；POST /mock-stock-reset 回到 seed).
 Usage: py tools/auth/mock_server.py [port] [docs_dir]   (default 8766, ../docs)
 Users: tools/auth/mock_users.csv (id,name) — test data only, never the real list.
 Log: printed to stdout and appended to tools/auth/mock_log.jsonl
@@ -10,6 +11,8 @@ import os, sys, json, time, hmac, hashlib, base64, csv
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, '..', 'stock'))
+import mock_stock  # noqa: E402
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8766
 DOCS = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, '..', '..', 'docs'))
 SECRET = b'mock-secret'
@@ -78,6 +81,10 @@ class H(SimpleHTTPRequestHandler):
             return self._json({'endpoint': f'http://127.0.0.1:{PORT}/mock-auth', 'sessionHours': 12, 'title': '請先登入（測試端點）'})
         if p == '/mock-auth':
             return self._json({'ok': True, 'service': 'mock', 'users': len(USERS)})
+        if p.endswith('stock-config.json'):
+            return self._json({'endpoint': f'http://127.0.0.1:{PORT}/mock-stock'})
+        if p == '/mock-stock':
+            return self._json({'ok': True, 'service': 'ams-stock-mock'})
         if p == '/mock-control':
             return self._json(FAIL_MODE)
         return super().do_GET()
@@ -90,6 +97,16 @@ class H(SimpleHTTPRequestHandler):
             try: FAIL_MODE.update(json.loads(raw or b'{}'))
             except Exception: pass
             return self._json(FAIL_MODE)
+        if p == '/mock-stock-reset':
+            mock_stock.reset(); return self._json({'ok': True})
+        if p == '/mock-stock':
+            try:
+                body = json.loads(raw or b'{}')
+            except Exception:
+                return self._json({'ok': False, 'error': '請求格式錯誤'})
+            uid = canon(body.get('id'))
+            user = {'id': uid, 'name': USERS.get(uid, {}).get('name', uid)}
+            return self._json(mock_stock.handle(body, user))
         if p != '/mock-auth':
             return self._json({'ok': False, 'error': 'not found'}, 404)
         if FAIL_MODE['down']:  # like a real outage: HTML error page, not JSON

@@ -913,3 +913,60 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .key-remember { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
 .key-remember input { width: 16px; height: 16px; margin: 0; }
 #btn-key { margin-right: 2px; flex: none; }
+
+/* ---------------- 備品庫存（stock.js）：查詢卡「備品庫存」組、#/stock/ 總表、領取／放入視窗 ---------------- */
+.sum-stock { grid-column: 1 / -1; border-right: 0 !important; }
+.stk-grid { padding: 6px 10px 8px; }
+.stk-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 2px 8px; font-size: 13px; }
+.stk-sum { font-weight: 700; color: var(--accent-text); }
+.stk-note { padding: 6px 2px 0; }
+.stk-err { color: #c00000; }
+[data-theme="dark"] .stk-err { color: #ff8a8a; }
+.stk-wrap { border: 1px solid var(--border); border-radius: 8px; }
+table.mini.stk td, table.mini.stk-logs td { vertical-align: middle; }
+table.mini.stk td.mono, table.mini.stk-logs td.mono, .mono { font-family: var(--mono); }
+.stk-model { word-break: break-all; }
+.stk-proto { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 11px; font-family: var(--font); background: var(--label-bg); color: var(--muted); }
+.stk-tier { margin-left: 6px; font-family: var(--font); }
+.stk-qty { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
+.stk-qty.out { color: var(--cmp-bad); }
+.stk-qty.low { color: var(--cmp-warn); }
+.stk-qtyx { font-size: 10.5px; font-weight: 700; padding: 0 4px; border-radius: 999px; border: 1px solid currentColor; }
+tr.stk-row.out td { background: var(--cmp-bad-bg); }
+tr.stk-row.incart td { background: var(--accent-soft); }
+.stk-acts { display: inline-flex; gap: 4px; }
+details.stk-fam { margin-top: 8px; }
+details.stk-fam > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--accent-text); padding: 4px 2px; }
+/* 總表 */
+.stock-view .sv-head { padding-bottom: 6px; }
+.stk-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 20px 10px; }
+.stk-tools .stk-q { flex: 1 1 260px; max-width: 520px; height: 34px; }
+.stk-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.stk-body { padding: 0 20px 90px; }
+table.mini.stk.full th.sortable { cursor: pointer; user-select: none; }
+table.mini.stk.full th.sortable.asc::after { content: " ▲"; font-size: 10px; }
+table.mini.stk.full th.sortable.desc::after { content: " ▼"; font-size: 10px; }
+.stk-cartc { white-space: nowrap; }
+.stk-cn { display: inline-block; min-width: 22px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--faint); }
+.stk-cn.on { color: var(--accent-text); }
+.stk-cart { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 20px; background: var(--surface); border-top: 1px solid var(--border-strong); box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08); }
+.stk-cart-sum { font-weight: 700; margin-right: auto; }
+/* 視窗（沿用登入卡樣式） */
+.stk-card.wide { max-width: 980px; }
+.stk-lines { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
+.stk-line { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.stk-line-t { flex: 1; min-width: 0; font-size: 13px; word-break: break-all; }
+.stk-n { width: 72px; height: 34px; text-align: right; font: 15px var(--font); padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--text); }
+.stk-btns { display: flex; gap: 8px; }
+.stk-btns .auth-btn { flex: 1; }
+.stk-logbody { max-height: 60vh; overflow: auto; }
+.stk-devs { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 10px; }
+.stk-devs .chip-btn { font-family: var(--mono); }
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
+  .stk-tools, .stk-body { padding-left: 12px; padding-right: 12px; }
+  .stk-cart { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  table.mini.stk.full th:nth-child(3), table.mini.stk.full td:nth-child(3), table.mini.stk.full th:nth-child(8), table.mini.stk.full td:nth-child(8) { display: none; }
+  table.mini.stk { width: max-content; min-width: 100%; } /* 窄螢幕：橫向捲動，型號碼不逐字換行 */
+  .stk-model { word-break: normal; white-space: nowrap; }
+  table.mini.stk td { white-space: nowrap; }
+}

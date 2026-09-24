@@ -51,6 +51,11 @@ py tools/encrypt_data.py docs/db/data --decrypt # 要重跑 build_card_aux / ver
 只重建查詢卡附加資料：`encrypt_data.py --decrypt` → `build_card_aux.py`（結尾自動加密＋戳記）→ `verify_encrypted.py`。
 `extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
 
+## 備品庫存（docs/db 站）
+
+查詢卡「一目了然」最後一組「備品庫存（倉庫）」：以儀器清單／EOMR 的完整型號碼對照倉庫料號，列出同型號／同系列的備品數量與儲位，可直接領取／放入（自動帶入位號、可填用途與工單號）；`#/stock/` 是庫存總表（搜尋、購物車批次、紀錄匯出、反查可安裝位號）。
+資料即時讀寫 Google 試算表「物料管理系統」（Transmitter 網站的同一份），後端是獨立 Apps Script `tools/stock/Code.gs`；寫入需要登入 token＋由密語導出的 `STOCK_TOKEN`。部署、合約匯入（`contracts_to_inventory.py`）與本機測試見 [tools/stock/README.md](tools/stock/README.md)；`docs/db/stock-config.json` 的 `endpoint` 留空時整個功能隱藏。
+
 ## 登入閘門（員工代號）與登入紀錄
 
 兩個網站共用 `docs/assets/auth.js`：開站先要求輸入員工代號，對照 Google 試算表的 **Users** 分頁（姓名由分頁帶出），登入／造訪／登出都寫進同一份試算表的 **AMS_Log** 分頁。驗證與寫入由綁在試算表上的 Apps Script 網頁應用程式（`tools/auth/Code.gs`）處理；部署步驟與本機測試方式見 [tools/auth/README.md](tools/auth/README.md)。`docs/auth-config.json` 的 `endpoint` 留空時閘門關閉。
@@ -76,4 +81,5 @@ docs/                 GitHub Pages 根目錄
   data/meta.json      唯一明文（加密參數與 build）
   data/manifest.json.bin、data/sheets/*.json.bin  每張表一檔（AES-GCM 密文）；21、22 依設備區塊切塊
 tools/                extract.py、verify_data.py、encrypt_data.py、verify_encrypted.py、amsx/（公式與條件式格式引擎）
+tools/stock/          備品庫存：Code.gs（Apps Script API）、contracts_to_inventory.py、print_token.py、mock_stock.py
 ```

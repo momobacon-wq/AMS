@@ -1,0 +1,12 @@
+[
+  {"pn": "CR000000001", "model": "3051L3AG0YD11AAWR5DA0L4M5Q4Q8D4P1", "brand": "Rosemount", "spec": "-1000 to 1000 inH2O", "loc": "A-01", "qty": 2, "proto": "HART", "family": "3051L", "contract": "測試合約", "cqty": 2, "min": 1, "note": ""},
+  {"pn": "CR000000002", "model": "3051CD3A02B1AWR5DA0S5M5Q4Q8D4P1P9", "brand": "Rosemount", "spec": "-1000 to 1000 inH2O", "loc": "A-02", "qty": 10, "proto": "HART", "family": "3051CD", "contract": "測試合約", "cqty": 10, "min": 2, "note": ""},
+  {"pn": "CR000000003", "model": "3051CG5F22A1AE7M5Q4Z1", "brand": "Rosemount", "spec": "-14.2 to 2000 psi", "loc": "A-03", "qty": 0, "proto": "FF", "family": "3051CG", "contract": "測試合約", "cqty": 8, "min": 1, "note": ""},
+  {"pn": "CR000000004", "model": "644HAE7J6M5WR5C8C4Q4QT", "brand": "Rosemount", "spec": "Temperature transmitter", "loc": "B-01", "qty": 18, "proto": "HART", "family": "644", "contract": "測試合約", "cqty": 18, "min": null, "note": ""},
+  {"pn": "CR000000005", "model": "848TFI7S001T1JS3Q4", "brand": "Rosemount", "spec": "High Density Temperature Measurement Family", "loc": "B-02", "qty": 4, "proto": "FF", "family": "848T", "contract": "測試合約", "cqty": 4, "min": null, "note": ""},
+  {"pn": "CR000000006", "model": "PMD75-ABC7FI1DAEA+N5", "brand": "Endress+Hauser", "spec": "7.5psi", "loc": "C-01", "qty": 6, "proto": "HART", "family": "PMD75", "contract": "測試合約", "cqty": 6, "min": 1, "note": ""},
+  {"pn": "CR000000007", "model": "PMP71-ABC1KH1RDAAU+N2", "brand": "Endress+Hauser", "spec": "30psi", "loc": "C-02", "qty": 3, "proto": "HART", "family": "PMP71", "contract": "測試合約", "cqty": 3, "min": null, "note": ""},
+  {"pn": "CR000000008", "model": "TMT82-AAA2CD2TKTKA2+E1F177", "brand": "Endress+Hauser", "spec": "Type K", "loc": "C-03", "qty": 17, "proto": "HART", "family": "TMT82", "contract": "測試合約", "cqty": 17, "min": 5, "note": ""},
+  {"pn": "CR000000009", "model": "TMT82-AAA2ID2TETEA2+E1F177", "brand": "Endress+Hauser", "spec": "Type E", "loc": "C-03", "qty": 1, "proto": "HART", "family": "TMT82", "contract": "測試合約", "cqty": 21, "min": 5, "note": ""},
+  {"pn": "CR000000010", "model": "3051TG4A2B21AWR5BED4E7M5P1Q4Q8DA0S5QT", "brand": "Rosemount", "spec": "–14.7 to 4000 psi", "loc": "A-04", "qty": 11, "proto": "HART", "family": "3051TG", "contract": "測試合約", "cqty": 11, "min": 2, "note": ""}
+]

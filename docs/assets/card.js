@@ -723,8 +723,32 @@
           pend.push({ el, item: it });
         }
       }
+      // 備品庫存（stock.js；有 stock-config 且已登入才有）：一目了然最後一組，資料到齊後以型號碼對照倉庫
+      if (AMS.Stock && AMS.Stock.enabled) {
+        const sec = U.h('section', { class: 'sum-g sum-stock' });
+        sec.appendChild(U.h('h3', { class: 'sum-gh' }, '備品庫存（倉庫）'));
+        const grid = U.h('div', { class: 'sum-body stk-grid' });
+        grid.innerHTML = '<p class="muted cl-empty">載入中…</p>';
+        sec.appendChild(grid);
+        groups.appendChild(sec);
+        pend.push({ grid, stock: true, tag });
+      }
       this.fillSummary(row, res, pend, svc);
       return wrap;
+    }
+    /** 備品對照用的型號碼：儀器清單「完整型號碼」、EOMR「出廠型號」（去掉 / 後的歧管碼）＋ AMS 型號（家族） */
+    stockCtx(row, aux, tag) {
+      const H = (this.spec.summary && this.spec.summary.hero) || {};
+      const codes = [];
+      const secOf = (k) => (aux && aux.sec && aux.sec[k]) || null;
+      for (const [kind, key] of [['instlist', '完整型號碼'], ['eomr', '出廠型號']]) {
+        for (const ent of ((secOf(kind) || {}).entries || [])) {
+          const v = this.rowVal(ent, key); if (!v || v === '—') continue;
+          const code = String(v).split('/')[0].trim();
+          if (code && !codes.some((c) => c.code === code)) codes.push({ code, src: this.kindLabel(kind) });
+        }
+      }
+      return { tag, alias: this.res.alias, codes, amsModel: H.model != null ? U.cardValue(row[H.model]) : '' };
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
@@ -757,6 +781,7 @@
       const H = S.hero || {};
       if (H.service && svcEl) { const v = this.rowVal(pickEntry(H.service.kind), H.service.key); svcEl.textContent = v; svcEl.hidden = !v; }
       for (const p of pend) {
+        if (p.stock) { try { AMS.Stock.fillCard(p.grid, this.stockCtx(row, aux, p.tag)); } catch (e) { console.error(e); p.grid.innerHTML = `<p class="muted cl-empty">無法顯示：${U.esc(e.message)}</p>`; } continue; }
         if (p.group) { try { this.fillSumGroup(p.group, p.grid, aux, ix, mode); } catch (e) { console.error(e); p.grid.innerHTML = `<p class="muted cl-empty">無法顯示：${U.esc(e.message)}</p>`; } continue; }
         const it = p.item; let o = null;
         if (it.stats) {

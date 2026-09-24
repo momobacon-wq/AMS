@@ -202,3 +202,22 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
   - `py tools/verify_encrypted.py`：重新以密語解開全部 `.bin`、確認沒有明文 `.json`、manifest 引用與檔案一一對應、以明文重算 build 並比對 meta／manifest／version.json／index.html、掃建置機器本機路徑、robots／noindex。**每次 push 前必須 exit 0**。
 - `.gitignore` 擋掉 `docs/*/data/**/*.json`（meta.json 除外），明文永遠 commit 不進去；`docs/robots.txt` Disallow 全站、index.html `noindex, nofollow`。
 - 誠實的限制：同一組密語所有同事共用，沒有個人撤銷；勾「記住此裝置」時 raw key 明文存在該瀏覽器 localStorage（嚴格 CSP、無行內 script 是它的防線）；員工代號閘門只是稽核紀錄，密語才是真正的保護。
+
+## 備品庫存（stock；docs/db 站；tools/stock/）
+
+倉庫資料不在 `data/`，而是即時來自 Google 試算表「物料管理系統」（同事在用的 Transmitter 網站後端）經 `tools/stock/Code.gs`（獨立 Apps Script）讀寫；前端 `docs/assets/stock.js`。
+
+- 啟用條件：`docs/db/stock-config.json` `{"endpoint": "https://script.google.com/macros/s/…/exec"}`（空＝關閉，查詢卡沒有該組、側欄沒有「備品庫存」、`#/stock/` 顯示未啟用）且已登入（`AMSAuth.user.token`）。`app.js` 在 `loadManifest` 後 `AMS.Stock.ready()`。
+- 試算表 Inventory：A PartNumber＝料號 CR…（唯一鍵）、B Name＝完整型號、C Brand、D Spec、E Location、F Quantity（A–F 與 Transmitter 相容，**不可改意義**）、G Protocol、H Family、I Contract、J ContractQty、K MinQty、L Note。
+  Logs：A Timestamp、B EmployeeID、C ActionType（OUT／IN／STOCKTAKE／IMPORT；Transmitter 另有 CHECK_*／BATCH_*／LOGIN／CREATE）、D PartNumber、E ChangeAmount、F Balance、G EmployeeName、H KKS、I Note、J WorkOrder、K Source（ams-card／ams-stock）、L TxnId；最新在第 2 列（`insertRowBefore(2)`，與 Transmitter 相同）。
+- API（POST text/plain JSON，回 `{ok,…}`；每個 action 都帶 `id`、`token`（登入 HMAC token，後端用同一個 `AUTH_SECRET` 驗）與 `stockToken`）：
+  `list` → `{rev, items[{pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min, note}]}`；`logs {pn?, kks?, limit≤300}` → `{rows[{ts,id,name,action,pn,delta,bal,kks,note,wo,source,txn}]}`；
+  `txn {txnId, items[{pn, delta}], kks?, note?, wo?, source?}` → `{results[{pn, qty, delta}], replay?}`（整批驗證、任一失敗不寫、先寫紀錄再改數量、同 txnId 重送回同結果）；`adjust {pn, qty, note?}`（盤點）。
+  失敗：`{ok:false, auth:true}` 未授權、`{ok:false, transient:true}` 伺服器錯誤。
+- `STOCK_TOKEN`＝`hex(SHA-256("ams-stock:" + base64(AES 原始金鑰)))`：瀏覽器由解鎖後的 `D.key` 算（明文模式送 `plain`，只有 mock 接受）；建置端 `tools/stock/print_token.py`。換密語／salt → 重貼指令碼屬性。
+- 對照規則（`AMS.Stock.match`；`contracts_to_inventory.py` 的 FAMILY_RULES 同步維護）：正規化＝大寫、去空白／-／_／／；E+H 取 `+` 前段；本體碼＝`3051|2051|2088|214C|5408|8732E` 開頭者取前 12 碼，其餘整段。
+  第一層「同型號」＝本體碼相同；第二層「同系列」＝系列鍵相同（`3051S`、`3051[CLT]X`、`2051[CT]X`、`2088[AG]`、`644`、`848T`、`5408`、`8732E`、`214C`、`PMD75`、`PMP71`、`TMT82`）。
+  設備端候選碼：card aux 儀器清單「完整型號碼」、EOMR「出廠型號」（`/` 後的歧管碼去掉）；兩者皆無時才用 AMS 型號的家族（`3051`→`3051*` 全系列、`iTEMP TMT82`→`TMT82`、`Deltabar S`→`PMD75`、`Cerabar S`→`PMP71`…）。
+- 查詢卡：`renderSummary` 末尾加 `section.sum-g.sum-stock`（不改 02.json，不必重建資料），資料到齊後 `stockCtx(row, aux, tag)` → `AMS.Stock.fillCard(grid, ctx)`；領取／放入視窗自動帶入位號 KKS；「此位號紀錄」以 KKS 篩選紀錄。
+- 本機：`tools/auth/mock_server.py` 把 `stock-config.json` 指到 `/mock-stock`（`tools/stock/mock_stock.py`，假資料 `mock_inventory.json`）。真實庫存匯入檔（`tools/stock/*.csv`）不進 repo。
+

@@ -24,6 +24,7 @@
       try { q = decodeURIComponent(q); } catch (e) { /* 保留原字串 */ }
       return { view: 'card', query: m[1] === '' ? null : q, params: new URLSearchParams() };
     }
+    if ((m = /^\/stock\/?(?:\?(.*))?$/.exec(h))) return { view: 'stock', params: new URLSearchParams(m[1] || '') }; // 備品庫存總表（stock.js）
     return null;
   };
   R.current = () => (current ? current.instance : null); // 目前的檢視（除錯／自動化測試用）
@@ -62,6 +63,20 @@
       if (D.manifest && D.manifest.landing === 'card' && D.sheets.some((s) => s.mode === 'card')) { location.replace('#/card/'); return; }
       const first = (D.manifest && D.manifest.default_sheet) || (D.sheets[0] && D.sheets[0].id) || '00';
       location.replace('#/s/' + first);
+      return;
+    }
+    if (rt.view === 'stock') {
+      if (!(AMS.Stock && AMS.Stock.enabled && AMS.StockView)) { showNotFound('備品庫存（本站未啟用）'); return; }
+      if (current && current.key === 'stock' && current.instance.update) current.instance.update(rt);
+      else {
+        if (current && current.instance.destroy) current.instance.destroy();
+        if (AMS.detail.isOpen()) AMS.detail.close();
+        const root = U.$('#view'); root.innerHTML = ''; root.scrollTop = 0;
+        current = { key: 'stock', id: 'stock', instance: new AMS.StockView(root, rt) };
+      }
+      setActive('stock');
+      document.title = '備品庫存 · ' + ((D.manifest.workbook && D.manifest.workbook.title) || 'AMS 解析');
+      closeDrawer();
       return;
     }
     let id = rt.view === 'card' ? cardSheetId() : rt.id;
@@ -110,7 +125,9 @@
     }
     for (let i = groups.length - 1; i >= 0; i--) if (!gm.get(groups[i]).length) groups.splice(i, 1);
     const collapsed = new Set(U.store.get('collapsedGroups', []));
-    nav.innerHTML = groups.map((g) => {
+    const stock = AMS.Stock && AMS.Stock.enabled ? `<div class="sg stock"><ul class="sg-list"><li><a class="sheet-link" href="#/stock/" data-id="stock" title="倉庫備品庫存：料號、數量、領取／放入、紀錄">
+          <span class="sl-id">庫</span><span class="sl-name">備品庫存</span><span class="sl-mode" aria-label="庫存">▣</span><span class="sl-rows"></span></a></li></ul></div>` : '';
+    nav.innerHTML = stock + groups.map((g) => {
       const items = gm.get(g).map((s) => {
         const short = s.short || s.name.replace(/^\d+_/, '');
         const rc = s.toc_rows != null ? s.toc_rows : s.rows;
@@ -277,6 +294,7 @@
         if (bk) bk.hidden = false;
       }
       await D.loadManifest();
+      if (AMS.Stock) { try { await AMS.Stock.ready(); } catch (e2) { console.warn('stock', e2); } } // 備品庫存設定（stock-config.json；沒有＝關閉）
     } catch (e) {
       U.$('#view').innerHTML = `<div class="error-box"><h2>無法載入資料</h2><p>${U.esc(e.message)}</p><p class="muted">資料目錄：<code>${U.esc(D.base)}</code>（可用 <code>?data=路徑/</code> 指定）</p></div>`;
       return;
