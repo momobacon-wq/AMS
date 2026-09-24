@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""把 extract_db.py／sheets_params.py 的規格改動套到「已發布」的 docs/db/data（sheets_final.pkl 不在手邊、無法重跑 extract_db 時用）。
+"""patch_site_spec.py — 把 extract_db.py／sheets_params.py 的規格改動套到「已發布」的 docs/db/data（sheets_final.pkl 不在手邊、無法重跑 extract_db 時用）。
 
   py tools/encrypt_data.py docs/db/data --decrypt
-  py tools/db/patch_site_dcdas.py docs/db/data
-  py tools/db/build_card_aux.py --recompare docs/db/data      # 重算 DCS 比對、manifest.build、加密、stamp
+  py tools/db/patch_site_spec.py docs/db/data
+  py tools/db/build_card_aux.py --recompare docs/db/data      # 重算 DCS 比對、併入 docsearch、補 Drive url、manifest.build、加密、stamp
 
 做的事（可重跑，冪等）：
 - 02.json：`summary` 以 extract_db.summary_spec 重建（欄索引改由 03/13.json 的欄標籤反查）、`sections_aux`＝extract_db.SECTIONS_AUX、
-  `src_defs`＝extract_db.SRC_DEFS、說明列補「控制器（紫）」。
+  `src_defs`＝extract_db.SRC_DEFS、說明列（CARD_NOTE_SRC）同步。
 - 13.json：`單位(解碼)` 空白而 (單位參數, 單位碼) 在 sheets_params.DEVICE_UNIT_ENUMS 的列補上單位（E+H Pressure1Unit=9→kPa、
   OutUnitEasy=18→mmH2O）；notes 的單位說明同步。
 不重算 manifest.build、不加密（交給 build_card_aux --recompare；若不跑它，請自行 encrypt_data.py + stamp）。
+（2026-09-24 以前叫 patch_site_dcdas.py。）
 """
 import json
 import os

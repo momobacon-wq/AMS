@@ -740,6 +740,10 @@ button.src-chip { cursor: pointer; min-height: 32px; min-width: 32px; }
 /* 欄位：值 + 徽章按鈕 + 來源格（三種模式共用同一 DOM，由 .cq-body.src-hide|src-badge|src-full 決定顯示） */
 .cf-v.warn .cf-t { color: var(--cmp-bad); font-weight: 700; }
 .cf-v.soft .cf-t { color: var(--muted); }
+.cf-v a.doclk { color: var(--link); text-decoration: underline dotted; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.cf-v a.doclk:hover, .cf-v a.doclk:focus-visible { text-decoration-style: solid; }
+.cf-v a.doclk::after { content: ' ↗'; font-size: 0.85em; color: var(--muted); }
+.cf-v.warn a.doclk { color: var(--cmp-bad); font-weight: 700; }
 .cmp-flag { display: inline-block; margin-left: 6px; font-size: 11.5px; font-weight: 700; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
 .cmp-flag.bad { background: var(--cmp-bad-bg); color: var(--cmp-bad); border: 1px solid var(--cmp-bad); }
 .cmp-flag.soft { background: var(--label-bg); color: var(--muted); border: 1px dashed var(--border-strong); }

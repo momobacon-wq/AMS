@@ -405,7 +405,8 @@
       const blank = o.val === '' || o.val == null;
       const v = U.h('div', { class: 'cf-v' + (blank ? ' blank' : '') + (o.num && !blank ? ' num' : '') + (o.warn ? ' warn' : '') + (o.soft ? ' soft' : '') });
       if (o.css) v.setAttribute('style', o.css);
-      v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(o.val, true)));
+      if (!blank && o.href) v.appendChild(U.h('a', { class: 'cf-t doclk', href: o.href, target: '_blank', rel: 'noopener noreferrer', title: o.hrefTitle || '在 Google 雲端硬碟開啟這份文件' }, U.visible(o.val, true)));
+      else v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(o.val, true)));
       for (const fl of o.flags || []) v.appendChild(U.h('span', { class: 'cmp-flag ' + (fl.cls || '') }, fl.t));
       item.appendChild(v);
       if (o.src) {
@@ -423,7 +424,7 @@
         if (o.src.detail && o.src.detail.length) {
           const det = U.h('details', { class: 'src-more' }, U.h('summary', {}, '文件資訊'));
           const dl = U.h('dl', {});
-          for (const [k, x] of o.src.detail) { if (x == null || x === '') continue; dl.appendChild(U.h('dt', {}, k)); dl.appendChild(U.h('dd', {}, String(x))); }
+          for (const [k, x] of o.src.detail) { if (x == null || x === '') continue; dl.appendChild(U.h('dt', {}, k)); dl.appendChild(U.h('dd', {}, x instanceof Node ? x : String(x))); }
           det.appendChild(dl);
           s.appendChild(det);
         }
@@ -551,12 +552,19 @@
       target.hidden = !out.length;
     }
     docDetail(ix, key, extra) {
-      const d = key && ix.docs ? ix.docs[key] : null;
+      const d = key && ix && ix.docs ? ix.docs[key] : null;
       const out = [];
-      if (d) { out.push(['檔名', d.title]); out.push(['資料夾（工程文件庫根目錄下）', !d.folder || d.folder === '.' ? '（工程文件庫根目錄）' : d.folder]); if (d.why) out.push(['選版', d.why]); }
+      if (d) {
+        out.push(['檔名', d.title]); out.push(['資料夾（工程文件庫根目錄下）', !d.folder || d.folder === '.' ? '（工程文件庫根目錄）' : d.folder]);
+        if (d.why) out.push(['選版', d.why]);
+        if (d.url) out.push(['Google 雲端硬碟', U.h('a', { class: 'lk', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, '開啟檔案 ↗')]);
+      }
       for (const x of extra || []) out.push(x);
       return out;
     }
+    /** index.docs[key].url：文件在 Google 雲端硬碟的連結（build_card_aux --drive-map 補上；沒有就 null） */
+    docHref(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.url ? d.url : null; }
+    docTitle(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.title ? '在 Google 雲端硬碟開啟：' + d.title : null; }
     searchedList(ix, kind) {
       const seen = new Set(); const out = [];
       for (const s of (ix.searched && ix.searched[kind]) || []) {
@@ -593,17 +601,18 @@
               ent.note ? U.h('div', { class: 'muted small sub-note' }, ent.note) : null);
             grid.appendChild(sub);
             const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
+            const href = this.docHref(ix, ent.d); const hrefTitle = this.docTitle(ix, ent.d);
             for (const r of ent.rows) {
               const st = r[2];
               const flags2 = CMP_TEXT[st] && st !== 'ok' ? [{ t: CMP_TEXT[st], cls: cmpCls(st) }] : [];
-              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
+              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, href, hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
             }
           }
           return;
         }
-        for (const r of sec.rows || []) { // docindex
+        for (const r of sec.rows || []) { // docindex／docsearch：每列一份文件（r[4].d → index.docs）
           const ex = r[4] || {};
-          grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode));
+          grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), href: this.docHref(ix, ex.d), hrefTitle: this.docTitle(ix, ex.d), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode));
         }
         return;
       }
@@ -752,7 +761,7 @@
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
-    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引' }[kind] || kind; }
+    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索' }[kind] || kind; }
     async fillSummary(row, res, pend, svcEl) {
       const S = this.spec.summary; const alias = res.alias; const st = this.spec.stats;
       let r13 = null; let aux = null; let ix = null;
@@ -792,37 +801,57 @@
             const val = lo === '' && hi === '' ? '' : `${lo || '—'} ～ ${hi || '—'}${un ? ' ' + un : ''}`;
             o = { label: it.label, val, cmp: it.cmp, src: it.src ? { lvl: it.src.lvl, text: this.fillSrc(it.src.text, r13) } : null };
           }
-        } else if (it.kind) o = this.sumDocItem(it, pickEntry, ix);
+        } else if (it.kind) o = this.sumDocItem(it, pickEntry, ix, secOf);
         if (o) { const el = this.fieldEl(o, mode); if (it.big) el.classList.add('big'); p.el.replaceWith(el); }
       }
       this.applyCmp();
     }
-    /** 摘要的工程文件欄位：kind＋key（或 keys 陣列，kv=true 時「鍵 值」並列）；找不到時用 alt 備援來源 */
-    sumDocItem(it, pickEntry, ix) {
+    /** 摘要的工程文件欄位：kind＋key（或 keys 陣列，kv=true 時「鍵 值」並列）；找不到時依序用 alt 備援來源（單一或陣列）。
+     *  entries 型區段（terminal／instlist／eomr／dcdas）取主體 entry 的列；rows 型區段（docindex／docsearch）以列名對照，每列自帶來源與文件。 */
+    sumDocItem(it, pickEntry, ix, secOf) {
       const build = (e, k) => {
         if (!e) return '';
         if (Array.isArray(k)) return k.map((kk) => { const v = this.rowVal(e, kk); return v ? (it.kv ? kk.replace(/^警報 /, '') + ' ' + v : v) : ''; }).filter(Boolean).join(' · ');
         return this.rowVal(e, k);
       };
-      let kind = it.kind; let key = it.key; let ent = pickEntry(kind); let val = build(ent, key);
-      let label = it.label;
-      if (!val && it.alt) {
-        const e2 = pickEntry(it.alt.kind); const v2 = build(e2, it.alt.key);
-        if (v2) { kind = it.alt.kind; key = it.alt.key; ent = e2; val = v2; label = it.label + `（${this.kindLabel(kind)}）`; }
+      const rowsKind = (kind) => { const sec = secOf ? secOf(kind) : null; return sec && !sec.entries && Array.isArray(sec.rows) ? sec.rows : null; };
+      const lookup = (kind, key) => {
+        const rows = rowsKind(kind);
+        if (rows) { // docindex／docsearch：列＝[類別, 值, lvl, 來源, {rule, d}]
+          const r = Array.isArray(key) ? null : rows.find((x) => x[0] === key);
+          if (!r) return { val: '' };
+          const ex = r[4] || {};
+          return { val: U.cardValue(r[1]), ent: { lvl: r[2], src: r[3], d: ex.d, rule: ex.rule }, rowsMode: true };
+        }
+        const ent = pickEntry(kind);
+        return { val: build(ent, key), ent };
+      };
+      let kind = it.kind; let key = it.key; let label = it.label;
+      let r = lookup(kind, key);
+      if (!r.val && it.alt) {
+        for (const alt of Array.isArray(it.alt) ? it.alt : [it.alt]) {
+          const r2 = lookup(alt.kind, alt.key);
+          if (r2.val) { kind = alt.kind; key = alt.key; r = r2; label = it.label + `（${this.kindLabel(kind)}）`; break; }
+        }
       }
-      const stt = ent && !Array.isArray(key) ? this.rowStatus(ent, key) : null;
+      const ent = r.ent; const val = r.val;
+      const stt = ent && !r.rowsMode && !Array.isArray(key) ? this.rowStatus(ent, key) : null;
       const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
       const src = ent ? { lvl: ent.lvl, text: ent.src, detail: this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]) } : null;
-      return { label, val, span: it.span, flags, warn: stt === 'warn', src, soft: !ent, tip: ent ? '' : `查無（${this.kindLabel(kind)}無此位號）` };
+      const href = ent ? this.docHref(ix, ent.d) : null;
+      return { label, val, span: it.span, flags, warn: stt === 'warn', src, href, hrefTitle: ent ? this.docTitle(ix, ent.d) : null, soft: !ent, tip: ent ? '' : `查無（${this.kindLabel(kind)}無此位號）` };
     }
     /** 整組依 card aux 區段填入：docindex（每份文件一列）或 per_entry（DCS 端子表每個訊號一塊） */
     fillSumGroup(g, grid, aux, ix, mode) {
       grid.innerHTML = '';
       const sec = (aux && aux.sec && aux.sec[g.kind]) || null;
       const used = ix ? this.searchedList(ix, g.kind) : [];
-      if (g.kind === 'docindex') {
-        if (!sec || !(sec.rows || []).length) { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, `查無（已比對 ${used.length} 份文件的 PDF 文字層）`)); return; }
-        for (const r of sec.rows) { const ex = r[4] || {}; grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode)); }
+      if (g.kind === 'docindex' || g.kind === 'docsearch') {
+        if (!sec || !(sec.rows || []).length) {
+          grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
+          return;
+        }
+        for (const r of sec.rows) { const ex = r[4] || {}; grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), href: this.docHref(ix, ex.d), hrefTitle: this.docTitle(ix, ex.d), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode)); }
         return;
       }
       const ents = (sec && sec.entries) || [];
@@ -835,10 +864,11 @@
         sig.appendChild(head);
         const sg = U.h('div', { class: 'cfields sumgrid' });
         const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
+        const href = this.docHref(ix, ent.d); const hrefTitle = this.docTitle(ix, ent.d);
         for (const key of g.items || []) {
           const stt = this.rowStatus(ent, key);
           const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
-          sg.appendChild(this.fieldEl({ label: key, val: this.rowVal(ent, key), flags, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
+          sg.appendChild(this.fieldEl({ label: key, val: this.rowVal(ent, key), flags, href, hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
         }
         sig.appendChild(sg);
         grid.appendChild(sig);

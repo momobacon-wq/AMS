@@ -276,10 +276,13 @@ def src(lvl, text):
 
 def summary_spec(ci3, ci13):
     """「一目了然」摘要（登入後查詢頁最上方）：ci3／ci13 = 欄名前綴 → 03_設備總表／設備參數統計 的欄索引。
-    item 來源：col（03 欄）、stats（設備參數統計欄 {lo,hi,unit}）、kind+key(s)（card aux 工程文件區段的列名）、docindex（整段）。
+    item 來源：col（03 欄）、stats（設備參數統計欄 {lo,hi,unit}）、kind+key(s)（card aux 工程文件區段的列名）、docindex／docsearch（整段）。
+    alt（單一或陣列）＝主來源空白時依序改用的 kind+key（docindex／docsearch 這類 rows 型區段以列名對照）。
     其餘完整資料（識別、位置、同步、變更、DCS 比對、文件比對、連結、參數現值）放在摘要之後的「完整資料」。"""
     T = lambda label, pre, lvl, text, **kw: dict({'label': label, 'col': ci3(pre), 'src': src(lvl, text)}, **kw)
     K = lambda label, kind, key, **kw: dict({'label': label, 'kind': kind, 'key': key}, **kw)
+    DS = lambda key: {'kind': 'docsearch', 'key': key}   # 備援：文件全文檢索的推定值／類別列（alt 可為陣列，依序取第一個有值的）
+    DI = lambda key: {'kind': 'docindex', 'key': key}
     return {
         'title': '一目了然',
         'more_title': '完整資料（識別與位號、設備、實體位置、關鍵組態、同步狀態、最後修改、DCS 比對、工程文件、快速連結、參數變更、參數現值）',
@@ -289,11 +292,11 @@ def summary_spec(ci3, ci13):
             {'key': 'dev', 'label': '設備', 'items': [
                 T('現行 AMS 位號 (KKS)', '現行AMS位號', 'decoded', 'ExtBlockTags.ExtBlockTag（BlockAsgms EventIdDayOut=49710，清除殘碼）', big=True),
                 T('AMS 廠牌／型號', '製造商 (', 'raw', 'Manufacturers.Name + DeviceTypes.Name（Devices.AmsDevRevId → DeviceRevisions → DeviceTypes → MfrProtocols）', col=[ci3('製造商 ('), ci3('型號 (')], join=' '),
-                K('設計廠牌（儀器清單）', 'instlist', '廠牌'),
-                K('設計完整型號碼（儀器清單）', 'instlist', '完整型號碼'),
+                K('設計廠牌（儀器清單）', 'instlist', '廠牌', alt=DS('廠牌（文件）')),
+                K('設計完整型號碼（儀器清單）', 'instlist', '完整型號碼', alt=DS('型號（文件）')),
                 T('AMS 協定＋版本', '協定+版本', 'decoded', 'DeviceProtocols.Name + Devices.ProtocolRevision'),
-                K('出廠型號（EOMR）', 'eomr', '出廠型號'),
-                K('銘牌序號（EOMR）', 'eomr', '銘牌序號'),
+                K('出廠型號（EOMR）', 'eomr', '出廠型號', alt=DS('出廠型號（文件）')),
+                K('銘牌序號（EOMR）', 'eomr', '銘牌序號', alt=DS('序號命中（文件）')),
             ]},
             {'key': 'range', 'label': '量程、單位與警報／跳機設定值', 'items': [
                 {'label': 'AMS 量程（現值）', 'stats': {'lo': ci13('LRV'), 'hi': ci13('URV'), 'unit': ci13('單位(解碼)')}, 'proto': 'HART', 'cmp': 'ams',
@@ -302,7 +305,7 @@ def summary_spec(ci3, ci13):
                  'src': src('decoded', 'BlockData 80020192 FF hex float32／單位碼（區塊 {c34}）')},
                 K('DCS 控制器組態（AI Low/High）', 'dcdas', 'DCS AI 量程 (Low/High Value)', cmp='dcdas'),
                 K('DCS 量程（端子表，設計文件）', 'terminal', 'DCS 量程 (DEVICE_LO/HI/UNITS)', cmp='terminal'),
-                K('設計量程（儀器清單）', 'instlist', '設計量程（原文）', cmp='instlist'),
+                K('設計量程（儀器清單）', 'instlist', '設計量程（原文）', cmp='instlist', alt=[DS('量程（文件）'), DS('量程（邏輯圖）')]),
                 K('出廠校正量程（EOMR）', 'eomr', '出廠校正量程（原文）', cmp='eomr'),
                 K('警報／跳機設定值（儀器清單）', 'instlist', '警報/跳機設定值'),
                 K('DCS 警報設定（端子表）', 'terminal', ['警報 1_HI', '警報 1_LO', '警報 2_HI', '警報 2_LO', '警報 3_HI', '警報 3_LO'], kv=True),
@@ -316,12 +319,15 @@ def summary_spec(ci3, ci13):
              'items': ['系統', '控制器', '位置', '盤櫃 CABINET', 'Case', '卡位 COL_ROW', '點號 POINT', 'PACK_TYPE', '端子 TB_PT_1/2', 'P&ID', '邏輯圖'],
              'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
             {'key': 'draw', 'label': '圖面', 'items': [
-                K('P&ID', 'terminal', 'P&ID', alt={'kind': 'instlist', 'key': 'P&ID'}),
-                K('邏輯圖', 'terminal', '邏輯圖'),
-                K('Hook-up 圖', 'instlist', 'Hook-up 圖'),
-                K('位置圖', 'instlist', '位置圖'),
+                K('P&ID', 'terminal', 'P&ID', alt=[{'kind': 'instlist', 'key': 'P&ID'}, DI('P&ID'), DS('P&ID')]),
+                K('邏輯圖', 'terminal', '邏輯圖', alt=[DI('邏輯圖'), DS('邏輯圖')]),
+                K('Hook-up 圖', 'instlist', 'Hook-up 圖', alt=[DI('Hook-up'), DS('Hook-up')]),
+                K('位置圖', 'instlist', '位置圖', alt=[DI('位置圖'), DS('位置圖')]),
             ]},
             {'key': 'docs', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'p.N 為 PDF 頁序；同編號只取最高版次。'},
+            {'key': 'search', 'label': '文件全文檢索（hst-docsearch：位號／序號命中的文件與頁碼）', 'kind': 'docsearch',
+             'note': '搜整個工程文件庫的全文索引（文字層＋OCR）；「文件-版次 p.N｜命中行」，數值可點開 Google 雲端硬碟的那份檔案。位號不採 OCR 命中；'
+                     '「序號命中」「型號／廠牌／量程（文件）」是由命中行以規則抽出的推定值，僅供對照，不列入 DCS 比對。'},
         ],
     }
 
@@ -468,8 +474,8 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
     }
 
 
-CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器現行 I/O 組態（signal-atlas 索引）。'
-# 02 查詢卡附加區段（card aux）的標題與順序；patch_site_dcdas.py 也直接用它套到已發布的 02.json
+CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器現行 I/O 組態（signal-atlas 索引）。數值帶底線可點者＝在 Google 雲端硬碟開啟該份文件。'
+# 02 查詢卡附加區段（card aux）的標題與順序；patch_site_spec.py 也直接用它套到已發布的 02.json
 SECTIONS_AUX = [
         {'key': 'sync', 'label': '維護狀態（AMS 同步）', 'empty': '（無同步紀錄）'},
         {'key': 'change', 'label': '最後修改（人工 AMS／DCS·外部主機寫入）', 'empty': '（排除動態值後，無參數修改紀錄）',
@@ -482,6 +488,9 @@ SECTIONS_AUX = [
         {'key': 'instlist', 'label': '設計規格（儀器清單）', 'kind': 'instlist'},
         {'key': 'eomr', 'label': '出廠紀錄（EOMR 校正證書）', 'kind': 'eomr', 'note': '目前只解析 Rosemount/Emerson 格式證書；銘牌序號後 7 碼與 AMS final_assembly_number 比對。'},
         {'key': 'docindex', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'PDF 文字層逐頁比對；p.N 為 PDF 頁序。R2/R3 為 GE/ST 不分機組編號（同編號各機組共用此頁）。'},
+        {'key': 'docsearch', 'label': '文件全文檢索（hst-docsearch 索引）', 'kind': 'docsearch',
+         'note': '以現行位號與 AMS 序號參數搜整個工程文件庫的全文索引（頁級；文字層＋PyMuPDF＋OCR），每類別最多 2 份、同編號取最高版次；'
+                 '位號不採 OCR 命中（英數易誤讀），序號的 OCR 命中標「需開原圖確認」。推定值列（序號命中／出廠型號／型號／廠牌／量程）由命中行以規則抽出，僅供對照。'},
         {'key': 'ident', 'label': '位號歷程補充（刪除重建／方法執行）', 'empty': '（無刪除重建或方法執行紀錄）'},
         {'key': 'alarm', 'label': '類比輸出警報與飽和電流', 'empty': '（無警報／飽和電流參數）'},
         {'key': 'device', 'label': '設備補充（銘牌序號／版次）', 'empty': '（無參數紀錄）'},

@@ -2,7 +2,9 @@
 """02_設備查詢卡 附加資料（card aux）：合併 AMS DB 補充與工程文件比對結果，依 alias 分塊輸出給前端按需載入。
 
 Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 300] [--no-stamp] [--dcdas <index.sqlite>|--no-dcdas]
-        py tools/db/build_card_aux.py --recompare docs/db/data [--dcdas …]   （cardwork 不在手邊：讀已發布的 card/*.json 只重算 DCS 比對）
+                                      [--docsearch <docsearch.json>|--no-docsearch] [--drive-map <drive_map.json>|--no-drive-map]
+        py tools/db/build_card_aux.py --recompare docs/db/data [--dcdas …] [--docsearch …]
+        （cardwork 不在手邊：讀已發布的 card/*.json 只重算 DCS 比對；有給 docsearch.json 就換掉 sec.docsearch，有 drive_map 就補 url）
 
 輸入（<cardwork_dir>，各產生器輸出；不在 repo 內）：
   ams.json       ← tools/db/card_ams_extra.py      （AMS DB：同步、最後修改/DCS 寫入、位號歷程、設備補充、警報、FF 診斷）
@@ -10,8 +12,11 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
   instlist.json  ← tools/db/docmap_instlist.py     （儀器清單 BOP/HRSG/GT/ST）
   eomr.json      ← tools/db/docmap_eomr.py         （出廠校正證書 EOMR）
   docindex.json  ← tools/db/docmap_docindex.py     （PDF 文件索引：P&ID、Hook-up、規格表…的頁碼）
+  docsearch.json ← tools/db/docmap_docsearch.py    （文件全文檢索：hst-docsearch FTS 索引以位號／序號命中的文件與頁碼；
+                                                    預設讀 %LOCALAPPDATA%\\AMS\\cardwork\\docsearch.json，`--docsearch` 可指定、`--no-docsearch` 略過；兩種模式都收）
 另讀 docs/db/data/sheets/03.json（alias 列序、位號）與 13.json（AMS 量程現值，DCS 基準比對用），
-以及 signal-atlas 的控制器索引 %LOCALAPPDATA%\\dcdas\\index.sqlite（ToolboxST checkout 的 I/O 組態；不進 repo；`--dcdas` 可指定，沒有就略過此來源）。
+以及 signal-atlas 的控制器索引 %LOCALAPPDATA%\\dcdas\\index.sqlite（ToolboxST checkout 的 I/O 組態；不進 repo；`--dcdas` 可指定，沒有就略過此來源），
+與 tools/db/drive_map.py 的 路徑→Google 雲端硬碟檔案 ID 對照 %LOCALAPPDATA%\\AMS\\drive_map.json（`--drive-map`；有就替 index.docs 每份文件補 url，前端把數值變成連結）。
 
 輸出（CONTRACT.md「card aux」）：
   docs/db/data/card/index.json   {version, parts, alias:{alias: 塊號}, src_defs, searched:{kind:[...]}, docs:{key:{...}}, stats}
@@ -26,7 +31,7 @@ DCS 基準比對（compare）：量程上/下限的基準依序＝(1) AMS 事件
 決定性輸出（無時間戳）；不寫入任何本機絕對路徑（最後以 regex 自檢）。
 
 --recompare：cardwork（ams/terminal/instlist/eomr/docindex.json）已不在手邊時，讀已發布的 card/*.json，保留各文件區段，只重算
-sec.dcdas、compare 與 flags.cmp。限制：舊資料沒有 compare 的設備（既無 DCS 寫入也無端子表），儀器清單／EOMR 的量程數值已不可得，
+sec.dcdas、sec.docsearch（有給時）、compare 與 flags.cmp，並補 Drive url。限制：舊資料沒有 compare 的設備（既無 DCS 寫入也無端子表），儀器清單／EOMR 的量程數值已不可得，
 只比 AMS 現值與控制器組態；要完整比對請重跑各產生器後用一般模式。
 """
 import os, sys, json, re, math, glob, argparse
@@ -44,7 +49,9 @@ SRC_DEFS = {
     'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
     'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；索引日期見來源'},
 }
-KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引'}
+KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引', 'docsearch': '文件全文檢索'}
+DOCSEARCH_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'docsearch.json')
+DRIVE_MAP_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'drive_map.json')
 DOC_CAT_ORDER = ['P&ID', 'Hook-up', '規格表', '就地錶規格', '接線圖', '電纜表', '保護箱', '位置圖', '邏輯圖', 'GT I/O 清單']
 ABS_PATH_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:[\\/]|\\Users\\|/Users/|我的雲端硬碟')  # 磁碟機路徑（https:// 不算）
 
@@ -300,6 +307,87 @@ def dcdas_doc(dc):
     return s, {dc['doc_key']: {'title': s['title'], 'folder': s['folder'], 'why': why}}
 
 
+# ------------------------------------------------------------------ 文件全文檢索（docsearch）與 Drive 連結
+def load_docsearch(path):
+    """tools/db/docmap_docsearch.py 的輸出；沒有就 None（此來源略過）。"""
+    if not path or not os.path.exists(path):
+        return None
+    j = load(path)
+    if 'by_alias' not in j or 'docs' not in j:
+        raise SystemExit('docsearch.json 格式不對：' + path)
+    return j
+
+
+def docsearch_apply(sec, ds, al):
+    x = ds['by_alias'].get(al) if ds else None
+    if x and x.get('rows'):
+        sec['docsearch'] = {'rows': x['rows']}
+
+
+def docsearch_index(ds, searched, docs, src_stats):
+    """把 docsearch 的 searched／docs／stats 併進 index（舊的 docsearch 項先清掉）。"""
+    searched = {k: v for k, v in searched.items() if k != 'docsearch'}
+    docs = {k: v for k, v in docs.items() if not k.startswith('docsearch|')}
+    src_stats = {k: v for k, v in src_stats.items() if k != 'docsearch'}
+    if ds:
+        searched['docsearch'] = ds['searched']
+        docs.update(ds['docs'])
+        st = ds.get('stats') or {}
+        src_stats['docsearch'] = {k: st.get(k) for k in ('aliases_matched', 'rows', 'docs', 'with_url', 'per_category', 'extracted', 'notes') if k in st}
+        src_stats['docsearch']['index'] = ds.get('index')
+    return searched, docs, src_stats
+
+
+def load_drive_map(path):
+    if not path or not os.path.exists(path):
+        return None
+    m = load(path)
+    return m if isinstance(m.get('files'), dict) else None
+
+
+def add_drive_urls(docs, drive):
+    """index.docs 每份文件以「資料夾/檔名」（小寫）對照 drive_map → url（Google 雲端硬碟）。回傳有 url 的份數。
+    title 不是檔名時（docindex 的 title 是文件標題；eomr 少了副檔名）退而以 key 的 文件編號-版次 在同資料夾找檔名開頭相符的檔。"""
+    if not drive:
+        return sum(1 for d in docs.values() if d.get('url'))
+    files = drive['files']
+    by_folder = {}
+    for rel in files:
+        fo, _, base = rel.rpartition('/')
+        by_folder.setdefault(fo, []).append(base)
+    n = 0
+    for key, d in docs.items():
+        if not d.get('url'):
+            folder = (d.get('folder') or '').strip('/')
+            folder = '' if folder == '.' else folder
+            title = (d.get('title') or '').lower()
+            rel = ((folder + '/') if folder else '') + title
+            fid = files.get(rel.lower())
+            if not fid:
+                cands = []
+                names = by_folder.get(folder.lower(), [])
+                parts = key.split('|')
+                doc_id = parts[1].lower() if len(parts) > 1 and parts[1] and parts[1][:2].lower() == 'ht' else ''
+                rev = parts[2].lower() if len(parts) > 2 else ''
+                for base in names:
+                    if title and base in (title + '.pdf', title + '.xlsx', title + '.xls'):
+                        cands.append((0, len(base), base))            # 標題就是檔名（少了副檔名）
+                    elif doc_id and rev and re.match(re.escape(doc_id + '-' + rev) + r'(?![0-9a-z])', base):
+                        cands.append((1 if '(1)' not in base else 2, len(base), base))   # 文件編號-版次 開頭
+                    elif doc_id and base.startswith(doc_id + '-'):
+                        cands.append((5 if '(1)' not in base else 6, len(base), base))   # 只對到文件編號（版次不同或不明）
+                if cands:
+                    cands.sort()
+                    if cands[0][0] < 5 or len([c for c in cands if c[0] >= 5]) == 1:
+                        base = cands[0][2]
+                        fid = files.get(((folder.lower() + '/') if folder else '') + base)
+            if fid:
+                d['url'] = 'https://drive.google.com/open?id=%s' % fid
+        if d.get('url'):
+            n += 1
+    return n
+
+
 # ------------------------------------------------------------------ DCS 基準比對
 BASE_LABEL = {'dcdas': 'DCS 控制器組態 (AI Low/High Value)', 'terminal': 'DCS 端子表 (DEVICE_LO/HI)'}
 CMP_STATUSES = ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown')
@@ -493,8 +581,21 @@ def main():
     ap.add_argument('--dcdas', default=DCDAS_DEFAULT, help='signal-atlas 索引 SQLite（預設 %%LOCALAPPDATA%%\\dcdas\\index.sqlite；不存在就略過此來源）')
     ap.add_argument('--no-dcdas', action='store_true', help='不用控制器 I/O 組態當來源')
     ap.add_argument('--recompare', action='store_true', help='cardwork 不在手邊：讀已發布的 card/*.json，只重算 sec.dcdas／compare／flags.cmp')
+    ap.add_argument('--docsearch', default=DOCSEARCH_DEFAULT, help='docmap_docsearch.py 的輸出（預設 %%LOCALAPPDATA%%\\AMS\\cardwork\\docsearch.json；不存在就略過）')
+    ap.add_argument('--no-docsearch', action='store_true', help='不收文件全文檢索（--recompare 時保留舊的 sec.docsearch）')
+    ap.add_argument('--drive-map', default=DRIVE_MAP_DEFAULT, help='drive_map.py 的輸出（預設 %%LOCALAPPDATA%%\\AMS\\drive_map.json；不存在就不補 url）')
+    ap.add_argument('--no-drive-map', action='store_true')
     a = ap.parse_args()
     dc = None if a.no_dcdas else load_dcdas(a.dcdas)
+    ds = None if a.no_docsearch else load_docsearch(a.docsearch)
+    if a.no_docsearch:
+        print('docsearch: 略過')
+    elif ds is None:
+        print('docsearch: 沒有 %s（此來源略過）' % a.docsearch)
+    else:
+        print('docsearch: %s，索引 %s，%d 台有命中' % (a.docsearch, (ds.get('index') or {}).get('built'), (ds.get('stats') or {}).get('aliases_matched', 0)))
+    drive = None if a.no_drive_map else load_drive_map(a.drive_map)
+    print('drive_map: %s' % ('略過' if a.no_drive_map else ('沒有 %s（不補 url）' % a.drive_map) if drive is None else '%s，%d 個檔' % (a.drive_map, len(drive['files']))))
     if dc is None:
         print('dcdas: 沒有控制器索引（%s），DCS 基準只用 DCS 寫入／端子表' % ('--no-dcdas' if a.no_dcdas else a.dcdas))
     else:
@@ -502,7 +603,7 @@ def main():
     if a.recompare:
         if len(a.paths) != 1:
             ap.error('--recompare 只給 <outdir>')
-        recompare(a.paths[0], dc, a.chunk_kb, a.no_stamp)
+        recompare(a.paths[0], dc, ds, drive, a.chunk_kb, a.no_stamp)
         return
     if len(a.paths) != 2:
         ap.error('需要 <cardwork_dir> <outdir>')
@@ -646,6 +747,9 @@ def main():
                 rows.append(row)
             sec['docindex'] = {'rows': rows}
 
+        # ---- docsearch（文件全文檢索）
+        docsearch_apply(sec, ds, al)
+
         # ---- dcdas（控制器 I/O 組態）
         dc_entries, dc_primary = dcdas_entries(tag_of.get(al, ''), dc)
         if dc_entries:
@@ -670,11 +774,12 @@ def main():
         searched[kind] = [{k: s.get(k) for k in keep if k in s} for s in j.get('searched', [])]
     src_stats = {k: {kk: vv for kk, vv in (j.get('stats') or {}).items() if kk in ('aliases_matched', 'rows', 'notes', 'per_category_aliases')} for k, j in kinds.items()}
     src_stats['ams'] = {'notes': (ams.get('stats') or {}).get('notes', []), 'backup_date': ams.get('backup_date')}
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, a.chunk_kb, a.no_stamp)
+    searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, a.chunk_kb, a.no_stamp)
 
 
-def recompare(outdir, dc, chunk_kb, no_stamp):
-    """讀已發布的 card/*.json：保留各文件區段，重算 sec.dcdas、compare、flags.cmp（限制見檔頭）。"""
+def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
+    """讀已發布的 card/*.json：保留各文件區段，重算 sec.dcdas、compare、flags.cmp；有給 docsearch 就換掉 sec.docsearch（限制見檔頭）。"""
     open_outdir(outdir)
     card_dir = os.path.join(outdir, 'card')
     index = load(os.path.join(card_dir, 'index.json'))
@@ -689,6 +794,9 @@ def recompare(outdir, dc, chunk_kb, no_stamp):
         o = old.get(al) or {'sec': {}, 'compare': [], 'flags': {}}
         sec = o.get('sec') or {}
         sec.pop('dcdas', None)
+        if ds is not None:
+            sec.pop('docsearch', None)
+            docsearch_apply(sec, ds, al)
         for kk in ('terminal', 'instlist', 'eomr'):  # 去掉舊的比對狀態
             for ent in (sec.get(kk) or {}).get('entries', []):
                 for row in ent['rows']:
@@ -748,11 +856,13 @@ def recompare(outdir, dc, chunk_kb, no_stamp):
     searched = {k: v for k, v in (index.get('searched') or {}).items() if k != 'dcdas'}
     docs = {k: v for k, v in (index.get('docs') or {}).items() if not k.startswith('dcdas|')}
     src_stats = {k: v for k, v in (index.get('source_stats') or {}).items() if k != 'dcdas'}
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, chunk_kb, no_stamp)
+    if ds is not None:
+        searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, chunk_kb, no_stamp)
 
 
-def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, chunk_kb, no_stamp):
-    """分塊寫 card/aux-NN.json 與 index.json → manifest.build → 加密 → stamp。"""
+def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, chunk_kb, no_stamp):
+    """分塊寫 card/aux-NN.json 與 index.json（docs 補 Drive url）→ manifest.build → 加密 → stamp。"""
     import extract_db, encrypt_data
     card_dir = os.path.join(outdir, 'card')
     os.makedirs(card_dir, exist_ok=True)
@@ -785,6 +895,10 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, chu
         searched = dict(searched, dcdas=[s])
         docs = dict(docs, **d)
         src_stats = dict(src_stats, dcdas={'aliases_matched': stats['sections'].get('dcdas', 0), 'rows': dc['channels'], 'notes': s['why']})
+    docs = {k: dict(v) for k, v in docs.items()}
+    n_url = add_drive_urls(docs, drive)
+    stats['docs_with_url'] = n_url
+    print('index.docs: %d 份文件，%d 份有 Google 雲端硬碟連結' % (len(docs), n_url))
     index = {'version': 1, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
              'alias': alias_map, 'src_defs': SRC_DEFS, 'kind_label': KIND_LABEL, 'doc_cat_order': DOC_CAT_ORDER,
              'searched': searched, 'docs': docs, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}

@@ -50,7 +50,20 @@ py tools/encrypt_data.py docs/db/data --decrypt # 要重跑 build_card_aux / ver
 
 只重建查詢卡附加資料：`encrypt_data.py --decrypt` → `build_card_aux.py`（結尾自動加密＋戳記）→ `verify_encrypted.py`。
 DCS 比對的基準會讀 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（在 signal-atlas repo 跑 `py tools\dcdas.py build` 產生；沒有就只用 DCS 寫入／端子表）。
-各產生器輸出（cardwork）不在手邊時：`py tools/db/build_card_aux.py --recompare docs/db/data` 只重算 DCS 比對；`py tools/db/patch_site_dcdas.py docs/db/data` 把 02/13 表規格改動套到已發布資料（要先解密）。
+各產生器輸出（cardwork）不在手邊時：`py tools/db/build_card_aux.py --recompare docs/db/data` 只重算 DCS 比對（並換入 docsearch、補 Drive 連結）；`py tools/db/patch_site_spec.py docs/db/data` 把 02/13 表規格改動套到已發布資料（要先解密）。
+
+查詢卡的「文件全文檢索」與 Google 雲端硬碟連結（2026-09-24 起）：
+
+```bash
+py tools/db/drive_map.py                                   # Google 雲端硬碟桌面版中繼資料 → %LOCALAPPDATA%\AMS\drive_map.json（文件庫相對路徑 → 檔案 ID）
+py tools/encrypt_data.py docs/db/data --decrypt
+py tools/db/docmap_docsearch.py --data docs/db/data         # hst-docsearch 的 FTS 索引（~/.claude/skills/hst-docsearch/config.json）以位號＋AMS 序號搜全庫 → %LOCALAPPDATA%\AMS\cardwork\docsearch.json（約 4 分鐘）
+py tools/db/patch_site_spec.py docs/db/data                 # 02.json 摘要／區段規格（只在 extract_db 規格有改時）
+py tools/db/build_card_aux.py --recompare docs/db/data      # 併入 sec.docsearch、index.docs 補 url、重算比對、加密、戳記
+py tools/stamp_assets.py docs && py tools/verify_encrypted.py
+```
+
+摘要空白的欄位（設計廠牌／型號、出廠型號／序號、設計量程、P&ID／邏輯圖／Hook-up／位置圖）會依序改用文件索引、全文檢索命中的推定值；所有文件來源的數值都可點開雲端硬碟的那份檔案（需有該資料夾的 Drive 權限）。
 `extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
 
 ## 備品庫存（docs/db 站）
