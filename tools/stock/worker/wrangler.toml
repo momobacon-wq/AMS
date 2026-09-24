@@ -6,7 +6,7 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "ams-stock"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"   # npx wrangler d1 create ams-stock 印出的 database_id
+database_id = "4666315c-09c8-4fe2-a7fa-e8348d3f15a4"   # npx wrangler d1 create ams-stock 印出的 database_id
 
 [vars]
 # 允許呼叫的網站來源（逗號分隔）；本機測試 8766 是 tools/auth/mock_server.py
