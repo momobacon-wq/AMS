@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """02_設備查詢卡 附加資料（card aux）：合併 AMS DB 補充與工程文件比對結果，依 alias 分塊輸出給前端按需載入。
 
-Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 300] [--no-stamp]
+Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 300] [--no-stamp] [--dcdas <index.sqlite>|--no-dcdas]
+        py tools/db/build_card_aux.py --recompare docs/db/data [--dcdas …]   （cardwork 不在手邊：讀已發布的 card/*.json 只重算 DCS 比對）
 
 輸入（<cardwork_dir>，各產生器輸出；不在 repo 內）：
   ams.json       ← tools/db/card_ams_extra.py      （AMS DB：同步、最後修改/DCS 寫入、位號歷程、設備補充、警報、FF 診斷）
@@ -9,17 +10,24 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
   instlist.json  ← tools/db/docmap_instlist.py     （儀器清單 BOP/HRSG/GT/ST）
   eomr.json      ← tools/db/docmap_eomr.py         （出廠校正證書 EOMR）
   docindex.json  ← tools/db/docmap_docindex.py     （PDF 文件索引：P&ID、Hook-up、規格表…的頁碼）
-另讀 docs/db/data/sheets/03.json（alias 列序）與 13.json（AMS 量程現值，DCS 基準比對用）。
+另讀 docs/db/data/sheets/03.json（alias 列序、位號）與 13.json（AMS 量程現值，DCS 基準比對用），
+以及 signal-atlas 的控制器索引 %LOCALAPPDATA%\\dcdas\\index.sqlite（ToolboxST checkout 的 I/O 組態；不進 repo；`--dcdas` 可指定，沒有就略過此來源）。
 
 輸出（CONTRACT.md「card aux」）：
   docs/db/data/card/index.json   {version, parts, alias:{alias: 塊號}, src_defs, searched:{kind:[...]}, docs:{key:{...}}, stats}
   docs/db/data/card/aux-NN.json  {part, by_alias:{alias:{sec:{...}, compare:[...], flags:{...}}}}
 並重算 manifest.build（含 card/*.json）後重新 stamp docs/db/index.html（tools/db/extract_db.py 的 stamp）。
 
-DCS 基準比對（compare）：量程上/下限的基準＝AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV），
-沒有則取 DCS 端子表 DEVICE_LO/HI。AMS 現值（13 表 LRV/URV/單位）、DCS 端子表（基準為 DCS 寫入時）、儀器清單、EOMR 逐一比對：
+DCS 基準比對（compare）：量程上/下限的基準依序＝(1) AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV）
+→ (2) 控制器 I/O 組態（dcdas：該位號類比輸入通道的 Low/High Value，sec.dcdas）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。
+其餘來源——AMS 現值（13 表 LRV/URV/單位）、控制器組態（基準為 DCS 寫入時）、端子表、儀器清單、EOMR——逐一與基準比對：
 容許 ±0.5% span；單位先換算（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、mm/cm/m/in、%），無法換算 → unit_mismatch。
+2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同（所以端子表降為第 3 順位）。
 決定性輸出（無時間戳）；不寫入任何本機絕對路徑（最後以 regex 自檢）。
+
+--recompare：cardwork（ams/terminal/instlist/eomr/docindex.json）已不在手邊時，讀已發布的 card/*.json，保留各文件區段，只重算
+sec.dcdas、compare 與 flags.cmp。限制：舊資料沒有 compare 的設備（既無 DCS 寫入也無端子表），儀器清單／EOMR 的量程數值已不可得，
+只比 AMS 現值與控制器組態；要完整比對請重跑各產生器後用一般模式。
 """
 import os, sys, json, re, math, glob, argparse
 
@@ -34,10 +42,11 @@ SRC_DEFS = {
     'inferred': {'label': '推論', 'desc': '經驗規則、寫死的對照表、外部對照檔或機組範本推論（非資料庫/文件直接記載）'},
     'doc': {'label': '文件', 'desc': '設計文件（DCS 端子表、儀器清單、P&ID、Hook-up…）：「應該是什麼」'},
     'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
+    'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；索引日期見來源'},
 }
-KIND_LABEL = {'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引'}
+KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引'}
 DOC_CAT_ORDER = ['P&ID', 'Hook-up', '規格表', '就地錶規格', '接線圖', '電纜表', '保護箱', '位置圖', '邏輯圖', 'GT I/O 清單']
-ABS_PATH_RE = re.compile(r'[A-Za-z]:[\\/]|\\Users\\|/Users/|我的雲端硬碟')
+ABS_PATH_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:[\\/]|\\Users\\|/Users/|我的雲端硬碟')  # 磁碟機路徑（https:// 不算）
 
 
 def dumps(o):
@@ -92,7 +101,7 @@ def unit_info(u):
         return None
     if re.search(r'[一-鿿]', s):  # 13 表「攝氏度 °C」：取最後一段
         s = s.split()[-1] if ' ' in s else re.sub(r'[一-鿿/]+', '', s)
-    s = s.replace('°', 'deg').replace('º', 'deg').replace('³', '3').replace('²', '2')
+    s = s.replace('°', 'deg').replace('º', 'deg').replace('³', '3').replace('²', '2').replace('₂', '2')
     low = s.lower().replace(' ', '')
     low = re.sub(r'\((?:68degf|20degc|4degc|0degc|60degf)\)|@\d+degc', '', low)
     qual = ''
@@ -112,7 +121,7 @@ def unit_info(u):
     for core in sorted(PRESS, key=len, reverse=True):
         if low == core:
             return ('P', core, qual)
-        if low == core + 'g' and core not in ('mmh2o', 'inh2o', 'inhg', 'mmhg'):
+        if low == core + 'g' and core not in ('inhg', 'mmhg'):  # kPag、psig、inH2Og（控制器 format spec 寫法）
             return ('P', core, 'g')
         if low == core + 'a' and core not in ('mmh2o', 'inh2o', 'inhg', 'mmhg', 'kg/cm2'):
             return ('P', core, 'a')
@@ -207,6 +216,218 @@ def unit_of_code_str(s):
     return m.group(1) if m else str(s)
 
 
+# ------------------------------------------------------------------ dcdas：控制器 I/O 組態（signal-atlas 索引，本機 SQLite）
+DCDAS_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA') or '', 'dcdas', 'index.sqlite')
+DCDAS_FIELD = 'DCS AI 量程 (Low/High Value)'
+PREFIX_CTRL = {'S10': ('S1', 'S1S', 'SAMP1'), 'G11': ('G11', 'G11S'), 'G12': ('G12', 'G12S'), 'C10': None}  # 控制器內 DeviceTag 不帶機組前綴
+DCDAS_SQL = """select p.ctrl, p.name, p.connection, p.device_tag, p.input_type, p.low_value, p.high_value, p.params_json,
+  m.name, m.cabinet, v.units, f.units, v.description
+  from io_point p left join io_module m on m.id = p.module_id
+  left join variable v on v.id = p.var_id left join format_spec f on f.name = v.format_spec
+  where p.signal_type = 'AnalogInput' and p.high_value is not null and coalesce(p.input_type, '') != 'Unused'
+    and (coalesce(p.device_tag, '') != '' or coalesce(p.connection, '') != '')
+  order by p.ctrl, m.name, p.name"""
+
+
+def load_dcdas(path):
+    """signal-atlas 索引 → 類比輸入通道表（依 DeviceTag／訊號名索引）；檔案不存在回 None（比對就沒有這個來源）。"""
+    if not path or not os.path.exists(path):
+        return None
+    import sqlite3
+    c = sqlite3.connect(path)
+    meta = dict(c.execute('select key, value from meta').fetchall())
+    ctrls = [r[0] for r in c.execute('select name from controller order by name')]
+    by_tag, by_conn, n = {}, {}, 0
+    for (ctrl, pt, conn, dtag, itype, lo, hi, pj, mod, cab, vunits, funits, desc) in c.execute(DCDAS_SQL):
+        x = {'ctrl': ctrl, 'pt': pt, 'conn': (conn or '').strip(), 'dtag': (dtag or '').strip(), 'itype': itype or '', 'lo': lo, 'hi': hi,
+             'hart': '"Hart_Enable":"Enable"' in (pj or ''), 'mod': mod or '', 'cab': cab or '', 'units': (vunits or funits or '').strip(), 'desc': desc or ''}
+        n += 1
+        if x['dtag']:
+            by_tag.setdefault(x['dtag'].upper(), []).append(x)
+        m = re.match(r'^([A-Z0-9_-]+?)XQ\d{2}$', x['conn'].upper())
+        if m:
+            by_conn.setdefault(m.group(1), []).append(x)
+    c.close()
+    built = (meta.get('built_at') or '')[:10]
+    return {'by_tag': by_tag, 'by_conn': by_conn, 'built_at': built, 'toolbox': meta.get('toolbox_version') or '', 'controllers': ctrls,
+            'channels': n, 'doc_key': 'dcdas|signal-atlas|%s' % built}
+
+
+def match_dcdas(tag, dc):
+    """AMS 位號 → 控制器類比輸入通道：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴（S10→S1/S1S/SAMP1、G11/G12 燃氣機）。"""
+    t = re.sub(r'\s+', '', str(tag or '')).upper()
+    if not dc or not t:
+        return [], ''
+    if t in dc['by_tag']:
+        return dc['by_tag'][t], 'DeviceTag 相同'
+    if t in dc['by_conn']:
+        return dc['by_conn'][t], '訊號名＝位號+XQnn'
+    m = re.match(r'^(S10|G11|G12|C10)_?(.+)$', t)
+    if m:
+        ctrls = PREFIX_CTRL[m.group(1)]
+        cands = [x for x in dc['by_tag'].get(m.group(2), []) if ctrls is None or x['ctrl'] in ctrls]
+        if cands:
+            return cands, 'DeviceTag 相同（去機組前綴 %s）' % m.group(1)
+    return [], ''
+
+
+def dcdas_entries(tag, dc):
+    """→ (entries, primary)：每個類比輸入通道一筆 entry（sec.dcdas）；primary＝第一個有 Low/High 的通道（DCS 基準候選）。"""
+    recs, how = match_dcdas(tag, dc)
+    ents, primary = [], None
+    for x in recs:
+        rng = ('%s – %s %s' % (g7(x['lo']), g7(x['hi']), x['units'])).strip()
+        rows = [['控制器', x['ctrl']], ['I/O 模組', x['mod'] + ('（機櫃 %s）' % x['cab'] if x['cab'] else '')], ['通道', x['pt']],
+                ['訊號名', x['conn']], ['裝置位號 (DeviceTag)', x['dtag']], ['輸入型式', x['itype']], ['HART 通道', '啟用' if x['hart'] else '停用'],
+                [DCDAS_FIELD, rng, 'dcdas'], ['訊號說明', x['desc']]]
+        if x['conn']:
+            rows.append(['signal-atlas 深連結', 'https://momobacon-wq.github.io/signal-atlas/#/v/%s.%s' % (x['ctrl'], x['conn'])])
+        ent = {'h': '%s · %s' % (x['ctrl'], x['conn'] or x['pt']), 'lvl': 'ctrl', 'rule': how, 'rows': rows, 'd': dc['doc_key'],
+               'src': '控制器 · signal-atlas 索引 %s · %s %s %s' % (dc['built_at'], x['ctrl'], x['mod'], x['pt'])}
+        ents.append(ent)
+        if primary is None and x['lo'] is not None and x['hi'] is not None:
+            primary = {'lo': x['lo'], 'hi': x['hi'], 'unit': x['units'], 'src': ent['src'], 'lvl': 'ctrl', 'kind': 'dcdas', 'ent': ent, 'field': DCDAS_FIELD}
+    return ents, primary
+
+
+def dcdas_doc(dc):
+    """index.searched['dcdas'] 的一筆與 index.docs 的一項：把索引當一份「文件」描述（不含本機路徑）。"""
+    why = ('索引建立 %s（ToolboxST %s；控制器 %s）。只涵蓋類比輸入通道（4-20 mA）的 Low/High Value；FF 設備與 HART 多工器本體不在 I/O 索引。'
+           '位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。索引是 checkout 快照，不是控制器即時狀態。'
+           % (dc['built_at'], dc['toolbox'], '、'.join(dc['controllers'])))
+    s = {'doc_id': 'signal-atlas', 'rev': dc['built_at'], 'ref': 'signal-atlas 索引 ' + dc['built_at'],
+         'title': 'signal-atlas 訊號索引（ToolboxST checkout I/O 組態）', 'folder': '（本機索引 %LOCALAPPDATA%\\dcdas，不在工程文件庫）', 'used': True, 'why': why}
+    return s, {dc['doc_key']: {'title': s['title'], 'folder': s['folder'], 'why': why}}
+
+
+# ------------------------------------------------------------------ DCS 基準比對
+BASE_LABEL = {'dcdas': 'DCS 控制器組態 (AI Low/High Value)', 'terminal': 'DCS 端子表 (DEVICE_LO/HI)'}
+CMP_STATUSES = ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown')
+
+
+def ams_current(r):
+    """13 表列 → (AMS 現值 {lo, hi, unit, …} 或 None, 單位未翻譯註記)。"""
+    ams_cur = None
+    if r is not None and num(r[14]) is not None and num(r[15]) is not None:
+        ams_cur = {'lo': num(r[14]), 'hi': num(r[15]), 'unit': r[18] or '', 'lvl': 'decoded', 'kind': 'ams',
+                   'src': '解碼 · AMS 現值 BlockData %s float32 · 最後記錄 %s' % (r[16] or '?', (r[36] or '')[:16])}
+    ams_unit_note = ''
+    if r is not None and not (r[18] or '').strip() and r[17] not in (None, ''):
+        ams_unit_note = '（AMS 單位碼 %s／參數 %s 未翻譯）' % (g7(num(r[17])) if num(r[17]) is not None else r[17], r[19] or '?')
+    if ams_cur is not None:
+        ams_cur['unit_note'] = ams_unit_note
+    return ams_cur, ams_unit_note
+
+
+def dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note):
+    """AMS 事件中 Cat28 外部主機寫入的 URV/LRV → DCS 基準（第 1 順位）；沒有回 None。"""
+    if not ('URV' in dw or 'LRV' in dw):
+        return None
+    parts = []
+    bounds = set()
+
+    def bound(key, term_v, ams_v):
+        side = '下限' if key == 'LRV' else '上限'
+        if key in dw and num(dw[key][0]) is not None:
+            w = dw[key]
+            parts.append('%s %s→%s @%s %s·%s' % (w[5].split('.')[0], w[4], w[0], w[1][:16], w[2], w[3]))
+            bounds.add('lo' if key == 'LRV' else 'hi')
+            return num(w[0])
+        # 這一端沒有 DCS 寫入：顯示端子表（或 AMS 現值）供參考，不列入比較
+        if term_v is not None:
+            parts.append('%s 未見 DCS 寫入（顯示 DCS 端子表值，僅供參考、不比較）' % side)
+            return term_v
+        if ams_v is not None:
+            parts.append('%s 未見 DCS 寫入（顯示 AMS 現值，僅供參考、不比較）' % side)
+            return ams_v
+        parts.append('%s 未見 DCS 寫入' % side)
+        return None
+    lo = bound('LRV', term_primary and term_primary['lo'], ams_cur and ams_cur['lo'])
+    hi = bound('URV', term_primary and term_primary['hi'], ams_cur and ams_cur['hi'])
+    # DCS 寫入值是 AMS 參數值 → 單位用 AMS 單位（UNIT 寫入 > AMS 現值單位）；AMS 單位空白時留空，不借端子表單位
+    unit = unit_of_code_str(dw['UNIT'][0]) if 'UNIT' in dw else ((r[18] if r is not None else '') or '')
+    if not bounds:
+        return None
+    over = any(dw[k][6] for k in ('URV', 'LRV') if k in dw)
+    notes = []
+    if over:
+        notes.append('之後曾被 AMS 人工改寫')
+    if bounds != {'lo', 'hi'}:
+        notes.append('%s無 DCS 寫入，顯示值僅供參考、不比較' % ('下限' if 'lo' not in bounds else '上限'))
+    if not unit.strip():
+        notes.append('單位空白' + ams_unit_note)
+    return {'kind': 'dcs_write', 'lvl': 'decoded', 'lo': lo, 'hi': hi, 'unit': unit or '', 'bounds': bounds,
+            'unit_note': '' if 'UNIT' in dw else ams_unit_note,
+            'src': '解碼 · DCS 寫入 (AMS 事件 Cat28 Field change) · ' + '；'.join(parts),
+            'label': 'DCS 寫入 (AMS 事件)', 'note': '；'.join(notes)}
+
+
+def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats):
+    """基準順序：DCS 寫入 (AMS 事件) > 控制器 I/O 組態 (dcdas) > DCS 端子表（設計文件）。
+    回傳 (compare, cmp_mark)；不符／未比較時也在該來源 entry 的量程欄位（rows[i][2]）標狀態。"""
+    if base is None and dc_primary:
+        base = dict(dc_primary, label=BASE_LABEL['dcdas'], note='', bounds={'lo', 'hi'})
+    if base is None and term_primary:
+        base = dict(term_primary, label=BASE_LABEL['terminal'], note='', bounds={'lo', 'hi'})
+    compare, cmp_mark = [], {}
+    if base is None:
+        return compare, cmp_mark
+    others = []
+    cand = []
+    if base['kind'] != 'dcdas' and dc_primary:
+        cand.append(dict(dc_primary, label=BASE_LABEL['dcdas']))
+    if base['kind'] != 'terminal' and term_primary:
+        cand.append(dict(term_primary, label=BASE_LABEL['terminal']))
+    if ams_cur:
+        cand.append(dict(ams_cur, label='AMS 現值'))
+    if il_primary:
+        cand.append(dict(il_primary, label='儀器清單 設計量程'))
+    if eo_primary:
+        cand.append(dict(eo_primary, label='EOMR 出廠校正量程'))
+    for c in cand:
+        st, note, lo2, hi2 = compare_range(base, c)
+        o = {'kind': c['kind'], 'label': c['label'], 'lvl': c['lvl'], 'src': c['src'], 'lo': c['lo'], 'hi': c['hi'], 'unit': c['unit'],
+             'status': st, 'note': (c.get('pre_note') or '') + note}
+        others.append(o)
+        cmp_mark[c['kind']] = st
+        # 逐端標記（LRV／URV 欄位旁的 ⚠）：只標有列入比較的那一端，不符只標實際不符的那一端
+        bad_sides = note.rsplit('不符（', 1)[-1] if st == 'mismatch' else ''
+        for k, side in (('lo', '下限'), ('hi', '上限')):
+            if k in base['bounds']:
+                cmp_mark['%s_%s' % (c['kind'], k)] = ('mismatch' if side in bad_sides else 'ok') if st == 'mismatch' else st
+        stats['compare_status'][st] = stats['compare_status'].get(st, 0) + 1
+        ent = c.get('ent')
+        if ent is not None and st != 'ok':  # 在文件／控制器 entry 的量程欄位旁標 ⚠
+            fld = c.get('field') or 'DCS 量程 (DEVICE_LO/HI/UNITS)'
+            for row in ent['rows']:
+                if row[0] == fld or (c['kind'] == 'terminal' and row[0].startswith('DCS 量程')):
+                    row[2:] = [st]
+    b = {k: base[k] for k in ('kind', 'label', 'lvl', 'src', 'lo', 'hi', 'unit', 'note')}
+    b['bounds'] = sorted(base['bounds'])
+    compare.append({'item': '量程', 'baseline': b, 'others': others})
+    stats['with_compare'] += 1
+    stats['baseline'][base['kind']] = stats['baseline'].get(base['kind'], 0) + 1
+    return compare, cmp_mark
+
+
+def strip_marks(sec):
+    """文件／控制器 entry 中量程欄位的 cmp 標記：未比較者去掉 kind 字串，只保留狀態（--recompare 也用它清掉舊狀態）。"""
+    for kk in ('dcdas', 'terminal', 'instlist', 'eomr'):
+        for ent in (sec.get(kk) or {}).get('entries', []):
+            for row in ent['rows']:
+                if len(row) > 2 and row[2] not in CMP_STATUSES + ('warn',):
+                    del row[2:]
+
+
+def new_stats(aliases):
+    return {'devices': len(aliases), 'with_compare': 0, 'compare_status': {}, 'baseline': {'dcs_write': 0, 'dcdas': 0, 'terminal': 0}, 'sections': {}}
+
+
+COMPARE_RULE = ('DCS 基準依序＝(1) AMS 事件中該參數最新一次值有改變的 Cat28 外部主機寫入（URV/LRV；只寫入一端時只比較該端，單位用 AMS 單位）'
+                '→ (2) 控制器 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）；'
+                '容許 ±0.5% span；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」')
+
+
 # ------------------------------------------------------------------ 文件 entry → 顯示
 def fdict(e):
     return {k: v for k, v in e.get('fields', [])}
@@ -245,34 +466,58 @@ def build_docs_map(kinds):
     return docs
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('cardwork')
-    ap.add_argument('outdir')
-    ap.add_argument('--chunk-kb', type=int, default=300)
-    ap.add_argument('--no-stamp', action='store_true')
-    a = ap.parse_args()
-    cw, outdir = a.cardwork, a.outdir
-    import extract_db, encrypt_data
-    if encrypt_data.is_encrypted(outdir):  # 已發布的加密資料：先原地解密（結尾會重新加密）
+def open_outdir(outdir):
+    """已發布的加密資料：先原地解密（結尾會重新加密）；清掉舊的 card/*.bin。"""
+    import encrypt_data
+    if encrypt_data.is_encrypted(outdir):
         encrypt_data.decrypt_dir(outdir, encrypt_data.passphrase_and_salt(persist=False)[0])
     for q in glob.glob(os.path.join(outdir, 'card', '*.bin')):
         os.remove(q)
-    ams = load(os.path.join(cw, 'ams.json'))
-    kinds = {k: load(os.path.join(cw, k + '.json')) for k in ('terminal', 'instlist', 'eomr', 'docindex')}
+
+
+def load_sheets(outdir):
     s03 = load(os.path.join(outdir, 'sheets', '03.json'))
     s13 = load(os.path.join(outdir, 'sheets', '13.json'))
     aliases = [r[1] for r in s03['rows']]
     proto = {r[1]: r[21] for r in s03['rows']}
+    tag_of = {r[1]: (r[0] or '').strip() for r in s03['rows']}
     r13 = {r[40]: r for r in s13['rows']}
+    return aliases, proto, tag_of, r13
+
+
+def main():
+    ap = argparse.ArgumentParser(description='02_設備查詢卡 card aux 產生器（見檔頭 docstring）')
+    ap.add_argument('paths', nargs='+', metavar='PATH', help='<cardwork_dir> <outdir>；--recompare 時只給 <outdir>')
+    ap.add_argument('--chunk-kb', type=int, default=300)
+    ap.add_argument('--no-stamp', action='store_true')
+    ap.add_argument('--dcdas', default=DCDAS_DEFAULT, help='signal-atlas 索引 SQLite（預設 %%LOCALAPPDATA%%\\dcdas\\index.sqlite；不存在就略過此來源）')
+    ap.add_argument('--no-dcdas', action='store_true', help='不用控制器 I/O 組態當來源')
+    ap.add_argument('--recompare', action='store_true', help='cardwork 不在手邊：讀已發布的 card/*.json，只重算 sec.dcdas／compare／flags.cmp')
+    a = ap.parse_args()
+    dc = None if a.no_dcdas else load_dcdas(a.dcdas)
+    if dc is None:
+        print('dcdas: 沒有控制器索引（%s），DCS 基準只用 DCS 寫入／端子表' % ('--no-dcdas' if a.no_dcdas else a.dcdas))
+    else:
+        print('dcdas: 索引 %s，%d 個類比輸入通道，控制器 %s' % (dc['built_at'], dc['channels'], ' '.join(dc['controllers'])))
+    if a.recompare:
+        if len(a.paths) != 1:
+            ap.error('--recompare 只給 <outdir>')
+        recompare(a.paths[0], dc, a.chunk_kb, a.no_stamp)
+        return
+    if len(a.paths) != 2:
+        ap.error('需要 <cardwork_dir> <outdir>')
+    cw, outdir = a.paths
+    open_outdir(outdir)
+    ams = load(os.path.join(cw, 'ams.json'))
+    kinds = {k: load(os.path.join(cw, k + '.json')) for k in ('terminal', 'instlist', 'eomr', 'docindex')}
+    aliases, proto, tag_of, r13 = load_sheets(outdir)
     docs = build_docs_map(kinds)
 
     def dkey(kind, e):
         k = '%s|%s|%s' % (kind, e['doc_id'], e.get('rev') or '')
         return k if k in docs else None
 
-    stats = {'devices': len(aliases), 'with_compare': 0, 'compare_status': {}, 'baseline': {'dcs_write': 0, 'terminal': 0},
-             'sections': {}}
+    stats = new_stats(aliases)
     out = {}
     for al in aliases:
         A = ams['by_alias'].get(al) or {}
@@ -284,7 +529,6 @@ def main():
         dw = A.get('dcs_writes') or {}
         if dw:
             flags['dcs_write_keys'] = sorted(dw.keys())
-        cmp_mark = {}  # kind -> status（量程欄位旁加 ⚠ 用）
 
         # ---- terminal
         T = kinds['terminal']['by_alias'].get(al) or []
@@ -402,99 +646,17 @@ def main():
                 rows.append(row)
             sec['docindex'] = {'rows': rows}
 
+        # ---- dcdas（控制器 I/O 組態）
+        dc_entries, dc_primary = dcdas_entries(tag_of.get(al, ''), dc)
+        if dc_entries:
+            sec['dcdas'] = {'entries': dc_entries}
+
         # ---- DCS 基準比對（量程）
-        compare = []
         r = r13.get(al)
-        ams_cur = None
-        if r is not None and num(r[14]) is not None and num(r[15]) is not None:
-            ams_cur = {'lo': num(r[14]), 'hi': num(r[15]), 'unit': r[18] or '', 'lvl': 'decoded', 'kind': 'ams',
-                       'src': '解碼 · AMS 現值 BlockData %s float32 · 最後記錄 %s' % (r[16] or '?', (r[36] or '')[:16])}
-        ams_unit_note = ''
-        if r is not None and not (r[18] or '').strip() and r[17] not in (None, ''):
-            ams_unit_note = '（AMS 單位碼 %s／參數 %s 未翻譯）' % (g7(num(r[17])) if num(r[17]) is not None else r[17], r[19] or '?')
-        if ams_cur is not None:
-            ams_cur['unit_note'] = ams_unit_note
-        base = None
-        if 'URV' in dw or 'LRV' in dw:
-            parts = []
-            bounds = set()
-            def bound(key, term_v, ams_v):
-                side = '下限' if key == 'LRV' else '上限'
-                if key in dw and num(dw[key][0]) is not None:
-                    w = dw[key]
-                    parts.append('%s %s→%s @%s %s·%s' % (w[5].split('.')[0], w[4], w[0], w[1][:16], w[2], w[3]))
-                    bounds.add('lo' if key == 'LRV' else 'hi')
-                    return num(w[0])
-                # 這一端沒有 DCS 寫入：顯示端子表（或 AMS 現值）供參考，不列入比較
-                if term_v is not None:
-                    parts.append('%s 未見 DCS 寫入（顯示 DCS 端子表值，僅供參考、不比較）' % side)
-                    return term_v
-                if ams_v is not None:
-                    parts.append('%s 未見 DCS 寫入（顯示 AMS 現值，僅供參考、不比較）' % side)
-                    return ams_v
-                parts.append('%s 未見 DCS 寫入' % side)
-                return None
-            lo = bound('LRV', term_primary and term_primary['lo'], ams_cur and ams_cur['lo'])
-            hi = bound('URV', term_primary and term_primary['hi'], ams_cur and ams_cur['hi'])
-            # DCS 寫入值是 AMS 參數值 → 單位用 AMS 單位（UNIT 寫入 > AMS 現值單位）；AMS 單位空白時留空，不借端子表單位
-            unit = unit_of_code_str(dw['UNIT'][0]) if 'UNIT' in dw else ((r[18] if r is not None else '') or '')
-            if bounds:
-                over = any(dw[k][6] for k in ('URV', 'LRV') if k in dw)
-                notes = []
-                if over:
-                    notes.append('之後曾被 AMS 人工改寫')
-                if bounds != {'lo', 'hi'}:
-                    notes.append('%s無 DCS 寫入，顯示值僅供參考、不比較' % ('下限' if 'lo' not in bounds else '上限'))
-                if not unit.strip():
-                    notes.append('單位空白' + ams_unit_note)
-                base = {'kind': 'dcs_write', 'lvl': 'decoded', 'lo': lo, 'hi': hi, 'unit': unit or '', 'bounds': bounds,
-                        'unit_note': '' if 'UNIT' in dw else ams_unit_note,
-                        'src': '解碼 · DCS 寫入 (AMS 事件 Cat28 Field change) · ' + '；'.join(parts),
-                        'label': 'DCS 寫入 (AMS 事件)', 'note': '；'.join(notes)}
-        if base is None and term_primary:
-            base = {'kind': 'terminal', 'lvl': term_primary['lvl'], 'lo': term_primary['lo'], 'hi': term_primary['hi'],
-                    'unit': term_primary['unit'], 'src': term_primary['src'], 'label': 'DCS 端子表 (DEVICE_LO/HI)', 'note': '',
-                    'bounds': {'lo', 'hi'}}
-        if base is not None:
-            others = []
-            cand = []
-            if base['kind'] == 'dcs_write' and term_primary:
-                cand.append(dict(term_primary, label='DCS 端子表 (DEVICE_LO/HI)'))
-            if ams_cur:
-                cand.append(dict(ams_cur, label='AMS 現值'))
-            if il_primary:
-                cand.append(dict(il_primary, label='儀器清單 設計量程'))
-            if eo_primary:
-                cand.append(dict(eo_primary, label='EOMR 出廠校正量程'))
-            for c in cand:
-                st, note, lo2, hi2 = compare_range(base, c)
-                o = {'kind': c['kind'], 'label': c['label'], 'lvl': c['lvl'], 'src': c['src'], 'lo': c['lo'], 'hi': c['hi'], 'unit': c['unit'],
-                     'status': st, 'note': (c.get('pre_note') or '') + note}
-                others.append(o)
-                cmp_mark[c['kind']] = st
-                # 逐端標記（LRV／URV 欄位旁的 ⚠）：只標有列入比較的那一端，不符只標實際不符的那一端
-                bad_sides = note.rsplit('不符（', 1)[-1] if st == 'mismatch' else ''
-                for k, side in (('lo', '下限'), ('hi', '上限')):
-                    if k in base['bounds']:
-                        cmp_mark['%s_%s' % (c['kind'], k)] = ('mismatch' if side in bad_sides else 'ok') if st == 'mismatch' else st
-                stats['compare_status'][st] = stats['compare_status'].get(st, 0) + 1
-                ent = c.get('ent')
-                if ent is not None and st != 'ok':  # 在文件 entry 的量程欄位旁標 ⚠
-                    fld = c.get('field') or 'DCS 量程 (DEVICE_LO/HI/UNITS)'
-                    for row in ent['rows']:
-                        if row[0] == fld or (c['kind'] == 'terminal' and row[0].startswith('DCS 量程')):
-                            row[2:] = [st]
-            b = {k: base[k] for k in ('kind', 'label', 'lvl', 'src', 'lo', 'hi', 'unit', 'note')}
-            b['bounds'] = sorted(base['bounds'])
-            compare.append({'item': '量程', 'baseline': b, 'others': others})
-            stats['with_compare'] += 1
-            stats['baseline'][base['kind']] += 1
-        # 文件 entry 中量程欄位的 cmp 標記：未比較者去掉 kind 字串，只保留狀態
-        for kk in ('terminal', 'instlist', 'eomr'):
-            for ent in (sec.get(kk) or {}).get('entries', []):
-                for row in ent['rows']:
-                    if len(row) > 2 and row[2] not in ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown', 'warn'):
-                        del row[2:]
+        ams_cur, ams_unit_note = ams_current(r)
+        compare, cmp_mark = build_compare(dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note), dc_primary, term_primary,
+                                          ams_cur, il_primary, eo_primary, stats)
+        strip_marks(sec)
         if cmp_mark:
             flags['cmp'] = cmp_mark
         flags['ff'] = proto.get(al) == 'FF'
@@ -502,12 +664,99 @@ def main():
             stats['sections'][k] = stats['sections'].get(k, 0) + 1
         out[al] = {'sec': sec, 'compare': compare, 'flags': flags}
 
-    # ---- 分塊
+    searched = {}
+    for kind, j in kinds.items():
+        keep = ('doc_id', 'rev', 'ref', 'title', 'folder', 'used', 'why') + (('category',) if kind == 'docindex' else ())
+        searched[kind] = [{k: s.get(k) for k in keep if k in s} for s in j.get('searched', [])]
+    src_stats = {k: {kk: vv for kk, vv in (j.get('stats') or {}).items() if kk in ('aliases_matched', 'rows', 'notes', 'per_category_aliases')} for k, j in kinds.items()}
+    src_stats['ams'] = {'notes': (ams.get('stats') or {}).get('notes', []), 'backup_date': ams.get('backup_date')}
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, a.chunk_kb, a.no_stamp)
+
+
+def recompare(outdir, dc, chunk_kb, no_stamp):
+    """讀已發布的 card/*.json：保留各文件區段，重算 sec.dcdas、compare、flags.cmp（限制見檔頭）。"""
+    open_outdir(outdir)
+    card_dir = os.path.join(outdir, 'card')
+    index = load(os.path.join(card_dir, 'index.json'))
+    old = {}
+    for fn in index['files']:
+        old.update(load(os.path.join(outdir, fn))['by_alias'])
+    aliases, proto, tag_of, r13 = load_sheets(outdir)
+    stats = new_stats(aliases)
+    out = {}
+    n_lost = 0
+    for al in aliases:
+        o = old.get(al) or {'sec': {}, 'compare': [], 'flags': {}}
+        sec = o.get('sec') or {}
+        sec.pop('dcdas', None)
+        for kk in ('terminal', 'instlist', 'eomr'):  # 去掉舊的比對狀態
+            for ent in (sec.get(kk) or {}).get('entries', []):
+                for row in ent['rows']:
+                    if len(row) > 2 and row[2] in CMP_STATUSES:
+                        del row[2:]
+        oc = o.get('compare') or []
+        base_dcs, prim = None, {}
+        if oc:
+            b = oc[0]['baseline']
+            if b['kind'] == 'dcs_write':
+                base_dcs = dict(b, bounds=set(b.get('bounds') or ['lo', 'hi']))
+            elif b['kind'] in ('terminal', 'dcdas'):
+                prim[b['kind']] = b
+            for x in oc[0].get('others') or []:
+                if x['kind'] in ('terminal', 'instlist', 'eomr'):
+                    prim[x['kind']] = x
+
+        def primary(kind, field):
+            p = prim.get(kind)
+            if not p or p.get('lo') is None or p.get('hi') is None:
+                return None
+            ent = next((e for e in (sec.get(kind) or {}).get('entries', []) if e.get('src') == p.get('src')), None)
+            q = {'lo': p['lo'], 'hi': p['hi'], 'unit': p.get('unit') or '', 'src': p.get('src'), 'lvl': p.get('lvl') or 'doc', 'kind': kind, 'ent': ent}
+            if field:
+                q['field'] = field
+            note = p.get('note') or ''
+            if kind == 'instlist' and note.startswith('此來源量程為數值儲存格'):
+                q['unit_presumed'] = True
+            if kind == 'eomr' and note.startswith('證書序號與 AMS 不符'):
+                q['pre_note'] = '證書序號與 AMS 不符；'
+            return q
+        term_primary = primary('terminal', None)
+        il_primary = primary('instlist', '設計量程（原文）')
+        eo_primary = primary('eomr', '出廠校正量程（原文）')
+        ams_cur, ams_unit_note = ams_current(r13.get(al))
+        if base_dcs is not None and not (base_dcs.get('unit') or '').strip() and ams_cur and ams_cur['unit'].strip():
+            # 13 表單位補譯後（E+H 列舉）：DCS 寫入基準的單位規則＝AMS 單位
+            base_dcs['unit'] = ams_cur['unit']
+            base_dcs['unit_note'] = ''
+            base_dcs['note'] = '；'.join(x for x in (base_dcs.get('note') or '').split('；') if x and not x.startswith('單位空白'))
+        dc_entries, dc_primary = dcdas_entries(tag_of.get(al, ''), dc)
+        if dc_entries:
+            sec['dcdas'] = {'entries': dc_entries}
+        if not oc and dc_primary and any(sec.get(k) for k in ('instlist', 'eomr')):
+            n_lost += 1  # 新有基準、但舊資料沒有 compare 可借儀器清單／EOMR 數值
+        compare, cmp_mark = build_compare(base_dcs, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats)
+        strip_marks(sec)
+        flags = dict(o.get('flags') or {})
+        flags.pop('cmp', None)
+        if cmp_mark:
+            flags['cmp'] = cmp_mark
+        flags['ff'] = proto.get(al) == 'FF'
+        for k in sec:
+            stats['sections'][k] = stats['sections'].get(k, 0) + 1
+        out[al] = {'sec': sec, 'compare': compare, 'flags': flags}
+    stats['recompare_note'] = '由已發布 card aux 重算（cardwork 不在手邊）；%d 台舊資料無 compare、其儀器清單／EOMR 量程未列入比對' % n_lost
+    searched = {k: v for k, v in (index.get('searched') or {}).items() if k != 'dcdas'}
+    docs = {k: v for k, v in (index.get('docs') or {}).items() if not k.startswith('dcdas|')}
+    src_stats = {k: v for k, v in (index.get('source_stats') or {}).items() if k != 'dcdas'}
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, chunk_kb, no_stamp)
+
+
+def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, chunk_kb, no_stamp):
+    """分塊寫 card/aux-NN.json 與 index.json → manifest.build → 加密 → stamp。"""
+    import extract_db, encrypt_data
     card_dir = os.path.join(outdir, 'card')
     os.makedirs(card_dir, exist_ok=True)
-    for p in glob.glob(os.path.join(card_dir, 'aux-*.json')):
-        os.remove(p)
-    limit = a.chunk_kb * 1024
+    limit = chunk_kb * 1024
     parts, cur, cur_b = [], {}, 0
     for al in aliases:
         b = len(dumps(out[al]).encode('utf-8')) + len(al) + 6
@@ -517,28 +766,28 @@ def main():
     if cur:
         parts.append(cur)
     width = max(2, len(str(len(parts) - 1)))
-    alias_map, sizes = {}, []
-    for k, p in enumerate(parts):
+    alias_map, sizes, blobs = {}, [], []
+    for k, p in enumerate(parts):  # 先全部序列化並自檢，確定沒問題才刪舊檔寫新檔
         fn = 'aux-%0*d.json' % (width, k)
         data = dumps({'part': k, 'by_alias': p}).encode('utf-8')
         if ABS_PATH_RE.search(data.decode('utf-8')):
             raise SystemExit('absolute local path found in ' + fn)
-        open(os.path.join(card_dir, fn), 'wb').write(data)
+        blobs.append((fn, data))
         sizes.append(len(data))
         for al in p:
             alias_map[al] = k
-    searched = {}
-    for kind, j in kinds.items():
-        keep = ('doc_id', 'rev', 'ref', 'title', 'folder', 'used', 'why') + (('category',) if kind == 'docindex' else ())
-        searched[kind] = [{k: s.get(k) for k in keep if k in s} for s in j.get('searched', [])]
-    src_stats = {k: {kk: vv for kk, vv in (j.get('stats') or {}).items() if kk in ('aliases_matched', 'rows', 'notes', 'per_category_aliases')} for k, j in kinds.items()}
-    src_stats['ams'] = {'notes': (ams.get('stats') or {}).get('notes', []), 'backup_date': ams.get('backup_date')}
+    for p in glob.glob(os.path.join(card_dir, 'aux-*.json')):
+        os.remove(p)
+    for fn, data in blobs:
+        open(os.path.join(card_dir, fn), 'wb').write(data)
+    if dc is not None:
+        s, d = dcdas_doc(dc)
+        searched = dict(searched, dcdas=[s])
+        docs = dict(docs, **d)
+        src_stats = dict(src_stats, dcdas={'aliases_matched': stats['sections'].get('dcdas', 0), 'rows': dc['channels'], 'notes': s['why']})
     index = {'version': 1, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
              'alias': alias_map, 'src_defs': SRC_DEFS, 'kind_label': KIND_LABEL, 'doc_cat_order': DOC_CAT_ORDER,
-             'searched': searched, 'docs': docs, 'source_stats': src_stats, 'stats': stats,
-             'compare_rule': ('DCS 基準＝AMS 事件中該參數最新一次值有改變的 Cat28 外部主機寫入（URV/LRV；只寫入一端時只比較該端，單位用 AMS 單位），'
-                              '否則 DCS 端子表 DEVICE_LO/HI；容許 ±0.5% span；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，'
-                              '任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」')}
+             'searched': searched, 'docs': docs, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
     idata = dumps(index)
     if ABS_PATH_RE.search(idata):
         raise SystemExit('absolute local path found in index.json')
@@ -555,7 +804,7 @@ def main():
     open(man_path, 'wb').write(dumps(man).encode('utf-8'))
     print('manifest build', man['build'])
     encrypt_data.encrypt_dir(outdir, *encrypt_data.passphrase_and_salt())
-    if not a.no_stamp:
+    if not no_stamp:
         docs_db = os.path.dirname(os.path.abspath(outdir))
         extract_db.stamp(docs_db, os.path.join(os.path.dirname(docs_db), 'assets'))
 

@@ -131,8 +131,8 @@
     if (opt.serial && /^0+(\.0+)?$/.test(s.trim())) return '未寫入';
     return opt.fmt && opt.fmt !== 'General' ? U.fmt(s, opt.fmt) : s;
   };
-  U.SRC_LVLS = ['raw', 'decoded', 'inferred', 'doc', 'factory'];
-  U.SRC_LABEL = { raw: '原始', decoded: '解碼', inferred: '推論', doc: '文件', factory: '出廠' };
+  U.SRC_LVLS = ['raw', 'decoded', 'inferred', 'doc', 'factory', 'ctrl'];
+  U.SRC_LABEL = { raw: '原始', decoded: '解碼', inferred: '推論', doc: '文件', factory: '出廠', ctrl: '控制器' };
 
   /* ------------------------------------------------------------------ Excel 數字格式子集 */
   const fmtCache = new Map();

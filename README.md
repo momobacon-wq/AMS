@@ -49,6 +49,8 @@ py tools/encrypt_data.py docs/db/data --decrypt # 要重跑 build_card_aux / ver
 ```
 
 只重建查詢卡附加資料：`encrypt_data.py --decrypt` → `build_card_aux.py`（結尾自動加密＋戳記）→ `verify_encrypted.py`。
+DCS 比對的基準會讀 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（在 signal-atlas repo 跑 `py tools\dcdas.py build` 產生；沒有就只用 DCS 寫入／端子表）。
+各產生器輸出（cardwork）不在手邊時：`py tools/db/build_card_aux.py --recompare docs/db/data` 只重算 DCS 比對；`py tools/db/patch_site_dcdas.py docs/db/data` 把 02/13 表規格改動套到已發布資料（要先解密）。
 `extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
 
 ## 備品庫存（docs/db 站）

@@ -693,6 +693,7 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
   --src-inferred: #9a4d00; --src-inferred-bg: #fcecd9;
   --src-doc: #276e2b; --src-doc-bg: #e2f2e2;
   --src-factory: #0f4a2a; --src-factory-bg: #cfe6d8;
+  --src-ctrl: #5b3a9e; --src-ctrl-bg: #ece5f8;
   --cmp-bad: #a8001c; --cmp-bad-bg: #fde3e3;
   --cmp-warn: #8a4700; --cmp-warn-bg: #fff0d6;
   --cmp-ok: #276e2b; --cmp-ok-bg: #e2f2e2;
@@ -703,6 +704,7 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
   --src-inferred: #ffba73; --src-inferred-bg: #3a2812;
   --src-doc: #94de97; --src-doc-bg: #173320;
   --src-factory: #5fd5a0; --src-factory-bg: #0d3324;
+  --src-ctrl: #c9b3f5; --src-ctrl-bg: #2b2044;
   --cmp-bad: #ff9a9a; --cmp-bad-bg: #401a1e;
   --cmp-warn: #ffc670; --cmp-warn-bg: #3a2a10;
   --cmp-ok: #94de97; --cmp-ok-bg: #173320;
@@ -712,6 +714,7 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
 .lvl-inferred { --lv: var(--src-inferred); --lv-bg: var(--src-inferred-bg); }
 .lvl-doc { --lv: var(--src-doc); --lv-bg: var(--src-doc-bg); }
 .lvl-factory { --lv: var(--src-factory); --lv-bg: var(--src-factory-bg); }
+.lvl-ctrl { --lv: var(--src-ctrl); --lv-bg: var(--src-ctrl-bg); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .cq-srcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 2px 20px 4px; font-size: 13px; }
@@ -828,7 +831,7 @@ table.mini.cmp .nocmp { font-weight: 400; }
     --label-bg: #f2f2f2; --input-bg: #ffff99; --chart-bg: #ffffff;
     --src-raw: #555d69; --src-raw-bg: #eceef1; --src-decoded: #1c5aa0; --src-decoded-bg: #e2edfa;
     --src-inferred: #9a4d00; --src-inferred-bg: #fcecd9; --src-doc: #276e2b; --src-doc-bg: #e2f2e2;
-    --src-factory: #0f4a2a; --src-factory-bg: #cfe6d8;
+    --src-factory: #0f4a2a; --src-factory-bg: #cfe6d8; --src-ctrl: #5b3a9e; --src-ctrl-bg: #ece5f8;
     --cmp-bad: #a8001c; --cmp-bad-bg: #fde3e3; --cmp-warn: #8a4700; --cmp-warn-bg: #fff0d6; --cmp-ok: #276e2b; --cmp-ok-bg: #e2f2e2;
     color-scheme: light;
   }

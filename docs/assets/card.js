@@ -543,7 +543,7 @@
       if (f.last_change_dcs) out.push(['bad', '⚠ 最後修改＝DCS·外部主機寫入']);
       else if (f.has_dcs_write) out.push(['warn', '曾有 DCS·外部主機寫入']);
       if (f.sync_unrecovered) out.push(['bad', '⚠ 同步失敗後未再成功']);
-      const bad = Object.entries(f.cmp || {}).filter(([k, v]) => v === 'mismatch' && !/_(lo|hi)$/.test(k)).map(([k]) => ({ ams: 'AMS 現值', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' }[k] || k));
+      const bad = Object.entries(f.cmp || {}).filter(([k, v]) => v === 'mismatch' && !/_(lo|hi)$/.test(k)).map(([k]) => ({ ams: 'AMS 現值', dcdas: 'DCS 控制器組態', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' }[k] || k));
       if (bad.length) out.push(['bad', '⚠ 量程與 DCS 不符：' + bad.join('、')]);
       // 有摘要時旗標放在摘要標頭（.sum-flags），否則放卡片上方（.cq-flags）
       const target = this.root.querySelector('.sum-flags') || el;
@@ -752,7 +752,7 @@
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
-    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引' }[kind] || kind; }
+    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引' }[kind] || kind; }
     async fillSummary(row, res, pend, svcEl) {
       const S = this.spec.summary; const alias = res.alias; const st = this.spec.stats;
       let r13 = null; let aux = null; let ix = null;

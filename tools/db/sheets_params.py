@@ -86,6 +86,10 @@ if not FF_UNITS:
 FF_UNIT_ITEMS = {"000206ee", "0100001f", "010000a8", "010000ae", "010000bf", "010000ce", "01000548", "800200e2", "80020132",
                  "8002013c", "80020186", "80020192", "80020368", "80020398", "80020d32", "80020d33", "80020d3c", "80020d3d", "80020d43"}
 FF_MODE_VALUES = _table("FF 區塊模式值 (ff_mode_values)") or {8: "自動 Auto", 16: "手動 Man", 128: "停止服務 O/S"}
+# 裝置自訂單位列舉（不是 HART Table-2）：2026-09-24 以控制器 I/O 組態（signal-atlas 索引 AI Low/High Value）反推——
+# E+H Cerabar/Deltabar S evo 的 Pressure1Unit=9 有 134 台數值與控制器 kPa 量程完全相同、Deltabar OutUnitEasy=18 有 31 台
+# 換算 mmH2O→kPa 後相同。其他碼未出現在本庫，不猜。
+DEVICE_UNIT_ENUMS = {"Pressure1Unit": {9: "kPa"}, "OutUnitEasy": {18: "mmH2O"}}
 DEVICE_SPECIFIC_UNIT_PARAMS = {"Pressure1Unit", "TemperatureUnit", "LevelUnit", "OutUnitEasy", "VirtualLevelUnitDensity",
                                "LE_CstOutputUnit_1", "LE_CustomUnit_1", "ECT_XEngineeringUnit_1", "ECT_YEngineeringUnit_1",
                                "varUnitCode0", "varUnitCode1", "varUnitCode2", "varUnitCode3", "varLcdLenUnit", "varLcdTempUnit",
@@ -251,6 +255,8 @@ def translate(proto, base, item, member, num, text, date):
             return "未使用"
         if base in ("polling_address", "PollingAddress"):
             return "點對點(4-20mA)" if code == 0 else "多點位址"
+        if base in DEVICE_UNIT_ENUMS:
+            return DEVICE_UNIT_ENUMS[base].get(code)
         if "unit" in base.lower() and base not in DEVICE_SPECIFIC_UNIT_PARAMS:
             z = HART_UNITS.get(code)
             return z
@@ -645,7 +651,7 @@ def build(conn):
         "notes": [
             f"設備數 {len(s4):,} (BlockData 有資料的設備; 全庫 1,928 台 + 1 個 -1 sentinel)",
             "量程/單位/阻尼取自該設備第一個符合關鍵組態名單的 HART 參數 (量程參數欄註明來源); FF 定位器/變送器以 AI 區塊 XD_SCALE (item 80020192) 為量程",
-            "單位(解碼) 使用 HART Table-2 單位碼表; 裝置自訂列舉 (E+H Pressure1Unit 等) 不解碼, 僅列碼",
+            "單位(解碼) 使用 HART Table-2 單位碼表; 裝置自訂列舉只解 E+H Pressure1Unit=9 (kPa)、OutUnitEasy=18 (mmH2O) (2026-09-24 以控制器 I/O 量程反推, DEVICE_UNIT_ENUMS), 其餘僅列碼",
             "組態事件數 = 該設備所有區塊之相異 (EventIdDay, EventIdFraction) 數",
         ],
         "source_tables": ["BlockData", "Blocks", "Devices", "DeviceRevisions", "DeviceTypes", "Manufacturers", "DeviceProtocols", "EventLog"],

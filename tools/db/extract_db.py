@@ -263,6 +263,7 @@ SRC_DEFS = {
     'inferred': {'label': '推論', 'desc': '經驗規則、寫死的對照表、外部對照檔或機組範本推論（非資料庫/文件直接記載）'},
     'doc': {'label': '文件', 'desc': '設計文件（DCS 端子表、儀器清單、P&ID、Hook-up…）：「應該是什麼」'},
     'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
+    'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；索引日期見來源'},
 }
 SRC_PREFIX = {k: v['label'] for k, v in SRC_DEFS.items()}
 
@@ -299,12 +300,17 @@ def summary_spec(ci3, ci13):
                  'src': src('decoded', 'BlockData {c16} float32 → HART 單位碼表 · 最後記錄 {c36}')},
                 {'label': 'AMS FF XD_SCALE（現值）', 'stats': {'lo': ci13('FF XD_SCALE EU0'), 'hi': ci13('FF XD_SCALE EU100'), 'unit': ci13('FF XD_SCALE 單位')}, 'proto': 'FF', 'cmp': 'ams',
                  'src': src('decoded', 'BlockData 80020192 FF hex float32／單位碼（區塊 {c34}）')},
-                K('DCS 量程（端子表）', 'terminal', 'DCS 量程 (DEVICE_LO/HI/UNITS)', cmp='terminal'),
+                K('DCS 控制器組態（AI Low/High）', 'dcdas', 'DCS AI 量程 (Low/High Value)', cmp='dcdas'),
+                K('DCS 量程（端子表，設計文件）', 'terminal', 'DCS 量程 (DEVICE_LO/HI/UNITS)', cmp='terminal'),
                 K('設計量程（儀器清單）', 'instlist', '設計量程（原文）', cmp='instlist'),
                 K('出廠校正量程（EOMR）', 'eomr', '出廠校正量程（原文）', cmp='eomr'),
                 K('警報／跳機設定值（儀器清單）', 'instlist', '警報/跳機設定值'),
                 K('DCS 警報設定（端子表）', 'terminal', ['警報 1_HI', '警報 1_LO', '警報 2_HI', '警報 2_LO', '警報 3_HI', '警報 3_LO'], kv=True),
             ]},
+            {'key': 'dcs', 'label': '控制系統（控制器現行 I/O 組態）', 'kind': 'dcdas', 'per_entry': True,
+             'head': ['訊號名', '控制器', '通道'],
+             'items': ['控制器', 'I/O 模組', '通道', '訊號名', '裝置位號 (DeviceTag)', '輸入型式', 'HART 通道', 'DCS AI 量程 (Low/High Value)', '訊號說明', 'signal-atlas 深連結'],
+             'note': '來源：signal-atlas 索引（ToolboxST checkout 快照，非即時）；只涵蓋類比輸入通道，FF 設備不在其中。'},
             {'key': 'ctrl', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'per_entry': True,
              'head': ['訊號名', '說明 DESC', '訊號等級', 'HART'],
              'items': ['系統', '控制器', '位置', '盤櫃 CABINET', 'Case', '卡位 COL_ROW', '點號 POINT', 'PACK_TYPE', '端子 TB_PT_1/2', 'P&ID', '邏輯圖'],
@@ -436,26 +442,12 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
         S('最後事件說明', '最後事件說明', 'raw', 'EventLog.Description（最後記錄事件）'),
         S('最後使用者', '最後使用者', 'raw', 'EventLog.UserKey → Users.UserName（最後記錄事件）'),
     ]
-    sections_aux = [
-        {'key': 'sync', 'label': '維護狀態（AMS 同步）', 'empty': '（無同步紀錄）'},
-        {'key': 'change', 'label': '最後修改（人工 AMS／DCS·外部主機寫入）', 'empty': '（排除動態值後，無參數修改紀錄）',
-         'note': '依 BlockData 相鄰值不同判定；排除 pv_value、OperatingHours 等動態/計數值與 7 位有效數字相同的浮點殘差，故可能與 14_參數變更歷程 略有不同。Cat 28「Change performed by foreign host」＝DCS／外部主機寫入。'},
-        {'key': 'compare', 'label': 'DCS 比對（量程；以 DCS 為主）', 'empty': '（無 DCS 基準：DCS 端子表查無此位號，AMS 事件也無 Cat28 量程寫入）',
-         'note': '基準＝AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考），否則 DCS 端子表 DEVICE_LO/HI。其他來源與基準差超過 ±0.5% span 標「⚠ 與 DCS 不符」；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」。端子表為設計文件，非 DCS 現行組態。'},
-        {'key': 'ff', 'label': 'FF 診斷（僅 FF 設備）', 'only_ff': True, 'empty': '（此 FF 設備在 AMS 無 FF 參數紀錄）', 'note': 'WRITE_LOCK 依 FF 規範 1＝未鎖定、2＝鎖定。'},
-        {'key': 'terminal', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
-        {'key': 'instlist', 'label': '設計規格（儀器清單）', 'kind': 'instlist'},
-        {'key': 'eomr', 'label': '出廠紀錄（EOMR 校正證書）', 'kind': 'eomr', 'note': '目前只解析 Rosemount/Emerson 格式證書；銘牌序號後 7 碼與 AMS final_assembly_number 比對。'},
-        {'key': 'docindex', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'PDF 文字層逐頁比對；p.N 為 PDF 頁序。R2/R3 為 GE/ST 不分機組編號（同編號各機組共用此頁）。'},
-        {'key': 'ident', 'label': '位號歷程補充（刪除重建／方法執行）', 'empty': '（無刪除重建或方法執行紀錄）'},
-        {'key': 'alarm', 'label': '類比輸出警報與飽和電流', 'empty': '（無警報／飽和電流參數）'},
-        {'key': 'device', 'label': '設備補充（銘牌序號／版次）', 'empty': '（無參數紀錄）'},
-    ]
+    sections_aux = SECTIONS_AUX
     return {
         'id': '02', 'name': '02_設備查詢卡', 'mode': 'card', 'title': '設備查詢',
         'summary': summary_spec(lambda p: ci('設備總表', p), lambda p: ci('設備參數統計', p)),
         'notes': ['輸入目前/舊 AMS 位號、識別時位號、HostTag、裝置ID、設備鍵、設備 GUID 或別名（大小寫不拘），按 Enter。字串經 04_位號索引 換成別名，再從 03_設備總表、設備參數統計、參數變更歷程、AMS DB 補充與工程文件比對（card aux）取值。',
-                  '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR。'],
+                  CARD_NOTE_SRC],
         'default_query': final.get('default_query', 'G12HAP70BT001'),
         'input': {'label': '查詢位號', 'prompt': '位號／舊位號／識別時位號／HostTag／裝置ID／設備鍵／別名', 'suggest': {'sheet': '04', 'col': 0, 'hint_cols': [2, 4]}},
         'lookup': {'index_sheet': '04', 'key_col': 0, 'src_col': 2, 'alias_col': 4, 'count_col': 7, 'target_sheet': '03', 'target_alias_col': 1, 'target_tag_col': 0,
@@ -474,6 +466,26 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
         'aux': {'index': 'card/index.json', 'number_from': 5},
         'sections_aux': sections_aux,
     }
+
+
+CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器現行 I/O 組態（signal-atlas 索引）。'
+# 02 查詢卡附加區段（card aux）的標題與順序；patch_site_dcdas.py 也直接用它套到已發布的 02.json
+SECTIONS_AUX = [
+        {'key': 'sync', 'label': '維護狀態（AMS 同步）', 'empty': '（無同步紀錄）'},
+        {'key': 'change', 'label': '最後修改（人工 AMS／DCS·外部主機寫入）', 'empty': '（排除動態值後，無參數修改紀錄）',
+         'note': '依 BlockData 相鄰值不同判定；排除 pv_value、OperatingHours 等動態/計數值與 7 位有效數字相同的浮點殘差，故可能與 14_參數變更歷程 略有不同。Cat 28「Change performed by foreign host」＝DCS／外部主機寫入。'},
+        {'key': 'compare', 'label': 'DCS 比對（量程；以 DCS 為主）', 'empty': '（無 DCS 基準：控制器 I/O 索引與 DCS 端子表都查無此位號，AMS 事件也無 Cat28 量程寫入）',
+         'note': '基準依序＝(1) AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考）→ (2) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。其他來源與基準差超過 ±0.5% span 標「⚠ 與 DCS 不符」；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」。2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同。'},
+        {'key': 'ff', 'label': 'FF 診斷（僅 FF 設備）', 'only_ff': True, 'empty': '（此 FF 設備在 AMS 無 FF 參數紀錄）', 'note': 'WRITE_LOCK 依 FF 規範 1＝未鎖定、2＝鎖定。'},
+        {'key': 'dcdas', 'label': '控制系統（控制器現行 I/O 組態，signal-atlas 索引）', 'kind': 'dcdas', 'note': 'ToolboxST checkout 快照的類比輸入通道組態（非即時）；位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。FF 設備與 HART 多工器本體不在 I/O 索引。'},
+        {'key': 'terminal', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
+        {'key': 'instlist', 'label': '設計規格（儀器清單）', 'kind': 'instlist'},
+        {'key': 'eomr', 'label': '出廠紀錄（EOMR 校正證書）', 'kind': 'eomr', 'note': '目前只解析 Rosemount/Emerson 格式證書；銘牌序號後 7 碼與 AMS final_assembly_number 比對。'},
+        {'key': 'docindex', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'PDF 文字層逐頁比對；p.N 為 PDF 頁序。R2/R3 為 GE/ST 不分機組編號（同編號各機組共用此頁）。'},
+        {'key': 'ident', 'label': '位號歷程補充（刪除重建／方法執行）', 'empty': '（無刪除重建或方法執行紀錄）'},
+        {'key': 'alarm', 'label': '類比輸出警報與飽和電流', 'empty': '（無警報／飽和電流參數）'},
+        {'key': 'device', 'label': '設備補充（銘牌序號／版次）', 'empty': '（無參數紀錄）'},
+]
 
 
 def data_build(outdir, manifest):
