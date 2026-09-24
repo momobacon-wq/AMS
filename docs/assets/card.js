@@ -565,6 +565,27 @@
     /** index.docs[key].url：文件在 Google 雲端硬碟的連結（build_card_aux --drive-map 補上；沒有就 null） */
     docHref(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.url ? d.url : null; }
     docTitle(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.title ? '在 Google 雲端硬碟開啟：' + d.title : null; }
+    /** 欄位值本身是文件編號（P&ID、邏輯圖、Hook-up 圖、位置圖…）→ index.doc_no 對到「那份文件」：連結開圖本身，不是提到它的來源文件 */
+    docNoLink(ix, val) {
+      const m = /HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4}/.exec(String(val || ''));
+      const key = m && ix && ix.doc_no ? ix.doc_no[m[0]] : null;
+      const d = key && ix.docs ? ix.docs[key] : null;
+      return d && d.url ? { href: d.url, title: '開啟這份文件：' + d.title, key } : null;
+    }
+    /** 值有文件連結時的 href／標題／來源明細：值指名的文件優先，否則是值所在的來源文件 */
+    valueLink(ix, val, srcKey, detail) {
+      const dn = this.docNoLink(ix, val);
+      if (dn) {
+        const d = ix.docs[dn.key];
+        detail.push(['欄位所指文件', U.h('span', {}, d.title + '（' + (d.folder && d.folder !== '.' ? d.folder : '根目錄') + '）', U.h('a', { class: 'lk', href: dn.href, target: '_blank', rel: 'noopener noreferrer' }, ' 開啟 ↗'))]);
+        return { href: dn.href, hrefTitle: dn.title };
+      }
+      if (/HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4}/.test(String(val || ''))) { // 值是文件編號但文件庫裡沒有這份：不連到來源文件（來源仍在「文件資訊」）
+        detail.push(['欄位所指文件', '文件庫裡沒有這個編號的檔（來源文件見上列）']);
+        return { href: null, hrefTitle: null };
+      }
+      return { href: this.docHref(ix, srcKey), hrefTitle: this.docTitle(ix, srcKey) };
+    }
     searchedList(ix, kind) {
       const seen = new Set(); const out = [];
       for (const s of (ix.searched && ix.searched[kind]) || []) {
@@ -601,11 +622,11 @@
               ent.note ? U.h('div', { class: 'muted small sub-note' }, ent.note) : null);
             grid.appendChild(sub);
             const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
-            const href = this.docHref(ix, ent.d); const hrefTitle = this.docTitle(ix, ent.d);
             for (const r of ent.rows) {
               const st = r[2];
               const flags2 = CMP_TEXT[st] && st !== 'ok' ? [{ t: CMP_TEXT[st], cls: cmpCls(st) }] : [];
-              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, href, hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
+              const det = detail.slice(); const lk = this.valueLink(ix, r[1], ent.d, det);
+              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
             }
           }
           return;
@@ -837,9 +858,10 @@
       const ent = r.ent; const val = r.val;
       const stt = ent && !r.rowsMode && !Array.isArray(key) ? this.rowStatus(ent, key) : null;
       const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
-      const src = ent ? { lvl: ent.lvl, text: ent.src, detail: this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]) } : null;
-      const href = ent ? this.docHref(ix, ent.d) : null;
-      return { label, val, span: it.span, flags, warn: stt === 'warn', src, href, hrefTitle: ent ? this.docTitle(ix, ent.d) : null, soft: !ent, tip: ent ? '' : `查無（${this.kindLabel(kind)}無此位號）` };
+      const detail = ent ? this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]) : [];
+      const lk = ent ? (r.rowsMode ? { href: this.docHref(ix, ent.d), hrefTitle: this.docTitle(ix, ent.d) } : this.valueLink(ix, val, ent.d, detail)) : {};
+      const src = ent ? { lvl: ent.lvl, text: ent.src, detail } : null;
+      return { label, val, span: it.span, flags, warn: stt === 'warn', src, href: lk.href || null, hrefTitle: lk.hrefTitle || null, soft: !ent, tip: ent ? '' : `查無（${this.kindLabel(kind)}無此位號）` };
     }
     /** 整組依 card aux 區段填入：docindex（每份文件一列）或 per_entry（DCS 端子表每個訊號一塊） */
     fillSumGroup(g, grid, aux, ix, mode) {
@@ -864,11 +886,11 @@
         sig.appendChild(head);
         const sg = U.h('div', { class: 'cfields sumgrid' });
         const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
-        const href = this.docHref(ix, ent.d); const hrefTitle = this.docTitle(ix, ent.d);
         for (const key of g.items || []) {
           const stt = this.rowStatus(ent, key);
           const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
-          sg.appendChild(this.fieldEl({ label: key, val: this.rowVal(ent, key), flags, href, hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail } }, mode));
+          const v = this.rowVal(ent, key); const det = detail.slice(); const lk = this.valueLink(ix, v, ent.d, det);
+          sg.appendChild(this.fieldEl({ label: key, val: v, flags, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
         }
         sig.appendChild(sg);
         grid.appendChild(sig);

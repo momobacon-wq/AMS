@@ -388,6 +388,59 @@ def add_drive_urls(docs, drive):
     return n
 
 
+DOCNO_VAL_RE = re.compile(r'(HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4})(?:-([0-9A-Z]{1,2})(?![0-9A-Za-z]))?')
+COPY_PATH_RE = re.compile(r'(^|/)(_舊版|_fix[^/]*|_chunks|_nb[^/]*|_缺漏補齊[^/]*|_xlsx_pdf|am10|am20|am30|所有線路圖)/|'
+                          r'/(?:[a-z0-9]{3})?[a-z]{3}[a-z0-9]{2}[a-z]{2}\d{3}[^/]*/\d{2}_[^/]+/[^/]+$', re.I)
+
+
+def _rev_key(rev):
+    rev = (rev or '').upper()
+    return (2, int(rev), '') if rev.isdigit() else ((1, 0, rev) if rev else (0, 0, ''))
+
+
+def resolve_doc_numbers(out, docs, drive):
+    """欄位值本身就是文件編號時（端子表／儀器清單的 P&ID、邏輯圖、Hook-up 圖、位置圖、EOMR「亦見於」…），
+    把編號對到文件庫裡「那份文件」（檔名以編號開頭；有指定版次取該版，否則取最高版次，數字 > 字母；PDF 優先、排除副本夾）：
+    docs['file|<編號>|<版次>'] = {title, folder, url}，index.doc_no = {編號: key}。前端讓這些值直接開那份圖，而不是提到它的來源文件。"""
+    if not drive:
+        return {}
+    wanted = {}
+    for al, o in out.items():
+        for kind, sec in (o.get('sec') or {}).items():
+            for ent in sec.get('entries') or []:
+                for r in ent.get('rows') or []:
+                    for m in DOCNO_VAL_RE.finditer(str(r[1] or '')):
+                        wanted.setdefault(m.group(1).upper(), set()).add((m.group(2) or '').upper())
+    by_no = {}
+    for rel in drive['files']:
+        if COPY_PATH_RE.search('/' + rel):
+            continue
+        base = rel.rpartition('/')[2]
+        m = DOCNO_VAL_RE.match(base.upper())
+        if m:
+            by_no.setdefault(m.group(1), []).append((rel, (m.group(2) or '').upper()))
+    doc_no = {}
+    for no, revs in wanted.items():
+        cands = by_no.get(no)
+        if not cands:
+            continue
+        want = {r for r in revs if r}
+
+        def score(c):
+            rel, rev = c
+            base = rel.rpartition('/')[2]
+            return (0 if rev in want else 1, tuple(-x if isinstance(x, int) else x for x in _rev_key(rev)[:2]),
+                    0 if base.endswith('.pdf') else 1, 1 if '(1)' in base or '(2)' in base else 0, len(rel))
+        rel, rev = sorted(cands, key=score)[0]
+        key = 'file|%s|%s' % (no, rev)
+        if key not in docs:
+            fo, _, base = rel.rpartition('/')
+            docs[key] = {'title': base, 'folder': fo or '.', 'why': '欄位值的文件編號對檔名（%s）' % ('指定版次' if rev in want else '最高版次'),
+                         'url': 'https://drive.google.com/open?id=%s' % drive['files'][rel]}
+        doc_no[no] = key
+    return doc_no
+
+
 # ------------------------------------------------------------------ DCS 基準比對
 BASE_LABEL = {'dcdas': 'DCS 控制器組態 (AI Low/High Value)', 'terminal': 'DCS 端子表 (DEVICE_LO/HI)'}
 CMP_STATUSES = ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown')
@@ -897,11 +950,13 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         src_stats = dict(src_stats, dcdas={'aliases_matched': stats['sections'].get('dcdas', 0), 'rows': dc['channels'], 'notes': s['why']})
     docs = {k: dict(v) for k, v in docs.items()}
     n_url = add_drive_urls(docs, drive)
+    doc_no = resolve_doc_numbers(out, docs, drive)
     stats['docs_with_url'] = n_url
-    print('index.docs: %d 份文件，%d 份有 Google 雲端硬碟連結' % (len(docs), n_url))
+    stats['doc_no_resolved'] = len(doc_no)
+    print('index.docs: %d 份文件，%d 份有 Google 雲端硬碟連結；欄位值的文件編號可開圖 %d 個' % (len(docs), n_url, len(doc_no)))
     index = {'version': 1, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
              'alias': alias_map, 'src_defs': SRC_DEFS, 'kind_label': KIND_LABEL, 'doc_cat_order': DOC_CAT_ORDER,
-             'searched': searched, 'docs': docs, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
+             'searched': searched, 'docs': docs, 'doc_no': doc_no, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
     idata = dumps(index)
     if ABS_PATH_RE.search(idata):
         raise SystemExit('absolute local path found in index.json')
