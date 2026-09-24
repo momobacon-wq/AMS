@@ -47,7 +47,7 @@
   S.call = async function (action, extra) {
     if (!S.enabled) throw new Error('備品庫存未啟用');
     const u = AMSAuth.user || {};
-    const body = JSON.stringify(Object.assign({ action, id: u.id, token: u.token, stockToken: await token() }, extra || {}));
+    const body = JSON.stringify(Object.assign({ action, id: u.id, name: u.name, token: u.token, stockToken: await token() }, extra || {})); // name 只做紀錄顯示；id 由 token 驗證
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {

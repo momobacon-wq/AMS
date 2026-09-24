@@ -1,0 +1,16 @@
+# AMS 備品庫存 Worker（npx wrangler deploy）
+name = "ams-stock"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ams-stock"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"   # npx wrangler d1 create ams-stock 印出的 database_id
+
+[vars]
+# 允許呼叫的網站來源（逗號分隔）；本機測試 8766 是 tools/auth/mock_server.py
+ALLOWED_ORIGINS = "https://momobacon-wq.github.io,http://127.0.0.1:8766"
+
+# 機密（不在此檔）：npx wrangler secret put AUTH_SECRET（登入閘門同一值）、npx wrangler secret put STOCK_TOKEN（py tools/stock/print_token.py）
+# 本機 wrangler dev 用 .dev.vars（見 .dev.vars.example）

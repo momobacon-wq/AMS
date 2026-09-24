@@ -1,19 +1,25 @@
 # -*- coding: utf-8 -*-
 """採購規範 .docx → 試算表「物料管理系統」Inventory 分頁匯入檔（A–L 欄）。
 
-  py tools/stock/contracts_to_inventory.py 合約1.docx [合約2.docx …] [--current 現行Inventory.csv] [--out inventory_import.csv]
+  py tools/stock/contracts_to_inventory.py 合約1.docx [合約2.docx …] [--current 現行Inventory.csv] [--qty contract|current]
+                                           [--out inventory_import.csv] [--sql import.sql]
+  py tools/stock/contracts_to_inventory.py --from-json tools/stock/mock_inventory.json --sql worker/mock_import.sql   # 假資料 → 本機 D1
 
 - 每份 .docx 的 word/document.xml 逐段解析：「<廠牌>傳送器(料號: CRxxxxxxxxx)」開頭一項，接著「型號:」「測量範圍:」「數量:N只」等鍵值列
   （半形／全形冒號與括號皆接受）。料號 CR… 是唯一鍵；型號、數量缺一即報錯。
 - --current：目前 Inventory 匯出的 CSV（PartNumber,Name,Brand,Spec,Location,Quantity[,…]）。現行列序＝合約順序，且 PartNumber 是
-  完整型號的前綴（Rosemount 前 12 碼）；逐列對齊後 Quantity 取「現行數量」（已反映領用），並列出與合約數量不同、或前綴對不上的列。
-  沒有 --current 時 Quantity＝合約數量。
-- 輸出欄：PartNumber(=料號), Name(=完整型號), Brand, Spec, Location, Quantity, Protocol, Family, Contract, ContractQty, MinQty, Note
-  （A–F 與 Transmitter 網站相容）。貼進試算表「Import」分頁後在 Apps Script 執行 migrateFromImport()（見 tools/stock/README.md）。
+  完整型號的前綴（Rosemount 前 12 碼）；逐列對齊後帶入 Location，並列出與合約數量不同、或前綴對不上的列。
+- --qty：contract（預設，數量＝合約數量）或 current（沿用 --current 的現行數量）。
+- --out CSV 欄：PartNumber(=料號), Name(=完整型號), Brand, Spec, Location, Quantity, Protocol, Family, Contract, ContractQty, MinQty, Note
+  （A–F 與 Transmitter 網站相容；試算表「Import」分頁＋Apps Script migrateFromImport() 用）。
+- --sql：D1 匯入檔（items INSERT ＋ 每料號一列 ledger IMPORT），`npx wrangler d1 execute ams-stock --remote --file import.sql`（見 worker/README）。
 """
 import argparse
 import csv
+import datetime
 import io
+import json
+import os
 import re
 import sys
 import zipfile
@@ -107,6 +113,25 @@ def parse_doc(path):
     return items
 
 
+def sql_str(v):
+    return "'" + str('' if v is None else v).replace("'", "''") + "'"
+
+
+def write_sql(path, rows, ts):
+    """rows: dict(pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min, note) → items INSERT ＋ ledger IMPORT"""
+    out = ['-- 由 tools/stock/contracts_to_inventory.py 產生；npx wrangler d1 execute ams-stock --remote --file ' + os.path.basename(path)]
+    for r in rows:
+        cq = 'NULL' if r.get('cqty') is None else int(r['cqty'])
+        mn = 'NULL' if r.get('min') in (None, '') else int(r['min'])
+        out.append('INSERT INTO items (pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min_qty, note, updated_at) VALUES ('
+                   + ', '.join([sql_str(r['pn']), sql_str(r['model']), sql_str(r.get('brand')), sql_str(r.get('spec')), sql_str(r.get('loc')), str(int(r['qty'])),
+                                sql_str(r.get('proto')), sql_str(r.get('family')), sql_str(r.get('contract')), str(cq), str(mn), sql_str(r.get('note')), sql_str(ts)]) + ');')
+        out.append("INSERT INTO ledger (ts, emp_id, emp_name, action, pn, delta, balance, kks, note, wo, source, txn_id) VALUES ("
+                   + ', '.join([sql_str(ts), "'system'", "'import'", "'IMPORT'", sql_str(r['pn']), 'NULL', str(int(r['qty'])), "''", sql_str('匯入：' + str(r.get('contract') or '')), "''", "'import'", "''"]) + ');')
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write('\n'.join(out) + '\n')
+
+
 def load_current(path):
     with open(path, encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
@@ -115,10 +140,23 @@ def load_current(path):
 
 def main(argv):
     ap = argparse.ArgumentParser()
-    ap.add_argument('docx', nargs='+')
+    ap.add_argument('docx', nargs='*')
     ap.add_argument('--current')
-    ap.add_argument('--out', default='inventory_import.csv')
+    ap.add_argument('--qty', choices=['contract', 'current'], default='contract')
+    ap.add_argument('--out', default=None, help='CSV（試算表 Import 用）')
+    ap.add_argument('--sql', default=None, help='D1 匯入 SQL')
+    ap.add_argument('--from-json', default=None, help='items JSON（mock_inventory.json 格式）→ 只輸出 --sql')
     a = ap.parse_args(argv)
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    if a.from_json:
+        rows = json.load(open(a.from_json, encoding='utf-8'))
+        if not a.sql:
+            raise SystemExit('--from-json 需要 --sql')
+        write_sql(a.sql, rows, ts)
+        print(f'寫出 {a.sql}：{len(rows)} 項（來自 {a.from_json}）')
+        return 0
+    if not a.docx:
+        raise SystemExit('請給合約 .docx')
     items = []
     for p in a.docx:
         got = parse_doc(p)
@@ -149,18 +187,29 @@ def main(argv):
             except ValueError:
                 it['now'] = it['qty']
             if it['now'] != it['qty']:
-                diffs.append((it['mat'], it['model'], '數量與合約不同（沿用現行）', it['qty'], it['now']))
+                diffs.append((it['mat'], it['model'], '數量與合約不同（' + ('沿用現行' if a.qty == 'current' else '以合約為準') + '）', it['qty'], it['now']))
     else:
         for it in items:
             it['now'] = it['qty']; it['loc'] = ''
+    if a.qty == 'contract':
+        for it in items:
+            it['now'] = it['qty']
+    rows = [dict(pn=it['mat'], model=it['model'], brand=it['brand'], spec=it['spec'], loc=it['loc'], qty=it['now'], proto=it['proto'], family=family(it['model']), contract=it['contract'], cqty=it['qty'], min=None, note='') for it in items]
+    if a.sql:
+        write_sql(a.sql, rows, ts)
+        print(f'寫出 {a.sql}：{len(rows)} 項，{sum(r["qty"] for r in rows)} 只')
+    if not a.out:
+        a.out = None
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator='\n')
     w.writerow(['PartNumber', 'Name', 'Brand', 'Spec', 'Location', 'Quantity', 'Protocol', 'Family', 'Contract', 'ContractQty', 'MinQty', 'Note'])
     for it in items:
         w.writerow([it['mat'], it['model'], it['brand'], it['spec'], it['loc'], it['now'], it['proto'], family(it['model']), it['contract'], it['qty'], '', ''])
-    with open(a.out, 'w', encoding='utf-8-sig', newline='') as f:
-        f.write(buf.getvalue())
-    print(f'寫出 {a.out}：{len(items)} 項，合約 {sum(i["qty"] for i in items)} 只，現行 {sum(i["now"] for i in items)} 只')
+    if a.out:
+        with open(a.out, 'w', encoding='utf-8-sig', newline='') as f:
+            f.write(buf.getvalue())
+        print(f'寫出 {a.out}：{len(items)} 項')
+    print(f'{len(items)} 項，合約 {sum(i["qty"] for i in items)} 只，採用數量合計 {sum(i["now"] for i in items)} 只（--qty {a.qty}）')
     if diffs:
         print('\n差異（料號 | 型號 | 說明 | 合約數 | 現行數）')
         for d in diffs:

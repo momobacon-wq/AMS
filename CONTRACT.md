@@ -205,19 +205,19 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
 
 ## 備品庫存（stock；docs/db 站；tools/stock/）
 
-倉庫資料不在 `data/`，而是即時來自 Google 試算表「物料管理系統」（同事在用的 Transmitter 網站後端）經 `tools/stock/Code.gs`（獨立 Apps Script）讀寫；前端 `docs/assets/stock.js`。
+倉庫資料不在 `data/`，而是即時來自 **Cloudflare Worker + D1**（`tools/stock/worker/`：`src/index.js`、`schema.sql`；表 items／ledger／txns）；前端 `docs/assets/stock.js`。`tools/stock/Code.gs`（試算表＋Apps Script）是同一 API 格式的替代後端，前端不分後端。
 
 - 啟用條件：`docs/db/stock-config.json` `{"endpoint": "https://script.google.com/macros/s/…/exec"}`（空＝關閉，查詢卡沒有該組、側欄沒有「備品庫存」、`#/stock/` 顯示未啟用）且已登入（`AMSAuth.user.token`）。`app.js` 在 `loadManifest` 後 `AMS.Stock.ready()`。
-- 試算表 Inventory：A PartNumber＝料號 CR…（唯一鍵）、B Name＝完整型號、C Brand、D Spec、E Location、F Quantity（A–F 與 Transmitter 相容，**不可改意義**）、G Protocol、H Family、I Contract、J ContractQty、K MinQty、L Note。
-  Logs：A Timestamp、B EmployeeID、C ActionType（OUT／IN／STOCKTAKE／IMPORT；Transmitter 另有 CHECK_*／BATCH_*／LOGIN／CREATE）、D PartNumber、E ChangeAmount、F Balance、G EmployeeName、H KKS、I Note、J WorkOrder、K Source（ams-card／ams-stock）、L TxnId；最新在第 2 列（`insertRowBefore(2)`，與 Transmitter 相同）。
-- API（POST text/plain JSON，回 `{ok,…}`；每個 action 都帶 `id`、`token`（登入 HMAC token，後端用同一個 `AUTH_SECRET` 驗）與 `stockToken`）：
+- D1 `items(pn PK, model, brand, spec, loc, qty CHECK≥0, proto, family, contract, cqty, min_qty, note, updated_at)`、`ledger(id, ts ISO-UTC, emp_id, emp_name, action OUT／IN／STOCKTAKE／IMPORT, pn, delta, balance, kks, note, wo, source ams-card／ams-stock, txn_id)`（只附加）、`txns(txn_id PK)`。
+  試算表版（Code.gs）對應：Inventory A–L＝PartNumber, Name(型號), Brand, Spec, Location, Quantity, Protocol, Family, Contract, ContractQty, MinQty, Note（A–F 與 Transmitter 相容）；Logs A–L＝Timestamp, EmployeeID, ActionType, PartNumber, ChangeAmount, Balance, EmployeeName, KKS, Note, WorkOrder, Source, TxnId。
+- API（POST text/plain JSON，回 `{ok,…}`；每個 action 都帶 `id`、`name`（只做紀錄顯示）、`token`（登入 HMAC token，後端用同一個 `AUTH_SECRET` 驗）與 `stockToken`；Worker 只對 `ALLOWED_ORIGINS` 回 CORS 標頭）：
   `list` → `{rev, items[{pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min, note}]}`；`logs {pn?, kks?, limit≤300}` → `{rows[{ts,id,name,action,pn,delta,bal,kks,note,wo,source,txn}]}`；
-  `txn {txnId, items[{pn, delta}], kks?, note?, wo?, source?}` → `{results[{pn, qty, delta}], replay?}`（整批驗證、任一失敗不寫、先寫紀錄再改數量、同 txnId 重送回同結果）；`adjust {pn, qty, note?}`（盤點）。
+  `txn {txnId, items[{pn, delta}], kks?, note?, wo?, source?}` → `{results[{pn, qty, delta}], replay?}`（整批驗證、任一失敗不寫；Worker 用 `DB.batch` 單一交易：INSERT txns → UPDATE items → INSERT ledger，`CHECK(qty>=0)` 兜底，同 txnId 重送回同結果）；`adjust {pn, qty, note?}`（盤點）。
   失敗：`{ok:false, auth:true}` 未授權、`{ok:false, transient:true}` 伺服器錯誤。
-- `STOCK_TOKEN`＝`hex(SHA-256("ams-stock:" + base64(AES 原始金鑰)))`：瀏覽器由解鎖後的 `D.key` 算（明文模式送 `plain`，只有 mock 接受）；建置端 `tools/stock/print_token.py`。換密語／salt → 重貼指令碼屬性。
+- `STOCK_TOKEN`＝`hex(SHA-256("ams-stock:" + base64(AES 原始金鑰)))`：瀏覽器由解鎖後的 `D.key` 算（明文模式送 `plain`，只有 mock 接受）；建置端 `tools/stock/print_token.py`。換密語／salt → `npx wrangler secret put STOCK_TOKEN` 重貼。
 - 對照規則（`AMS.Stock.match`；`contracts_to_inventory.py` 的 FAMILY_RULES 同步維護）：正規化＝大寫、去空白／-／_／／；E+H 取 `+` 前段；本體碼＝`3051|2051|2088|214C|5408|8732E` 開頭者取前 12 碼，其餘整段。
   第一層「同型號」＝本體碼相同；第二層「同系列」＝系列鍵相同（`3051S`、`3051[CLT]X`、`2051[CT]X`、`2088[AG]`、`644`、`848T`、`5408`、`8732E`、`214C`、`PMD75`、`PMP71`、`TMT82`）。
   設備端候選碼：card aux 儀器清單「完整型號碼」、EOMR「出廠型號」（`/` 後的歧管碼去掉）；兩者皆無時才用 AMS 型號的家族（`3051`→`3051*` 全系列、`iTEMP TMT82`→`TMT82`、`Deltabar S`→`PMD75`、`Cerabar S`→`PMP71`…）。
 - 查詢卡：`renderSummary` 末尾加 `section.sum-g.sum-stock`（不改 02.json，不必重建資料），資料到齊後 `stockCtx(row, aux, tag)` → `AMS.Stock.fillCard(grid, ctx)`；領取／放入視窗自動帶入位號 KKS；「此位號紀錄」以 KKS 篩選紀錄。
-- 本機：`tools/auth/mock_server.py` 把 `stock-config.json` 指到 `/mock-stock`（`tools/stock/mock_stock.py`，假資料 `mock_inventory.json`）。真實庫存匯入檔（`tools/stock/*.csv`）不進 repo。
+- 本機：`tools/auth/mock_server.py` 把 `stock-config.json` 指到 `/mock-stock`（`tools/stock/mock_stock.py`，假資料 `mock_inventory.json`）；環境變數 `AMS_STOCK_ENDPOINT=http://127.0.0.1:8787` 則指到 `npx wrangler dev` 的真 Worker（本機 D1，`.dev.vars` 的 `AUTH_SECRET=mock-secret` 可驗 mock 登入 token）。真實庫存匯入檔（`tools/stock/*.csv`、`worker/import*.sql`）不進 repo；`docs/db/index.html` CSP `connect-src` 含 `https://*.workers.dev`。
 

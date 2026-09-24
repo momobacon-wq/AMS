@@ -81,8 +81,8 @@ class H(SimpleHTTPRequestHandler):
             return self._json({'endpoint': f'http://127.0.0.1:{PORT}/mock-auth', 'sessionHours': 12, 'title': '請先登入（測試端點）'})
         if p == '/mock-auth':
             return self._json({'ok': True, 'service': 'mock', 'users': len(USERS)})
-        if p.endswith('stock-config.json'):
-            return self._json({'endpoint': f'http://127.0.0.1:{PORT}/mock-stock'})
+        if p.endswith('stock-config.json'):  # 環境變數 AMS_STOCK_ENDPOINT 可改指本機 wrangler dev（http://127.0.0.1:8787）
+            return self._json({'endpoint': os.environ.get('AMS_STOCK_ENDPOINT') or f'http://127.0.0.1:{PORT}/mock-stock'})
         if p == '/mock-stock':
             return self._json({'ok': True, 'service': 'ams-stock-mock'})
         if p == '/mock-control':
