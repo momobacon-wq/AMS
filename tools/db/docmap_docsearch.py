@@ -13,7 +13,8 @@ drive_map.py 的 路徑→Drive 檔案 ID 對照（有才補 url）。
 *SerialNumber…；純數字至少 7 碼）。命中頁再用邊界正則確認（trigram 是子字串比對：90LT-1 會命中 90LT-10）；
 位號不採 OCR 命中（hst-docsearch pitfalls #1：KKS 經 OCR 命中率 0/132），序號允許 OCR 但標「需開原圖確認」。
 排除：AMS/（本站自己的匯出）、副本（_舊版／_fix*／_chunks／AM10 dossier 夾／_xlsx_pdf／所有線路圖）、根目錄「組合 N.pdf」合訂本。
-同文件編號只留最高版次（數字 > 字母）；每類別最多 2 份、每台最多 16 列。
+同文件編號只留最高版次（數字 > 字母）；HT0/HT1/HT2 同編號、EOMR 的 T/Q 兩本、noKKS_ 原件副本算同一家族只列代表（其餘收進
+{alt:[{ref,d,p,why}]} 供前端列「其他版本／副本」）；根目錄 all instrument list（個人彙整）排除；每類別最多 2 個家族（第 2 列標籤加「另：編號 標題」）、每台最多 16 列。
 
 輸出列（sec.docsearch.rows）：[類別, "文件-版次 p.N｜命中行", lvl, 來源字串, {rule, d, hit, pages, term}]；
 另由命中行／命中頁抽出的推定值（規則寫在 rule）：序號命中（文件）、出廠型號（文件）、型號（文件）、廠牌（文件）、量程（文件）、量程（邏輯圖）。
@@ -269,7 +270,7 @@ class Searcher:
                 continue
             rel = self.lib.rel(path)
             low = rel.lower()
-            if low.startswith('ams/') or is_copy(rel):
+            if low.startswith('ams/') or is_copy(rel) or os.path.basename(low).startswith('all instrument list'):
                 continue
             txt = self.text(rowid)
             if not loose_rx.search(txt):
@@ -281,6 +282,50 @@ class Searcher:
             if len(rec['pages']) < 6:
                 rec['pages'].append((page, rowid, exact))
         return out, exact_rx, loose_rx
+
+
+FAMILY_RE = re.compile(r'^HT(\d)-\d-([A-Z]{3})(\d\d)-([A-Z])(\d{4})$')
+
+
+def family_of(rel):
+    """同一份文件的「家族」：HT0/HT1/HT2 只差機組位數的同編號（HT0 重發版 vs HT1 字母版）算同一張；
+    EOMR 的 AQA01-T#### 與 AQP01-Q#### 是同一本兩種編號；無編號者以檔名正規化。"""
+    doc_id, rev, ref = doc_ref(rel)
+    if doc_id:
+        m = FAMILY_RE.match(doc_id)
+        if m:
+            unit, sysc, seq, typ, num = m.groups()
+            if sysc in ('AQA', 'AQB', 'AQP') and typ in ('T', 'Q'):
+                return 'EOMR|%s|%s' % (unit, num)
+            return '%s%s-%s%s' % (sysc, seq, typ, num)
+        return doc_id
+    return 'file|' + norm_title(rel)
+
+
+def family_rank(rel, rec):
+    """家族內誰當代表：機組位數小（HT0 > HT1 > …）、EOMR 取 T 本、版次高（數字 > 字母）、文字層。"""
+    doc_id, rev, ref = doc_ref(rel)
+    m = FAMILY_RE.match(doc_id or '')
+    unit = int(m.group(1)) if m else 9
+    typ_pref = 0 if (m and m.group(4) == 'T') else 1
+    return (unit, typ_pref, tuple(-x if isinstance(x, int) else x for x in rev_key(rev)[:2]), -rec['trust'], len(rel))
+
+
+def short_topic(rel):
+    """第二列以後的標籤用：文件編號短碼＋標題前幾個字（去掉編號、版次、(1)）。"""
+    doc_id, rev, ref = doc_ref(rel)
+    stem = os.path.splitext(os.path.basename(rel))[0]
+    stem = DOCNO_RE.sub('', stem)
+    stem = re.sub(r'^[\s\-_–—]+|\s*\(\d+\)\s*$|_rev[0-9a-z\-]*$|^nokks_', '', stem, flags=re.I).strip(' -_–—')
+    stem = re.sub(r'\s+', ' ', stem)
+    m = FAMILY_RE.match(doc_id or '')
+    code = ('%s%s-%s%s' % (m.group(2), m.group(3), m.group(4), m.group(5))) if m else ''
+    top = stem[:24] + ('…' if len(stem) > 24 else '')
+    return ' '.join(x for x in (code, top) if x)
+
+
+def fk_is_eomr(rel):
+    return family_of(rel).startswith('EOMR|')
 
 
 def dedupe_versions(hits):
@@ -412,14 +457,37 @@ def main():
         rows, extracted, seen_rel = [], {}, set()
         for cat in CAT_ORDER:
             lst = sorted(per_cat.get(cat, []), key=lambda x: x[0])
+            # 同家族（HT0/HT1 同編號、EOMR T/Q 兩本、同標題副本）只列代表，其餘收成「其他版本／副本」；
+            # noKKS_（GE 原件的人工分類副本）不占列，掛在該類別第一列底下
+            fams, order, seen_local = {}, [], set()
+            for item in lst:
+                rel = item[1]
+                if rel in seen_rel or rel in seen_local:   # 同一檔可能因位號＋序號各命中一次
+                    continue
+                seen_local.add(rel)
+                fk = family_of(rel)
+                if fk not in fams:
+                    fams[fk] = []
+                    order.append(fk)
+                fams[fk].append(item)
+            nokks = [fk for fk in order if fk.startswith('file|') and all(os.path.basename(it[1]).lower().startswith('nokks_') for it in fams[fk])]
+            numbered = [fk for fk in order if fk not in nokks]
+            groups = []
+            for fk in (numbered or nokks):
+                members = sorted(fams[fk], key=lambda it: family_rank(it[1], it[2]))
+                groups.append(members)
+            if numbered and nokks:
+                groups[0] = groups[0] + [it for fk in nokks for it in fams[fk]]
             n_keep = CAT_MAX.get(cat, 2)
-            for rank, rel, rec, term, kind, exact_rx, loose_rx in lst:
+            n_in_cat = 0
+            for members in groups:
                 if n_keep <= 0 or len(rows) >= a.max_rows:
                     break
-                if rel in seen_rel:
-                    continue
-                seen_rel.add(rel)
+                rank, rel, rec, term, kind, exact_rx, loose_rx = members[0]
+                for it in members:
+                    seen_rel.add(it[1])
                 n_keep -= 1
+                n_in_cat += 1
                 doc_id, rev, ref = doc_ref(rel)
                 pages = sorted({p for p, _, _ in rec['pages'] if p}, key=int)[:6]
                 # 命中行：優先取「完整位號」命中的頁
@@ -428,20 +496,38 @@ def main():
                 line, _ = excerpt(txt, exact_rx if pg[2] else loose_rx)
                 is_office = rel.lower().endswith(OFFICE_EXT)
                 ptxt = '' if is_office or not pages else ' p.' + ','.join(str(p) for p in pages)
-                key = 'docsearch|%s|%s' % (doc_id, rev) if doc_id else 'docsearch|%s|' % hashlib.sha1(rel.lower().encode('utf-8')).hexdigest()[:12]
-                if key not in docs:
-                    d = {'title': os.path.basename(rel), 'folder': os.path.dirname(rel) or '.', 'category': cat, 'trust': TRUST_TAG.get(rec['trust'], '?')}
-                    u = lib.url(rel)
-                    if u:
-                        d['url'] = u
-                    docs[key] = d
+
+                def doc_key(rel_, rec_, cat_):
+                    did, rv, _ = doc_ref(rel_)
+                    k = 'docsearch|%s|%s' % (did, rv) if did else 'docsearch|%s|' % hashlib.sha1(rel_.lower().encode('utf-8')).hexdigest()[:12]
+                    if k not in docs:
+                        d = {'title': os.path.basename(rel_), 'folder': os.path.dirname(rel_) or '.', 'category': cat_, 'trust': TRUST_TAG.get(rec_['trust'], '?')}
+                        u = lib.url(rel_)
+                        if u:
+                            d['url'] = u
+                        docs[k] = d
+                    return k
+                key = doc_key(rel, rec, cat)
+                alts = []
+                for it in members[1:]:
+                    arel, arec = it[1], it[2]
+                    adid, arev, aref = doc_ref(arel)
+                    apages = sorted({p for p, _, _ in arec['pages'] if p}, key=int)[:6]
+                    why = 'GE 原件副本' if os.path.basename(arel).lower().startswith('nokks_') else ('同號另一本' if fk_is_eomr(arel) else '同編號其他機組／版次')
+                    alts.append({'ref': aref, 'd': doc_key(arel, arec, cat), 'p': apages, 'why': why})
                 lvl = 'factory' if cat in FACTORY_CATS else 'doc'
                 hit = ('序號 ' + term) if kind == 'serial' else ('位號' if pg[2] else '位號+字尾（訊號／電纜編號）')
                 warn = '；OCR 命中，需開原圖確認' if rec['trust'] < 2 else ('；PyMuPDF 抽字' if rec['trust'] == 2 else '')
                 src = '%s · %s%s（全文檢索：%s%s）' % ('出廠' if lvl == 'factory' else '文件', ref, ptxt, hit, warn)
                 val = '%s%s｜%s' % (ref, ptxt, line) if line else '%s%s' % (ref, ptxt)
-                rows.append([cat, val, lvl, src, {'rule': 'FTS', 'd': key, 'hit': hit, 'pages': pages, 'term': term}])
+                label = cat if n_in_cat == 1 else '%s（另：%s）' % (cat, short_topic(rel))
+                ex = {'rule': 'FTS', 'd': key, 'hit': hit, 'pages': pages, 'term': term}
+                if alts:
+                    ex['alt'] = alts
+                rows.append([label, val, lvl, src, ex])
                 cat_stats[cat] += 1
+                if alts:
+                    stats['alts'] += len(alts)
                 # ---- 推定值
                 if kind == 'serial' and '序號命中（文件）' not in extracted and cat not in ('教材', '其他'):
                     extracted['序號命中（文件）'] = ['%s（AMS %s）' % (term, param_of.get(term, '序號')), lvl,
@@ -489,7 +575,7 @@ def main():
         'docs': docs, 'by_alias': by_alias,
         'stats': {'devices': len(devices), 'aliases_matched': stats['matched'], 'no_terms': stats['no_terms'], 'none': stats['none'],
                   'rows': sum(len(v['rows']) for v in by_alias.values()), 'docs': len(docs), 'with_url': sum(1 for d in docs.values() if d.get('url')),
-                  'per_category': dict(cat_stats), 'extracted': {k[2:]: v for k, v in stats.items() if k.startswith('x:')}, 'vendor_rejected': stats['vendor_rejected'],
+                  'per_category': dict(cat_stats), 'extracted': {k[2:]: v for k, v in stats.items() if k.startswith('x:')}, 'vendor_rejected': stats['vendor_rejected'], 'alternates': stats['alts'],
                   'notes': ['位號經 OCR 的命中不採用（hst-docsearch pitfalls #1）', '推定值（型號／廠牌／量程／序號）由命中行或命中頁以規則抽出，僅供對照，不列入 DCS 比對',
                             '廠牌推定須與 AMS 製造商同集團、量程推定須與 AMS 單位同量綱（清單 PDF 文字層常把鄰列併在一行）']},
     }

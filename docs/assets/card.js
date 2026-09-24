@@ -562,6 +562,21 @@
       for (const x of extra || []) out.push(x);
       return out;
     }
+    /** docindex／docsearch 列的 {rule, alt:[{ref,d,p,why}]} → 來源明細（其他版本／副本各自可點開） */
+    rowDetail(ix, ex) {
+      const det = this.docDetail(ix, ex.d, [['比對規則', ex.rule]]);
+      if (Array.isArray(ex.alt) && ex.alt.length) {
+        const box = U.h('span', {});
+        ex.alt.forEach((al, i) => {
+          const href = this.docHref(ix, al.d);
+          const t = al.ref + (al.p && al.p.length ? ' p.' + al.p.join(',') : '') + (al.why ? '（' + al.why + '）' : '');
+          if (i) box.appendChild(U.h('span', {}, '；'));
+          box.appendChild(href ? U.h('a', { class: 'lk', href, target: '_blank', rel: 'noopener noreferrer', title: this.docTitle(ix, al.d) || '' }, t + ' ↗') : U.h('span', {}, t));
+        });
+        det.push(['其他版本／副本', box]);
+      }
+      return det;
+    }
     /** index.docs[key].url：文件在 Google 雲端硬碟的連結（build_card_aux --drive-map 補上；沒有就 null） */
     docHref(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.url ? d.url : null; }
     docTitle(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.title ? '在 Google 雲端硬碟開啟：' + d.title : null; }
@@ -633,7 +648,7 @@
         }
         for (const r of sec.rows || []) { // docindex／docsearch：每列一份文件（r[4].d → index.docs）
           const ex = r[4] || {};
-          grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), href: this.docHref(ix, ex.d), hrefTitle: this.docTitle(ix, ex.d), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode));
+          grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), href: this.docHref(ix, ex.d), hrefTitle: this.docTitle(ix, ex.d), src: { lvl: r[2], text: r[3], detail: this.rowDetail(ix, ex) } }, mode));
         }
         return;
       }
@@ -875,7 +890,7 @@
           grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
           return;
         }
-        for (const r of sec.rows) { const ex = r[4] || {}; grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), href: this.docHref(ix, ex.d), hrefTitle: this.docTitle(ix, ex.d), src: { lvl: r[2], text: r[3], detail: this.docDetail(ix, ex.d, [['比對規則', ex.rule]]) } }, mode)); }
+        for (const r of sec.rows) { const ex = r[4] || {}; grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), href: this.docHref(ix, ex.d), hrefTitle: this.docTitle(ix, ex.d), src: { lvl: r[2], text: r[3], detail: this.rowDetail(ix, ex) } }, mode)); }
         return;
       }
       const ents = (sec && sec.entries) || [];
