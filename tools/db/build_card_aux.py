@@ -23,9 +23,11 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
   docs/db/data/card/aux-NN.json  {part, by_alias:{alias:{sec:{...}, compare:[...], flags:{...}}}}
 並重算 manifest.build（含 card/*.json）後重新 stamp docs/db/index.html（tools/db/extract_db.py 的 stamp）。
 
-DCS 基準比對（compare）：量程上/下限的基準依序＝(1) AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV）
-→ (2) 控制器 I/O 組態（dcdas：該位號類比輸入通道的 Low/High Value，sec.dcdas）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。
-其餘來源——AMS 現值（13 表 LRV/URV/單位）、控制器組態（基準為 DCS 寫入時）、端子表、儀器清單、EOMR——逐一與基準比對：
+DCS 基準比對（compare）：量程上/下限的基準依序＝(1) 控制器現行 I/O 組態（dcdas：該位號類比輸入通道的 Low/High Value，sec.dcdas）
+→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV；只有寫入事件晚於控制器索引建立日、或沒有控制器資料時才當基準）
+→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。（2026-09-24 調整：G12HAP70BT001 的 DCS 寫入 160 之後被人工改回 200、控制器也是 200，
+寫入事件只是歷史，不該讓一致的來源被標 ⚠。）
+其餘來源——AMS 現值（13 表 LRV/URV/單位）、DCS 寫入事件（只比寫入的那一端）、端子表、儀器清單、EOMR——逐一與基準比對：
 容許 ±0.5% span；單位先換算（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、mm/cm/m/in、%），無法換算 → unit_mismatch。
 2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同（所以端子表降為第 3 順位）。
 決定性輸出（無時間戳）；不寫入任何本機絕對路徑（最後以 regex 自檢）。
@@ -293,7 +295,8 @@ def dcdas_entries(tag, dc):
                'src': '控制器 · signal-atlas 索引 %s · %s %s %s' % (dc['built_at'], x['ctrl'], x['mod'], x['pt'])}
         ents.append(ent)
         if primary is None and x['lo'] is not None and x['hi'] is not None:
-            primary = {'lo': x['lo'], 'hi': x['hi'], 'unit': x['units'], 'src': ent['src'], 'lvl': 'ctrl', 'kind': 'dcdas', 'ent': ent, 'field': DCDAS_FIELD}
+            primary = {'lo': x['lo'], 'hi': x['hi'], 'unit': x['units'], 'src': ent['src'], 'lvl': 'ctrl', 'kind': 'dcdas', 'ent': ent, 'field': DCDAS_FIELD,
+                       'built_at': dc['built_at']}
     return ents, primary
 
 
@@ -461,7 +464,7 @@ def ams_current(r):
 
 
 def dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note):
-    """AMS 事件中 Cat28 外部主機寫入的 URV/LRV → DCS 基準（第 1 順位）；沒有回 None。"""
+    """AMS 事件中 Cat28 外部主機寫入的 URV/LRV → DCS 寫入來源（沒有控制器資料、或寫入晚於控制器索引時當基準）；沒有回 None。"""
     if not ('URV' in dw or 'LRV' in dw):
         return None
     parts = []
@@ -503,12 +506,19 @@ def dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note):
             'label': 'DCS 寫入 (AMS 事件)', 'note': '；'.join(notes)}
 
 
+def dcs_write_date(dw_base):
+    """DCS 寫入來源字串裡最新的寫入日期（@YYYY-MM-DD）；沒有回 ''。"""
+    return max(re.findall(r'@(\d{4}-\d{2}-\d{2})', dw_base.get('src') or ''), default='')
+
+
 def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats):
-    """基準順序：DCS 寫入 (AMS 事件) > 控制器 I/O 組態 (dcdas) > DCS 端子表（設計文件）。
+    """基準順序：控制器 I/O 組態 (dcdas) > DCS 寫入 (AMS 事件；只有寫入晚於控制器索引、或沒有控制器資料時) > DCS 端子表（設計文件）。
     回傳 (compare, cmp_mark)；不符／未比較時也在該來源 entry 的量程欄位（rows[i][2]）標狀態。"""
-    if base is None and dc_primary:
-        base = dict(dc_primary, label=BASE_LABEL['dcdas'], note='', bounds={'lo', 'hi'})
-    if base is None and term_primary:
+    dw = base if base is not None and base.get('kind') == 'dcs_write' else None
+    if dc_primary and (dw is None or dcs_write_date(dw) <= (dc_primary.get('built_at') or '')):
+        note = ('曾有 DCS 寫入事件（%s，見下列「DCS 寫入 (AMS 事件)」）；控制器索引 %s 較新，以控制器為準' % (dcs_write_date(dw), dc_primary.get('built_at'))) if dw else ''
+        base = dict(dc_primary, label=BASE_LABEL['dcdas'], note=note, bounds={'lo', 'hi'})
+    elif base is None and term_primary:
         base = dict(term_primary, label=BASE_LABEL['terminal'], note='', bounds={'lo', 'hi'})
     compare, cmp_mark = [], {}
     if base is None:
@@ -517,6 +527,8 @@ def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primar
     cand = []
     if base['kind'] != 'dcdas' and dc_primary:
         cand.append(dict(dc_primary, label=BASE_LABEL['dcdas']))
+    if base['kind'] != 'dcs_write' and dw:
+        cand.append(dict(dw, label=dw['label'], pre_note=(dw.get('note') + '；') if dw.get('note') else ''))
     if base['kind'] != 'terminal' and term_primary:
         cand.append(dict(term_primary, label=BASE_LABEL['terminal']))
     if ams_cur:
@@ -526,15 +538,19 @@ def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primar
     if eo_primary:
         cand.append(dict(eo_primary, label='EOMR 出廠校正量程'))
     for c in cand:
-        st, note, lo2, hi2 = compare_range(base, c)
+        # DCS 寫入事件當一般來源時只比它寫入的那一端（另一端顯示值只是參考）
+        cb = dict(base, bounds=set(base['bounds']) & set(c['bounds'])) if c['kind'] == 'dcs_write' and c.get('bounds') else base
+        st, note, lo2, hi2 = compare_range(cb, c)
         o = {'kind': c['kind'], 'label': c['label'], 'lvl': c['lvl'], 'src': c['src'], 'lo': c['lo'], 'hi': c['hi'], 'unit': c['unit'],
              'status': st, 'note': (c.get('pre_note') or '') + note}
+        if c['kind'] == 'dcs_write':
+            o['bounds'] = sorted(c['bounds'])
         others.append(o)
         cmp_mark[c['kind']] = st
         # 逐端標記（LRV／URV 欄位旁的 ⚠）：只標有列入比較的那一端，不符只標實際不符的那一端
         bad_sides = note.rsplit('不符（', 1)[-1] if st == 'mismatch' else ''
         for k, side in (('lo', '下限'), ('hi', '上限')):
-            if k in base['bounds']:
+            if k in cb['bounds']:
                 cmp_mark['%s_%s' % (c['kind'], k)] = ('mismatch' if side in bad_sides else 'ok') if st == 'mismatch' else st
         stats['compare_status'][st] = stats['compare_status'].get(st, 0) + 1
         ent = c.get('ent')
@@ -564,8 +580,9 @@ def new_stats(aliases):
     return {'devices': len(aliases), 'with_compare': 0, 'compare_status': {}, 'baseline': {'dcs_write': 0, 'dcdas': 0, 'terminal': 0}, 'sections': {}}
 
 
-COMPARE_RULE = ('DCS 基準依序＝(1) AMS 事件中該參數最新一次值有改變的 Cat28 外部主機寫入（URV/LRV；只寫入一端時只比較該端，單位用 AMS 單位）'
-                '→ (2) 控制器 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）；'
+COMPARE_RULE = ('DCS 基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）'
+                '→ (2) AMS 事件中該參數最新一次值有改變的 Cat28 外部主機寫入（URV/LRV；只寫入一端時只比較該端，單位用 AMS 單位；'
+                '只有寫入晚於控制器索引建立日或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）；'
                 '容許 ±0.5% span；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」')
 
 
@@ -866,6 +883,8 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
             for x in oc[0].get('others') or []:
                 if x['kind'] in ('terminal', 'instlist', 'eomr'):
                     prim[x['kind']] = x
+                elif x['kind'] == 'dcs_write':  # 舊資料把寫入事件列為一般來源：還原成 DCS 寫入來源（note 去掉比對結果）
+                    base_dcs = dict(x, bounds=set(x.get('bounds') or ['lo', 'hi']), note=(x.get('note') or '').split('；僅比較')[0].split('；一致')[0].split('；⚠')[0])
 
         def primary(kind, field):
             p = prim.get(kind)

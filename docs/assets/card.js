@@ -544,7 +544,7 @@
       if (f.last_change_dcs) out.push(['bad', '⚠ 最後修改＝DCS·外部主機寫入']);
       else if (f.has_dcs_write) out.push(['warn', '曾有 DCS·外部主機寫入']);
       if (f.sync_unrecovered) out.push(['bad', '⚠ 同步失敗後未再成功']);
-      const bad = Object.entries(f.cmp || {}).filter(([k, v]) => v === 'mismatch' && !/_(lo|hi)$/.test(k)).map(([k]) => ({ ams: 'AMS 現值', dcdas: 'DCS 控制器組態', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' }[k] || k));
+      const bad = Object.entries(f.cmp || {}).filter(([k, v]) => v === 'mismatch' && !/_(lo|hi)$/.test(k)).map(([k]) => ({ ams: 'AMS 現值', dcdas: 'DCS 控制器組態', dcs_write: 'DCS 寫入事件', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' }[k] || k));
       if (bad.length) out.push(['bad', '⚠ 量程與 DCS 不符：' + bad.join('、')]);
       // 有摘要時旗標放在摘要標頭（.sum-flags），否則放卡片上方（.cq-flags）
       const target = this.root.querySelector('.sum-flags') || el;
@@ -671,7 +671,9 @@
         html += `<tr class="base">${td(c.item + '來源', `<span class="pill base">DCS 基準</span> ${U.esc(b.label || '')}`)}${td('下限', bnum('lo'), 'ar')}${td('上限', bnum('hi'), 'ar')}${td('單位', U.esc(b.unit || '—'))}${td('判定', b.note ? U.esc(b.note) : '—')}${srcCell(b)}</tr>`;
         for (const o of c.others || []) {
           const cls = cmpCls(o.status);
-          html += `<tr class="st-${cls}">${td(c.item + '來源', U.esc(o.label || o.kind))}${td('下限', U.esc(num(o.lo)), 'ar')}${td('上限', U.esc(num(o.hi)), 'ar')}${td('單位', U.esc(o.unit || '—'))}${td('判定', `<span class="cmp-flag ${cls}">${U.esc(CMP_TEXT[o.status] || o.status)}</span>${o.note ? `<div class="muted small">${U.esc(o.note.replace(/^⚠ 與 DCS 不符/, ''))}</div>` : ''}`)}${srcCell(o)}</tr>`;
+          const ob = Array.isArray(o.bounds) ? o.bounds : null;
+          const onum = (k) => U.esc(num(o[k])) + (ob && o[k] != null && !ob.includes(k) ? ' <span class="muted small nocmp" title="這一端沒有 DCS 寫入，顯示值僅供參考">（不比較）</span>' : '');
+          html += `<tr class="st-${cls}">${td(c.item + '來源', U.esc(o.label || o.kind))}${td('下限', onum('lo'), 'ar')}${td('上限', onum('hi'), 'ar')}${td('單位', U.esc(o.unit || '—'))}${td('判定', `<span class="cmp-flag ${cls}">${U.esc(CMP_TEXT[o.status] || o.status)}</span>${o.note ? `<div class="muted small">${U.esc(o.note.replace(/^⚠ 與 DCS 不符/, ''))}</div>` : ''}`)}${srcCell(o)}</tr>`;
         }
         html += '</tbody></table></div>';
       }
