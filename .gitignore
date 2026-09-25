@@ -23,3 +23,6 @@ docs/db/data/**/*.json
 tools/stock/*.csv
 tools/stock/mock_stock_state.json
 tools/stock/mock_stock_log.jsonl
+
+# 端對端測試輸出（截圖）
+tools/tests/out/

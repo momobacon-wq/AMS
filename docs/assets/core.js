@@ -530,7 +530,7 @@
       return j;
     })();
     D.cache.set(path, p);
-    p.catch(() => D.cache.delete(path));
+    p.catch((e) => { D.cache.delete(path); if (window.AMSReport) window.AMSReport.send('load', (e && e.message) || String(e), { path }); });
     return p;
   };
   D.loadManifest = async function () {

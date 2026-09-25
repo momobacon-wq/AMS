@@ -225,3 +225,9 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
 - 查詢卡：`renderSummary` 末尾加 `section.sum-g.sum-stock`（不改 02.json，不必重建資料），資料到齊後 `stockCtx(row, aux, tag)` → `AMS.Stock.fillCard(grid, ctx)`；領取／放入視窗自動帶入位號 KKS；「此位號紀錄」以 KKS 篩選紀錄。
 - 本機：`tools/auth/mock_server.py` 把 `stock-config.json` 指到 `/mock-stock`（`tools/stock/mock_stock.py`，假資料 `mock_inventory.json`）；環境變數 `AMS_STOCK_ENDPOINT=http://127.0.0.1:8787` 則指到 `npx wrangler dev` 的真 Worker（本機 D1，`.dev.vars` 的 `AUTH_SECRET=mock-secret` 可驗 mock 登入 token）。真實庫存匯入檔（`tools/stock/*.csv`、`worker/import*.sql`）不進 repo；`docs/db/index.html` CSP `connect-src` 含 `https://*.workers.dev`。
 
+## 前端快取（Service Worker）與錯誤回報
+
+- `docs/sw.js` 由 `assets/app.js` 註冊（網址從自己的 `<script src>` 推得，範圍＝站根目錄，主站與 `db/` 共用）。同源 GET：`?v=` → 快取優先；`version.json`／`auth-config.json`／`stock-config.json` → 只走網路；其餘 → 網路優先、失敗用快取。跨網域不處理。頁面 `boot()` 結尾 `postMessage {type:'keep', dir, v:[…]}`，Service Worker 刪除 `<dir>data/` 與 `assets/` 底下 `?v=` 不在清單內的項目（另一站的 `data/` 不動）。**因此所有資料檔與程式檔的網址都必須帶版本值**（stamp 已保證）；沒有版本值的檔不會被快取優先。
+- `docs/assets/report.js`（兩站 `index.html` 在 `boot.js` 之後載入）：`window.AMSReport.send(kind, msg, {stack, path})`；`core.js` 的 `D.fetchJSON` 失敗時呼叫 `send('load', …, {path})`。端點取 `<meta name="ams-report">`（主站指向 `db/stock-config.json`）或 `<meta name="ams-stock-config">`（db 站）；請求 `{action:'clientlog', id, token, name, kind, msg, stack, path, page, site, build, app, ua}`，Worker 只驗登入 token（不需 stockToken），寫 D1 `client_log`。只在 `AMSAuth.user.token` 存在時送；每次載入最多 8 筆、同訊息不重送；主站 CSP `connect-src` 因此也列了 Worker 主機。
+- `card.js` 的 `run(q)`：查詢框無條件同步成路由裡的查詢（上一頁／網址列深連結也會換）；查無位號但有相近建議時狀態列用 `lookup.msg.notfound_near`（DEFAULT 內建，規格可覆寫）。
+- 端對端測試：`tools/tests/run_e2e.py`（README）。

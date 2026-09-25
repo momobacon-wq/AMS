@@ -35,6 +35,7 @@ npx wrangler d1 execute ams-stock --remote --command "SELECT pn, model, qty, loc
 npx wrangler d1 execute ams-stock --remote --command "SELECT * FROM ledger WHERE kks = 'G11HAD60BT001' ORDER BY id DESC"          # 某位號紀錄
 npx wrangler d1 execute ams-stock --remote --json --command "SELECT * FROM ledger ORDER BY id" > ledger.json                        # 全部紀錄匯出
 npx wrangler d1 execute ams-stock --remote --command "UPDATE items SET loc = 'A-01', min_qty = 2 WHERE pn = 'CR262002843'"         # 改儲位／安全存量
+npx wrangler d1 execute ams-stock --remote --command "SELECT ts, emp_id, site, kind, msg, page, build FROM client_log ORDER BY id DESC LIMIT 50"  # 前端錯誤回報（docs/assets/report.js）
 ```
 Cloudflare 儀表板（Workers & Pages → D1 → ams-stock）也能直接看表、下 SQL。
 

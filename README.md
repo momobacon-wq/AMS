@@ -55,6 +55,9 @@ DCS 比對的基準會讀 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\
 查詢卡的「文件全文檢索」與 Google 雲端硬碟連結（2026-09-24 起）：
 
 ```bash
+py tools/db/rebuild.py            # 一鍵：下面五步按順序跑，任一步失敗就停（明文會先加密回去）；--spec 多跑 patch_site_spec、--skip-docsearch／--skip-drive-map 省時間、--only-stamp 只改了前端
+
+# rebuild.py 等價的手動步驟
 py tools/db/drive_map.py                                   # Google 雲端硬碟桌面版中繼資料 → %LOCALAPPDATA%\AMS\drive_map.json（文件庫相對路徑 → 檔案 ID）
 py tools/encrypt_data.py docs/db/data --decrypt
 py tools/db/docmap_docsearch.py --data docs/db/data         # hst-docsearch 的 FTS 索引（~/.claude/skills/hst-docsearch/config.json）以位號＋AMS 序號搜全庫 → %LOCALAPPDATA%\AMS\cardwork\docsearch.json（約 4 分鐘）
@@ -86,6 +89,21 @@ py tools/verify_data.py "<路徑>/20260910_AMS解析.xlsx" docs/data # 逐格對
 - 活頁簿由 openpyxl 產生、沒有公式快取值，`tools/amsx/formula.py` 自行計算所有公式（HYPERLINK、MATCH、INDEX、COUNTIF、SUMPRODUCT…）；`tools/amsx/cf.py` 計算條件式格式。
 - `tools/verify_data.py` 是獨立寫成的對帳程式（不引用 extractor 程式碼），比對每一格的值、每一個連結的目標、圖表數值與條件式格式。
 - 資料格式說明見 [CONTRACT.md](CONTRACT.md)。
+
+## 端對端測試（tools/tests/）
+
+```
+py -m pip install playwright && py -m playwright install chromium   # 一次
+py tools/tests/run_e2e.py                                           # 起本機 mock 登入伺服器（8771）→ 跑全部測試 → 關掉；exit 0 才算過
+py tools/tests/run_e2e.py --keep-server --only card                 # 只跑某個模組、伺服器留著給你手動看
+```
+密語讀 `%LOCALAPPDATA%\AMS\web.key` 第一行（或環境變數 `AMS_WEB_KEY_FILE`），測試員工代號用 `tools/auth/mock_users.csv`。
+涵蓋：登入閘門（錯代號、錯密語）、查詢卡（文件全文檢索收合組與 Google 雲端硬碟連結、DCS 不符旗標、查無位號的相近建議、上一頁同步查詢框、手機無橫向捲動）、Service Worker 快取、錯誤回報、console 零錯誤。截圖在 `tools/tests/out/`（不進 repo）。改前端後 push 前跑一次。
+
+## 前端快取與錯誤回報
+
+- `docs/sw.js`（Service Worker，兩站共用）：帶 `?v=` 的資料檔／程式檔快取優先（網址已含建置或內容雜湊），`version.json`／`auth-config.json`／`stock-config.json` 只走網路，其餘網路優先、離線用快取。頁面載入後把本站用到的版本值交給它，舊版本快取自動清掉。GitHub Pages 只給 10 分鐘快取，沒有它每次回訪都要重新驗證每個檔。
+- `docs/assets/report.js`：未捕捉錯誤、未處理的 Promise 拒絕、資源與資料檔載入失敗 → 備品庫存 Worker `clientlog`（D1 表 `client_log`；本機 mock 記到 `tools/auth/mock_log.jsonl`）。只在登入後送，每次載入最多 8 筆。查看：見 `tools/stock/README.md`。
 
 ## 結構
 

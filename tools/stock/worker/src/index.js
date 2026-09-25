@@ -6,6 +6,7 @@
  *   logs  {pn?, kks?, limit?}     → {ok, rows:[{ts, id, name, action, pn, delta, bal, kks, note, wo, source, txn}]}
  *   txn   {txnId, items:[{pn, delta}], kks?, note?, wo?, source?} → {ok, results:[{pn, qty, delta}], replay?}
  *   adjust {pn, qty, note?}       → {ok, results:[{pn, qty, delta}]}
+ *   clientlog {kind, msg, stack?, path?, page?, site?, build?, app?, ua?} → {ok}   前端錯誤回報（docs/assets/report.js）；只驗登入 token、不需 stockToken；寫 client_log
  * 驗證：stockToken === env.STOCK_TOKEN（站台密語導出）＋ AMS 登入 token（HMAC-SHA256，密鑰 env.AUTH_SECRET，與登入閘門相同）
  *   失敗 → {ok:false, auth:true, error}；伺服器錯誤 → {ok:false, transient:true, error}
  * 資料：D1 表 items / ledger / txns（schema.sql）。txn 用 DB.batch（單一交易）：INSERT txns（重送＝主鍵衝突→回上次結果）、
@@ -26,6 +27,7 @@ export default {
     try { body = JSON.parse(await req.text() || '{}'); } catch (e) { return json({ ok: false, error: '請求格式錯誤' }, cors); }
     const action = String(body.action || '');
     try {
+      if (action === 'clientlog') return json(await clientlog(body, env), cors);
       const who = await auth(body, env);
       if (!who.ok) return json({ ok: false, auth: true, error: who.error }, cors);
       if (action === 'list') return json(await list(env), cors);
@@ -145,6 +147,19 @@ async function adjust(body, who, env) {
     env.DB.prepare(`INSERT INTO ledger (${LEDGER_COLS}) VALUES (?1, ?2, ?3, 'STOCKTAKE', ?4, ?5, ?6, '', ?7, '', 'ams-stock', '')`).bind(ts, who.id, who.name, pn, q - cur.get(pn), q, note),
   ]);
   return { ok: true, results: [{ pn, qty: q, delta: q - cur.get(pn) }] };
+}
+
+/* ---------------- 前端錯誤回報 ---------------- */
+async function clientlog(body, env) {
+  if (!env.AUTH_SECRET) return { ok: false, error: '站台設定不完整' };
+  const id = canon(body.id);
+  const v = await verify(id, String(body.token || ''), env.AUTH_SECRET);
+  if (!v.ok) return { ok: false, auth: true, error: v.error };
+  const msg = clip(body.msg, 500);
+  if (!msg) return { ok: false, error: '缺 msg' };
+  await env.DB.prepare('INSERT INTO client_log (ts, emp_id, emp_name, site, kind, msg, stack, path, page, build, app, ua) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)')
+    .bind(new Date().toISOString(), id, clip(norm(body.name), 40), clip(body.site, 60), clip(body.kind, 20) || 'error', msg, clip(body.stack, 2000), clip(body.path, 200), clip(body.page, 200), clip(body.build, 20), clip(body.app, 20), clip(body.ua, 200)).run();
+  return { ok: true };
 }
 
 /* ---------------- 工具 ---------------- */

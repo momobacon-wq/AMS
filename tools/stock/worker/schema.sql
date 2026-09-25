@@ -37,3 +37,19 @@ CREATE TABLE IF NOT EXISTS txns (       -- 冪等：同 txnId 重送不重扣
   ts     TEXT NOT NULL,
   emp_id TEXT
 );
+CREATE TABLE IF NOT EXISTS client_log ( -- 前端錯誤回報（docs/assets/report.js → action clientlog）
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts       TEXT NOT NULL,               -- ISO UTC
+  emp_id   TEXT,
+  emp_name TEXT,
+  site     TEXT,                        -- 站名（AMS 資料庫解析（20260912）…）
+  kind     TEXT,                        -- error / unhandledrejection / resource / load
+  msg      TEXT NOT NULL,
+  stack    TEXT,
+  path     TEXT,                        -- load：資料檔相對路徑
+  page     TEXT,                        -- location.hash
+  build    TEXT,                        -- 資料建置雜湊
+  app      TEXT,                        -- 程式雜湊
+  ua       TEXT
+);
+CREATE INDEX IF NOT EXISTS client_log_ts ON client_log (ts);

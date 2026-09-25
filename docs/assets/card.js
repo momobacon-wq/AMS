@@ -20,6 +20,7 @@
       msg: {
         empty: '請輸入位號…',
         notfound: '查無此字串（萬用字元 * ? 不適用）：請到『05_位號索引』以 Ctrl+F 搜尋部分字串',
+        notfound_near: '找不到完全相符的位號，以下列出相近的位號：',
         found: '來源：{src}［鍵 {key}］', no_device: '（測試定義清單位號，無對應設備）', device: ' → 目前位號 {tag}',
         multi: '只顯示第一台（優先序最高）',
       },
@@ -219,9 +220,15 @@
     }
     run(q) {
       this.lastQuery = q;
-      // 焦點在框內且已有打到一半的字才保留；否則帶入目前查詢（首頁會先把焦點放進框內）
-      if (this.input && (document.activeElement !== this.input || !this.input.value.trim())) this.input.value = q == null ? '' : q;
+      // 查詢一律由路由驅動（送出、站內連結、上一頁、網址列貼深連結都會經過這裡）→ 框內文字無條件同步成目前查詢；
+      // 以前「框內有焦點就不覆寫」會讓按「上一頁」後卡片換了、框裡還是上一個位號
+      const qs = q == null ? '' : String(q);
+      if (this.input && this.input.value !== qs) this.input.value = qs;
       const res = (this.res = this.lookup(q));
+      if (res.notfound) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
+        try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; }
+        if (res.sg.length && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
+      }
       this.aux = null; this.statsReady = false;
       const root = this.root;
       const L = this.spec.lookup;
@@ -302,8 +309,8 @@
       const box = U.h('section', { class: 'csec nf' });
       box.appendChild(U.h('h2', { class: 'csec-h' }, '找不到完全相符的鍵'));
       const inner = U.h('div', { class: 'nf-body' });
-      let sg = [];
-      try { sg = AMS.index.suggest(res.q, 12); } catch (e) { sg = []; }
+      let sg = Array.isArray(res.sg) ? res.sg : null;
+      if (!sg) { try { sg = AMS.index.suggest(res.q, 12); } catch (e) { sg = []; } }
       const ixId = (this.spec.lookup && this.spec.lookup.index_sheet) || '05';
       const ixName = D.meta(ixId) ? D.meta(ixId).name : ixId;
       const q = String(res.q == null ? '' : res.q).trim();

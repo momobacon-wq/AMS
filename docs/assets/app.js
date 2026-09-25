@@ -232,7 +232,30 @@
   }
 
   /* ------------------------------------------------------------ 啟動 */
+  /* Service Worker（docs/sw.js，主站與 db/ 共用；規則見該檔）：帶 ?v= 的資料檔／程式檔快取優先、離線可開。
+     註冊網址由 app.js 自己的 <script src> 推得（…/assets/app.js → …/sw.js），範圍＝站根目錄。 */
+  function swRegister() {
+    if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
+    const sc = document.querySelector('script[src*="assets/app.js"]');
+    if (!sc) return;
+    let url;
+    try { url = new URL(sc.getAttribute('src').replace(/assets\/app\.js.*$/, 'sw.js'), location.href).href; } catch (e) { return; }
+    navigator.serviceWorker.register(url).catch((e) => { console.warn('sw', e && e.message); });
+  }
+  /* 告訴 Service Worker 本站目前用到的版本值（頁面上所有 ?v=、資料建置、Chart.js）→ 它把本站舊版本的快取刪掉 */
+  function swKeep() {
+    if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+    const v = new Set();
+    document.querySelectorAll('script[src], link[href]').forEach((el) => { const m = /[?&]v=([0-9a-zA-Z]+)/.exec(el.getAttribute('src') || el.getAttribute('href') || ''); if (m) v.add(m[1]); });
+    if (D.pageBuild) v.add(D.pageBuild);
+    if (D.manifest && D.manifest.build) v.add(D.manifest.build);
+    const mb = document.querySelector('meta[name="ams-build"]');
+    if (mb && mb.getAttribute('data-chart')) v.add(mb.getAttribute('data-chart'));
+    const dir = location.pathname.replace(/[^/]*$/, '');
+    try { navigator.serviceWorker.controller.postMessage({ type: 'keep', dir, v: Array.from(v) }); } catch (e) { /* ignore */ }
+  }
   async function boot() {
+    swRegister();
     // data/meta.json（加密資訊）與登入閘門並行載入；登入後才問密語
     const metaP = D.loadMeta(); metaP.catch(() => {});
     // 登入閘門（assets/auth.js；auth-config.json 的 endpoint 空白時直接通過）
@@ -309,6 +332,7 @@
     window.addEventListener('hashchange', route);
     route();
     lastVerCheck = Date.now();
+    swKeep();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

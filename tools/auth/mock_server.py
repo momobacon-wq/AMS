@@ -105,6 +105,11 @@ class H(SimpleHTTPRequestHandler):
             except Exception:
                 return self._json({'ok': False, 'error': '請求格式錯誤'})
             uid = canon(body.get('id'))
+            if body.get('action') == 'clientlog':  # 前端錯誤回報（docs/assets/report.js）：記到 mock_log.jsonl
+                if not verify(uid, str(body.get('token', ''))):
+                    return self._json({'ok': False, 'auth': True, 'error': '工作階段無效'})
+                log({'id': uid, 'action': 'CLIENTLOG', 'site': str(body.get('site', ''))[:60], 'kind': str(body.get('kind', ''))[:20], 'msg': str(body.get('msg', ''))[:500], 'page': str(body.get('page', ''))[:200]})
+                return self._json({'ok': True})
             user = {'id': uid, 'name': USERS.get(uid, {}).get('name', uid)}
             return self._json(mock_stock.handle(body, user))
         if p != '/mock-auth':
