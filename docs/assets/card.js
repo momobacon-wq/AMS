@@ -753,13 +753,24 @@
       const ctx03 = { columns: AMS.devices.sheet.columns, sheetLabel: '03' };
       const pc = this.spec.protocol_col;
       const proto = pc != null ? U.text(row[pc]) : '';
+      // group.collapsed：<details> 可收合（預設收起；展開狀態記 localStorage ams.card.sumOpen[key]）；group.after_stock：排在「備品庫存（倉庫）」之後
+      const openState = U.store.get('card.sumOpen', {}) || {};
+      const after = [];
       for (const g of S.groups || []) {
-        const sec = U.h('section', { class: 'sum-g sum-' + g.key });
-        sec.appendChild(U.h('h3', { class: 'sum-gh' }, g.label));
+        let sec;
+        if (g.collapsed) {
+          const isOpen = openState[g.key] === true;
+          sec = U.h('details', { class: 'sum-g sum-' + g.key, open: isOpen });
+          sec.appendChild(U.h('summary', { class: 'sum-gh' }, g.label));
+          sec.addEventListener('toggle', () => { const st = U.store.get('card.sumOpen', {}) || {}; st[g.key] = sec.open; U.store.set('card.sumOpen', st); });
+        } else {
+          sec = U.h('section', { class: 'sum-g sum-' + g.key });
+          sec.appendChild(U.h('h3', { class: 'sum-gh' }, g.label));
+        }
         const grid = U.h('div', { class: g.per_entry ? 'sum-body' : 'cfields sumgrid' });
         sec.appendChild(grid);
         if (g.note) sec.appendChild(U.h('p', { class: 'muted small aux-note' }, g.note));
-        groups.appendChild(sec);
+        if (g.after_stock) after.push(sec); else groups.appendChild(sec);
         if (g.kind || g.per_entry) { grid.innerHTML = '<p class="muted cl-empty">載入中…</p>'; pend.push({ grid, group: g }); continue; }
         for (const it of g.items || []) {
           if (it.proto && proto && proto !== it.proto) continue; // HART／FF 專用列
@@ -780,6 +791,7 @@
         groups.appendChild(sec);
         pend.push({ grid, stock: true, tag });
       }
+      for (const sec of after) groups.appendChild(sec); // after_stock 的組（沒有備品庫存時就排最後）
       this.fillSummary(row, res, pend, svc);
       return wrap;
     }

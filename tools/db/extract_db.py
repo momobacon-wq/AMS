@@ -278,6 +278,7 @@ def summary_spec(ci3, ci13):
     """「一目了然」摘要（登入後查詢頁最上方）：ci3／ci13 = 欄名前綴 → 03_設備總表／設備參數統計 的欄索引。
     item 來源：col（03 欄）、stats（設備參數統計欄 {lo,hi,unit}）、kind+key(s)（card aux 工程文件區段的列名）、docindex／docsearch（整段）。
     alt（單一或陣列）＝主來源空白時依序改用的 kind+key（docindex／docsearch 這類 rows 型區段以列名對照）。
+    group 的 collapsed＝渲染成 <details> 預設收合（展開狀態記 localStorage ams.card.sumOpen）；after_stock＝排在「備品庫存（倉庫）」組之後。
     其餘完整資料（識別、位置、同步、變更、DCS 比對、文件比對、連結、參數現值）放在摘要之後的「完整資料」。"""
     T = lambda label, pre, lvl, text, **kw: dict({'label': label, 'col': ci3(pre), 'src': src(lvl, text)}, **kw)
     K = lambda label, kind, key, **kw: dict({'label': label, 'kind': kind, 'key': key}, **kw)
@@ -325,7 +326,7 @@ def summary_spec(ci3, ci13):
                 K('位置圖', 'instlist', '位置圖', alt=[DI('位置圖'), DS('位置圖')]),
             ]},
             {'key': 'docs', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'p.N 為 PDF 頁序；同編號只取最高版次。'},
-            {'key': 'search', 'label': '文件全文檢索（hst-docsearch：位號／序號命中的文件與頁碼）', 'kind': 'docsearch',
+            {'key': 'search', 'label': '文件全文檢索（hst-docsearch：位號／序號命中的文件與頁碼）', 'kind': 'docsearch', 'collapsed': True, 'after_stock': True,
              'note': '搜整個工程文件庫的全文索引（文字層＋OCR）；「文件-版次 p.N｜命中行」，數值可點開 Google 雲端硬碟的那份檔案。位號不採 OCR 命中；'
                      '「序號命中」「型號／廠牌／量程（文件）」是由命中行以規則抽出的推定值，僅供對照，不列入 DCS 比對。'},
         ],

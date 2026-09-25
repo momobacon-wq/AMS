@@ -866,7 +866,13 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
 .sum-g { min-width: 0; border-top: 1px solid var(--border); }
 .sum-g:nth-child(odd) { border-right: 1px solid var(--border); }
-.sum-ctrl, .sum-draw, .sum-docs { grid-column: 1 / -1; border-right: 0 !important; }
+.sum-ctrl, .sum-draw, .sum-docs, .sum-search { grid-column: 1 / -1; border-right: 0 !important; }
+/* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */
+details.sum-g > summary.sum-gh { cursor: pointer; list-style: none; user-select: none; min-height: 28px; box-sizing: border-box; }
+details.sum-g > summary.sum-gh::-webkit-details-marker { display: none; }
+details.sum-g > summary.sum-gh::before { content: '▸'; display: inline-block; width: 1em; color: var(--muted); }
+details.sum-g[open] > summary.sum-gh::before { content: '▾'; }
+details.sum-g > summary.sum-gh:hover { filter: brightness(0.97); }
 .sum-gh { margin: 0; font-size: 12.5px; font-weight: 700; color: var(--accent-text); background: var(--surface-2); padding: 5px 12px; border-bottom: 1px solid var(--grid); letter-spacing: 0.02em; }
 /* 摘要欄位：標籤在上、值在下的方塊，值字級略大；來源固定用「徽章」（不受三段切換影響，避免三欄擠不下） */
 .cfields.sumgrid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }

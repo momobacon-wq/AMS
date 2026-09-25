@@ -163,6 +163,7 @@ C:\Users\bacon\AMS\
 - 值顯示規則（前端 `U.cardValue`）：null／全空白字串 → 「—」；float32 FLT_MIN（|v|<1e-30 且 ≠0，1.1754943508222875e-38）→ 「未使用」；非整數以 7 位有效數字（10000.0009765625 → 10000）；`serial` 且值 0 → 「未寫入」。
 - `recent_changes.columns[]` 可帶 `map`（值對照顯示）、`warn_eq`（等於此值時醒目標示）、`title`（表頭說明）、`src {lvl, text}`（欄位來源：徽章模式在表頭顯示分級籤、點開列出；完整模式在表下列出各欄來源）；空白值（含全空白字串，`cols` 的每一段）顯示「—」；「類別」欄＝14 表事件分類：`Change performed by foreign host`（Cat 28）→「DCS·外部主機」，其餘 →「人工 AMS」。
 - `sections_aux: [{key, label, kind?, only_ff?, empty?, note?}]`：附加區段的標題與順序（維護狀態、最後修改、DCS 比對、FF 診斷（僅 FF）、控制系統·控制器現行 I/O 組態（dcdas）、控制系統·端子表、設計規格、出廠紀錄、文件索引、文件全文檢索（docsearch）、位號歷程補充、類比輸出警報、設備補充）；`summary.groups[]` 的 `per_entry` 組（`kind: dcdas|terminal`）每個訊號一塊；`aux: {index:"card/index.json", number_from:5}`：附加區段自第 5 節起連續編號，快速連結與最近變更接在其後。`protocol_col`＝03 協定欄。
+- `summary.groups[]` 可帶 `collapsed: true`（渲染成 `<details class="sum-g">`＋`<summary class="sum-gh">`，預設收合；展開狀態記 localStorage `ams.card.sumOpen[key]`；列印時照既有規則展開）與 `after_stock: true`（排在前端動態加的「備品庫存（倉庫）」組之後；沒有備品庫存時排最後）。
 - `summary.groups[].items[]` 的 `alt`（單一 `{kind,key}` 或陣列）：主來源空白時依序改用的備援；標籤加「（<kind 中文名>）」。`kind` 為 rows 型區段（`docindex`／`docsearch`）時以列名（類別／推定值名）對照，該列自帶 lvl／來源／文件。
 
 ### card aux（`docs/db/data/card/`）
