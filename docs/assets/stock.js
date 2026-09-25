@@ -78,8 +78,11 @@
     return listP;
   };
   S.invalidate = function () { listAt = 0; };
+  /** 交易編號（後端以它去重：同一 txnId 重送回同一結果、不重扣） */
+  S.newTxnId = () => (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 10))).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+  /** o.txnId 沒給才新產生；領取視窗會沿用同一 txnId 重送，逾時後再按不會重扣 */
   S.txn = async function (o) {
-    const txnId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 10))).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+    const txnId = o.txnId || S.newTxnId();
     const j = await S.call('txn', { txnId, items: o.items, kks: o.kks || '', note: o.note || '', wo: o.wo || '', source: o.source || 'ams' });
     S.invalidate();
     return j;
@@ -218,6 +221,7 @@
     const gate = U.h('div', { id: 'stk-gate', class: 'auth-gate stk-gate', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'stk-title' }, form);
     if (AMS.Autocomplete && AMS.tagSuggestSource) { try { new AMS.Autocomplete(kks, Object.assign({}, AMS.tagSuggestSource, { onPick: (it) => { kks.value = it.tag || it.key; }, onEnter: () => {} })); } catch (e) { /* 索引未載入 */ } }
     let busy = false;
+    const txnId = S.newTxnId(); // 開窗時產生一次；同一視窗重按都用同一編號（成功即關窗，不需換新）
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (busy) return;
@@ -230,12 +234,16 @@
       }
       busy = true; btn.disabled = true; msg.textContent = '寫入中…'; msg.className = 'auth-msg';
       try {
-        const j = await S.txn({ items, kks: kks.value.trim(), note: note.value.trim(), wo: wo.value.trim(), source: o.source || 'ams' });
+        const j = await S.txn({ txnId, items, kks: kks.value.trim(), note: note.value.trim(), wo: wo.value.trim(), source: o.source || 'ams' });
         closeModal();
-        U.toast((out ? '已領取：' : '已放入：') + (j.results || []).map((x) => `${x.pn} → 剩 ${x.qty}`).join('、'), 4000);
+        U.toast((out ? '已領取：' : '已放入：') + (j.results || []).map((x) => `${x.pn} → 剩 ${x.qty}`).join('、') + (j.replay ? '（先前已寫入，未重扣）' : ''), 4000);
         if (o.onDone) o.onDone(j);
       } catch (err) {
-        msg.textContent = ((err && err.auth) ? '未授權：' : '寫入失敗：') + ((err && err.message) || err); msg.className = 'auth-msg bad';
+        const m = (err && err.message) || String(err);
+        const netErr = !!err && (err.name === 'TypeError' || /^連線逾時/.test(m)); // fetch 失敗／逾時：後端可能已寫入
+        if (netErr) msg.textContent = '連線不穩，可能已寫入；再按一次會以同一交易編號重送，不會重扣（' + m + '）';
+        else msg.textContent = ((err && err.auth) ? '未授權：' : '寫入失敗：') + m;
+        msg.className = 'auth-msg bad';
       } finally { busy = false; btn.disabled = false; }
     });
     openModal(gate, '.stk-n');

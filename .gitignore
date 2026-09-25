@@ -26,3 +26,10 @@ tools/stock/mock_stock_log.jsonl
 
 # 端對端測試輸出（截圖）
 tools/tests/out/
+
+# 機密與本機產物（tools/hooks/pre-commit 也會擋）
+*.ams_bckup
+*.key
+.ams_sa_pw
+.dev.vars
+tools/db/workflow_results.json

@@ -7,7 +7,7 @@
   py tools/tests/run_e2e.py --base http://127.0.0.1:8766   # 用已經在跑的伺服器
 
 需要：py -m pip install playwright && py -m playwright install chromium
-密語：%LOCALAPPDATA%\\AMS\\web.key 第一行（或環境變數 AMS_WEB_KEY_FILE 指向的檔）；員工代號 900001（tools/auth/mock_users.csv）。
+密語與 encrypt_data.py 同一來源：環境變數 AMS_WEB_KEY → AMS_WEB_KEY_FILE 指向的檔 → %LOCALAPPDATA%\\AMS\\web.key 第一行；員工代號 900001（tools/auth/mock_users.csv）。
 每個測試模組提供 run(ctx) → 失敗清單（list[str]）；ctx = {'base', 'pass', 'out', 'uid'}。
 """
 import argparse
@@ -21,12 +21,13 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 PORT = 8771
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+from encrypt_data import passphrase_and_salt  # noqa: E402  （只借密語讀法，和 verify_encrypted.py 一樣）
 
 
 def passphrase():
-    p = os.environ.get('AMS_WEB_KEY_FILE') or os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'web.key')
-    with open(p, encoding='utf-8') as f:
-        return f.read().splitlines()[0].strip()
+    # 來源順序同 encrypt_data.default_key_file：AMS_WEB_KEY → AMS_WEB_KEY_FILE → %LOCALAPPDATA%\AMS\web.key 第一行
+    return passphrase_and_salt(persist=False)[0]
 
 
 def wait_up(base, secs=20):

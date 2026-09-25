@@ -482,7 +482,7 @@ SECTIONS_AUX = [
         {'key': 'change', 'label': '最後修改（人工 AMS／DCS·外部主機寫入）', 'empty': '（排除動態值後，無參數修改紀錄）',
          'note': '依 BlockData 相鄰值不同判定；排除 pv_value、OperatingHours 等動態/計數值與 7 位有效數字相同的浮點殘差，故可能與 14_參數變更歷程 略有不同。Cat 28「Change performed by foreign host」＝DCS／外部主機寫入。'},
         {'key': 'compare', 'label': 'DCS 比對（量程；以 DCS 為主）', 'empty': '（無 DCS 基準：控制器 I/O 索引與 DCS 端子表都查無此位號，AMS 事件也無 Cat28 量程寫入）',
-         'note': '基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (2) AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考；只有寫入晚於控制器索引建立日或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。其他來源與基準差超過 ±0.5% span 標「⚠ 與 DCS 不符」；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」。2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同。'},
+         'note': '基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (2) AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考；只有寫入晚於該控制器 checkout 日期或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。其他來源與基準差超過 ±0.5% span 標「⚠ 與 DCS 不符」；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」；EOMR 證書序號與 AMS 不符者（非本台）只列參考、標「序號不符未比較」。2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同。'},
         {'key': 'ff', 'label': 'FF 診斷（僅 FF 設備）', 'only_ff': True, 'empty': '（此 FF 設備在 AMS 無 FF 參數紀錄）', 'note': 'WRITE_LOCK 依 FF 規範 1＝未鎖定、2＝鎖定。'},
         {'key': 'dcdas', 'label': '控制系統（控制器現行 I/O 組態，signal-atlas 索引）', 'kind': 'dcdas', 'note': 'ToolboxST checkout 快照的類比輸入通道組態（非即時）；位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。FF 設備與 HART 多工器本體不在 I/O 索引。'},
         {'key': 'terminal', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},

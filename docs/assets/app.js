@@ -297,10 +297,10 @@
       onEnter: async (t) => {
         if (!t.trim()) return;
         let key = t;
-        // 沒有完全相符的鍵、但只有一個建議時，直接開那一個（例：輸入 HAP70BT00 只對到一台）
+        // 與查詢卡同一套解析（去分隔符／去前後綴／唯一建議直接開）：同一字串在頂列與卡片框結果一致
         try {
           const IX = AMS.index; await IX.load();
-          if (!IX.first.has(IX.norm(t))) { const sg = IX.suggest(t, 2); if (sg.length === 1) key = sg[0].key; }
+          const rs = IX.resolve(t); if (rs.key) key = rs.key;
         } catch (e) { /* 索引載入失敗 → 照原字串查詢 */ }
         gs.blur(); R.go('#/card/' + encodeURIComponent(key)); gs.value = '';
       },

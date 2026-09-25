@@ -82,8 +82,12 @@ def handle(body, user):
             txn = str(body.get('txnId') or '')
             if not re.match(r'^[A-Za-z0-9_-]{8,40}$', txn):
                 return {'ok': False, 'error': 'txnId 格式錯誤'}
-            if txn in _txns:
+            if txn in _txns:  # 同 txnId 重送：回上次結果（與 Worker 同格式 replay:true，不重扣）
                 return dict(_txns[txn], replay=True)
+            seen = [r for r in _read_log() if r.get('txn') == txn]  # mock 重啟後記憶體沒了，退而查紀錄檔
+            if seen:
+                seen.reverse()
+                return {'ok': True, 'replay': True, 'results': [{'pn': r['pn'], 'qty': r['bal'], 'delta': r['delta']} for r in seen]}
             reqs = body.get('items') or []
             if not reqs:
                 return {'ok': False, 'error': '沒有項目'}

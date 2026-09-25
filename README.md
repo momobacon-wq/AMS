@@ -44,7 +44,7 @@ py tools/encrypt_data.py docs/data              # 產生器已自動做；手動
 py tools/encrypt_data.py docs/db/data
 py tools/stamp_assets.py docs                   # 加密後重新戳記（build 讀 meta.json）
 py -c "import sys; sys.path.insert(0,'tools/db'); import extract_db; extract_db.stamp('docs/db','docs/assets')"
-py tools/verify_encrypted.py                    # 兩站重新解密驗證；0 錯誤才可 push
+py tools/verify_encrypted.py                    # 兩站重新解密驗證；0 錯誤才可 push（密語也可用環境變數 AMS_WEB_KEY 給）
 py tools/encrypt_data.py docs/db/data --decrypt # 要重跑 build_card_aux / verify_data 時先還原明文（結尾會再加密）
 ```
 
@@ -55,7 +55,7 @@ DCS 比對的基準會讀 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\
 查詢卡的「文件全文檢索」與 Google 雲端硬碟連結（2026-09-24 起）：
 
 ```bash
-py tools/db/rebuild.py            # 一鍵：下面五步按順序跑，任一步失敗就停（明文會先加密回去）；--spec 多跑 patch_site_spec、--skip-docsearch／--skip-drive-map 省時間、--only-stamp 只改了前端
+py tools/db/rebuild.py            # 一鍵：下面五步按順序跑，任一步失敗就停（明文會先加密回去）；--spec 多跑 patch_site_spec、--skip-docsearch／--skip-drive-map 省時間、--only-stamp 只改了前端、--e2e 最後多跑端對端測試
 
 # rebuild.py 等價的手動步驟
 py tools/db/drive_map.py                                   # Google 雲端硬碟桌面版中繼資料 → %LOCALAPPDATA%\AMS\drive_map.json（文件庫相對路徑 → 檔案 ID）
@@ -68,6 +68,14 @@ py tools/stamp_assets.py docs && py tools/verify_encrypted.py
 
 摘要空白的欄位（設計廠牌／型號、出廠型號／序號、設計量程、P&ID／邏輯圖／Hook-up／位置圖）會依序改用文件索引、全文檢索命中的推定值；所有文件來源的數值都可點開雲端硬碟的那份檔案（需有該資料夾的 Drive 權限）。
 `extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
+
+### push 前關卡
+
+```bash
+git config core.hooksPath tools/hooks             # 一次（只影響本機）：commit 時擋機密檔（web.key／.dev.vars／.ams_bckup／.ams_sa_pw／庫存 csv／import*.sql）與 docs/*/data 明文 .json
+py tools/db/rebuild.py --only-stamp --e2e         # 每次 push 前：兩站戳記 → verify_encrypted → run_e2e（端對端）→ 印 git status --short docs/；exit 0 才 push
+```
+GitHub 端另有 `.github/workflows/check.yml`：每次 push／PR 在 ubuntu 上跑 `tools/verify_encrypted.py`，密語讀 repo 的 Actions secret `AMS_WEB_KEY`（值＝`web.key` 第一行；沒設定就直接失敗，不會靜默通過）。
 
 ## 備品庫存（docs/db 站）
 
@@ -97,8 +105,8 @@ py -m pip install playwright && py -m playwright install chromium   # 一次
 py tools/tests/run_e2e.py                                           # 起本機 mock 登入伺服器（8771）→ 跑全部測試 → 關掉；exit 0 才算過
 py tools/tests/run_e2e.py --keep-server --only card                 # 只跑某個模組、伺服器留著給你手動看
 ```
-密語讀 `%LOCALAPPDATA%\AMS\web.key` 第一行（或環境變數 `AMS_WEB_KEY_FILE`），測試員工代號用 `tools/auth/mock_users.csv`。
-涵蓋：登入閘門（錯代號、錯密語）、查詢卡（文件全文檢索收合組與 Google 雲端硬碟連結、DCS 不符旗標、查無位號的相近建議、上一頁同步查詢框、手機無橫向捲動）、Service Worker 快取、錯誤回報、console 零錯誤。截圖在 `tools/tests/out/`（不進 repo）。改前端後 push 前跑一次。
+密語與 `encrypt_data.py` 同一來源：環境變數 `AMS_WEB_KEY` → `AMS_WEB_KEY_FILE` 指向的檔 → `%LOCALAPPDATA%\AMS\web.key` 第一行；測試員工代號用 `tools/auth/mock_users.csv`。
+涵蓋：登入閘門（錯代號、錯密語）、查詢卡（文件全文檢索收合組與 Google 雲端硬碟連結、DCS 不符旗標、查無位號的相近建議、上一頁同步查詢框、手機無橫向捲動）、Service Worker 快取、錯誤回報、console 零錯誤。截圖在 `tools/tests/out/`（不進 repo）。push 前統一跑 `py tools/db/rebuild.py --only-stamp --e2e`（戳記＋驗證＋這套測試）。
 
 ## 前端快取與錯誤回報
 
@@ -114,5 +122,7 @@ docs/                 GitHub Pages 根目錄
   data/meta.json      唯一明文（加密參數與 build）
   data/manifest.json.bin、data/sheets/*.json.bin  每張表一檔（AES-GCM 密文）；21、22 依設備區塊切塊
 tools/                extract.py、verify_data.py、encrypt_data.py、verify_encrypted.py、amsx/（公式與條件式格式引擎）
+tools/hooks/          pre-commit（git config core.hooksPath tools/hooks 啟用；擋機密檔與明文資料）
+.github/workflows/    check.yml（push／PR 時在 GitHub 跑 verify_encrypted，密語用 secret AMS_WEB_KEY）
 tools/stock/          備品庫存：worker/（Cloudflare Worker + D1：src/index.js、schema.sql、wrangler.toml）、contracts_to_inventory.py、print_token.py、mock_stock.py、Code.gs（試算表版替代後端）
 ```

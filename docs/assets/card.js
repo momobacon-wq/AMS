@@ -21,6 +21,7 @@
         empty: '請輸入位號…',
         notfound: '查無此字串（萬用字元 * ? 不適用）：請到『05_位號索引』以 Ctrl+F 搜尋部分字串',
         notfound_near: '找不到完全相符的位號，以下列出相近的位號：',
+        found_via: '「{q}」已自動對應到 {key}（去掉前後綴／分隔符）。',
         found: '來源：{src}［鍵 {key}］', no_device: '（測試定義清單位號，無對應設備）', device: ' → 目前位號 {tag}',
         multi: '只顯示第一台（優先序最高）',
       },
@@ -58,7 +59,7 @@
   const SRC_MODES = ['hide', 'badge', 'full'];
   const SRC_MODE_LABEL = { hide: '隱藏', badge: '徽章', full: '完整' };
   const STORE_MODE = 'card.srcMode';
-  const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ok: '✓ 與 DCS 一致' };
+  const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ref_only: '序號不符未比較', ok: '✓ 與 DCS 一致' };
   const cmpCls = (st) => (st === 'mismatch' ? 'bad' : st === 'ok' ? 'ok' : 'soft');
   let uid = 0;
 
@@ -83,6 +84,7 @@
       // 列印：展開 <details>（參數現值除外：展開會觸發非同步載入，列印時來不及畫出）並強制「完整」來源模式
       this._bp = () => {
         this._printing = true; this._opened = [];
+        if (this._fillMore) this._fillMore(); // 「完整資料」若還沒展開過，先把延後載入的區段補上
         this.root.querySelectorAll('details:not([open])').forEach((d) => { if (!d.classList.contains('pdet')) { d.open = true; this._opened.push(d); } });
         this.applyMode();
       };
@@ -141,7 +143,7 @@
         <div class="card-scroll">
         <form class="cq" role="search" autocomplete="off">
           <label class="cq-label" for="cq-input">${U.esc(s.input && s.input.label || '查詢位號')}</label>
-          <div class="cq-field"><input id="cq-input" class="cq-input" type="search" spellcheck="false" placeholder="${U.esc(s.input && s.input.prompt || '')}" aria-describedby="cq-status"></div>
+          <div class="cq-field"><input id="cq-input" class="cq-input" type="search" spellcheck="false" autocorrect="off" autocapitalize="characters" enterkeyhint="search" placeholder="${U.esc(s.input && s.input.prompt || '')}" aria-describedby="cq-status"></div>
           <button class="btn primary" type="submit">查詢</button>
         </form>
         ${srcbar}
@@ -190,9 +192,12 @@
     }
     go(q) {
       q = String(q == null ? '' : q).trim();
+      if (U.isMobile() && this.input) this.input.blur(); // 手機：送出後收軟鍵盤，不然摘要被鍵盤蓋住
       if (!q) { this.run(''); return; }
-      const h = '#/card/' + encodeURIComponent(q);
-      if (location.hash === h) this.run(q); else AMS.router.go(h);
+      let k = q;
+      try { const rs = AMS.index.resolve(q); if (rs.key) k = rs.key; } catch (e) { /* 索引未載 → 照原字串 */ }
+      const h = '#/card/' + encodeURIComponent(k);
+      if (location.hash === h) this.run(k); else AMS.router.go(h);
     }
 
     /* ---------- 查詢鏈 ---------- */
@@ -200,11 +205,13 @@
       const L = this.spec.lookup; const M = L.msg;
       const res = { q, key: '', alias: '', count: null, src: '', i3: null, status: '', notfound: false };
       if (q == null || q === '') { res.status = M.empty; res.empty = true; return res; }
-      const key = AMS.index.norm(q);
-      res.key = key;
+      const IX = AMS.index;
+      const rs = IX.resolve(q);
+      const key = rs.key || IX.norm(q);
+      res.key = key; res.how = rs.how;
       if (!key) { res.status = M.empty; res.empty = true; return res; }
-      const IX = AMS.index; const i5 = IX.first.get(key);
-      if (i5 == null) { res.status = M.notfound; res.notfound = true; return res; }
+      const i5 = rs.key ? IX.first.get(rs.key) : null;
+      if (i5 == null) { res.status = M.notfound; res.notfound = true; res.sg = rs.suggestions; return res; }
       const r5 = IX.sheet.rows[i5];
       res.i5 = i5;
       res.alias = U.text(r5[L.alias_col]);
@@ -213,12 +220,13 @@
       const k = U.text(r5[L.key_col]);
       const DV = AMS.devices;
       res.i3 = res.alias ? (DV.byAlias.get(res.alias) ?? null) : null;
-      res.status = fill(M.found, { src: res.src, key: k });
+      res.status = (rs.how !== 'exact' && M.found_via ? fill(M.found_via, { q: IX.norm(q), key: k }) : '') + fill(M.found, { src: res.src, key: k });
       if (res.i3 == null) res.status += M.no_device;
       else res.status += fill(M.device, { tag: U.text(DV.sheet.rows[res.i3][L.target_tag_col]) });
       return res;
     }
     run(q) {
+      const changed = this.lastQuery !== undefined && this.lastQuery !== q; // 換了位號（卡片內的 chip／相近建議／最近查過）→ 捲回頂端
       this.lastQuery = q;
       // 查詢一律由路由驅動（送出、站內連結、上一頁、網址列貼深連結都會經過這裡）→ 框內文字無條件同步成目前查詢；
       // 以前「框內有焦點就不覆寫」會讓按「上一頁」後卡片換了、框裡還是上一個位號
@@ -226,7 +234,7 @@
       if (this.input && this.input.value !== qs) this.input.value = qs;
       const res = (this.res = this.lookup(q));
       if (res.notfound) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
-        try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; }
+        if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
         if (res.sg.length && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
       }
       this.aux = null; this.statsReady = false;
@@ -260,6 +268,7 @@
       const body = root.querySelector('.cq-body');
       body.innerHTML = '';
       body.classList.toggle('landing', !!res.empty);
+      if (changed) { root.scrollTop = 0; if (this.scrollEl) this.scrollEl.scrollTop = 0; }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) {
         body.appendChild(this.renderLanding());
@@ -291,11 +300,26 @@
         this.remember(res, row);
       }
       host.appendChild(this.renderSections(row, res));
-      if (this.spec.stats && this.spec.stats.sheet) host.appendChild(this.renderStats(row, res));
+      // 關鍵組態現值與最近變更會各抓一張表（變更歷程 247 KB）：有摘要且「完整資料」收合時，展開才載（第一張卡少下載一半以上）
+      const slotStats = this.spec.stats && this.spec.stats.sheet ? U.h('div', { class: 'lazy-slot' }) : null;
+      const slotRecent = U.h('div', { class: 'lazy-slot' });
+      if (slotStats) host.appendChild(slotStats);
       if (auxList.length) host.appendChild(this.renderAux(row, res, auxList));
       host.appendChild(this.renderLinks(row, res));
-      host.appendChild(this.renderRecent(row, res));
+      host.appendChild(slotRecent);
       host.appendChild(this.renderParams(row, res));
+      let filled = false;
+      const fillMore = () => {
+        if (filled || this.destroyed || this.res !== res) return;
+        filled = true;
+        if (slotStats) slotStats.replaceWith(this.renderStats(row, res));
+        slotRecent.replaceWith(this.renderRecent(row, res));
+        this.applyMode();
+      };
+      this._fillMore = fillMore;
+      const det = host === body ? null : host.parentElement;
+      if (!det || det.open) fillMore();
+      else det.addEventListener('toggle', () => { if (det.open) fillMore(); });
       this.applyMode();
       // 分頁標題以使用者分享的位號為主，alias 附在括號（書籤／歷史紀錄才認得出來；LIVE-5）
       const tag0 = row ? U.text(row[L.target_tag_col]) : '';

@@ -24,11 +24,13 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
 並重算 manifest.build（含 card/*.json）後重新 stamp docs/db/index.html（tools/db/extract_db.py 的 stamp）。
 
 DCS 基準比對（compare）：量程上/下限的基準依序＝(1) 控制器現行 I/O 組態（dcdas：該位號類比輸入通道的 Low/High Value，sec.dcdas）
-→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV；只有寫入事件晚於控制器索引建立日、或沒有控制器資料時才當基準）
+→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV；只有寫入事件晚於該控制器 checkout 日期
+（dcdas controller.last_mod，索引建立日只是備援）、或沒有控制器資料時才當基準）
 → (3) DCS 端子表 DEVICE_LO/HI（設計文件）。（2026-09-24 調整：G12HAP70BT001 的 DCS 寫入 160 之後被人工改回 200、控制器也是 200，
 寫入事件只是歷史，不該讓一致的來源被標 ⚠。）
 其餘來源——AMS 現值（13 表 LRV/URV/單位）、DCS 寫入事件（只比寫入的那一端）、端子表、儀器清單、EOMR——逐一與基準比對：
 容許 ±0.5% span；單位先換算（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、mm/cm/m/in、%），無法換算 → unit_mismatch。
+EOMR 證書「序號與 AMS 相符」＝否（非本台）者不比較，只在 compare.others 列一筆 status='ref_only' 供參考；AMS 未寫入序號者仍比對但註明無法確認為同一台。
 2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同（所以端子表降為第 3 順位）。
 決定性輸出（無時間戳）；不寫入任何本機絕對路徑（最後以 regex 自檢）。
 
@@ -49,7 +51,7 @@ SRC_DEFS = {
     'inferred': {'label': '推論', 'desc': '經驗規則、寫死的對照表、外部對照檔或機組範本推論（非資料庫/文件直接記載）'},
     'doc': {'label': '文件', 'desc': '設計文件（DCS 端子表、儀器清單、P&ID、Hook-up…）：「應該是什麼」'},
     'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
-    'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；索引日期見來源'},
+    'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；各控制器 checkout 日期見來源'},
 }
 KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引', 'docsearch': '文件全文檢索'}
 DOCSEARCH_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'docsearch.json')
@@ -246,6 +248,7 @@ def load_dcdas(path):
     c = sqlite3.connect(path)
     meta = dict(c.execute('select key, value from meta').fetchall())
     ctrls = [r[0] for r in c.execute('select name from controller order by name')]
+    last_mod = {r[0]: (r[1] or '')[:10] for r in c.execute('select name, last_mod from controller')}  # 各控制器實際 checkout 日
     by_tag, by_conn, n = {}, {}, 0
     for (ctrl, pt, conn, dtag, itype, lo, hi, pj, mod, cab, vunits, funits, desc) in c.execute(DCDAS_SQL):
         x = {'ctrl': ctrl, 'pt': pt, 'conn': (conn or '').strip(), 'dtag': (dtag or '').strip(), 'itype': itype or '', 'lo': lo, 'hi': hi,
@@ -259,7 +262,7 @@ def load_dcdas(path):
     c.close()
     built = (meta.get('built_at') or '')[:10]
     return {'by_tag': by_tag, 'by_conn': by_conn, 'built_at': built, 'toolbox': meta.get('toolbox_version') or '', 'controllers': ctrls,
-            'channels': n, 'doc_key': 'dcdas|signal-atlas|%s' % built}
+            'last_mod': last_mod, 'channels': n, 'doc_key': 'dcdas|signal-atlas|%s' % built}
 
 
 def match_dcdas(tag, dc):
@@ -291,21 +294,26 @@ def dcdas_entries(tag, dc):
                 [DCDAS_FIELD, rng, 'dcdas'], ['訊號說明', x['desc']]]
         if x['conn']:
             rows.append(['signal-atlas 深連結', 'https://momobacon-wq.github.io/signal-atlas/#/v/%s.%s' % (x['ctrl'], x['conn'])])
+        co = (dc.get('last_mod') or {}).get(x['ctrl']) or ''  # 該控制器 checkout 日（索引建立日另列）
         ent = {'h': '%s · %s' % (x['ctrl'], x['conn'] or x['pt']), 'lvl': 'ctrl', 'rule': how, 'rows': rows, 'd': dc['doc_key'],
-               'src': '控制器 · signal-atlas 索引 %s · %s %s %s' % (dc['built_at'], x['ctrl'], x['mod'], x['pt'])}
+               'src': '控制器 · %s checkout %s（signal-atlas 索引 %s）· %s %s' % (x['ctrl'], co or '?', dc['built_at'], x['mod'], x['pt'])}
         ents.append(ent)
         if primary is None and x['lo'] is not None and x['hi'] is not None:
             primary = {'lo': x['lo'], 'hi': x['hi'], 'unit': x['units'], 'src': ent['src'], 'lvl': 'ctrl', 'kind': 'dcdas', 'ent': ent, 'field': DCDAS_FIELD,
-                       'built_at': dc['built_at']}
+                       'built_at': dc['built_at'], 'checkout_at': co, 'ctrl': x['ctrl']}
     return ents, primary
 
 
 def dcdas_doc(dc):
     """index.searched['dcdas'] 的一筆與 index.docs 的一項：把索引當一份「文件」描述（不含本機路徑）。"""
-    why = ('索引建立 %s（ToolboxST %s；控制器 %s）。只涵蓋類比輸入通道（4-20 mA）的 Low/High Value；FF 設備與 HART 多工器本體不在 I/O 索引。'
-           '位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。索引是 checkout 快照，不是控制器即時狀態。'
-           % (dc['built_at'], dc['toolbox'], '、'.join(dc['controllers'])))
-    s = {'doc_id': 'signal-atlas', 'rev': dc['built_at'], 'ref': 'signal-atlas 索引 ' + dc['built_at'],
+    lm = dc.get('last_mod') or {}
+    co_list = '、'.join('%s %s' % (k, lm.get(k) or '?') for k in dc['controllers'])
+    co_span = ('%s～%s' % (min(v for v in lm.values() if v), max(v for v in lm.values() if v))) if any(lm.values()) else '?'
+    why = ('各控制器 checkout 日期（比對基準用）：%s；索引建立 %s（ToolboxST %s）。只涵蓋類比輸入通道（4-20 mA）的 Low/High Value；'
+           'FF 設備與 HART 多工器本體不在 I/O 索引。位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。'
+           '索引是 checkout 快照，不是控制器即時狀態。'
+           % (co_list, dc['built_at'], dc['toolbox']))
+    s = {'doc_id': 'signal-atlas', 'rev': co_list, 'ref': '控制器 checkout %s（signal-atlas 索引 %s）' % (co_span, dc['built_at']),
          'title': 'signal-atlas 訊號索引（ToolboxST checkout I/O 組態）', 'folder': '（本機索引 %LOCALAPPDATA%\\dcdas，不在工程文件庫）', 'used': True, 'why': why}
     return s, {dc['doc_key']: {'title': s['title'], 'folder': s['folder'], 'why': why}}
 
@@ -446,7 +454,7 @@ def resolve_doc_numbers(out, docs, drive):
 
 # ------------------------------------------------------------------ DCS 基準比對
 BASE_LABEL = {'dcdas': 'DCS 控制器組態 (AI Low/High Value)', 'terminal': 'DCS 端子表 (DEVICE_LO/HI)'}
-CMP_STATUSES = ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown')
+CMP_STATUSES = ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown', 'ref_only')  # ref_only＝EOMR 序號不符（非本台），只列參考未比較
 
 
 def ams_current(r):
@@ -464,7 +472,7 @@ def ams_current(r):
 
 
 def dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note):
-    """AMS 事件中 Cat28 外部主機寫入的 URV/LRV → DCS 寫入來源（沒有控制器資料、或寫入晚於控制器索引時當基準）；沒有回 None。"""
+    """AMS 事件中 Cat28 外部主機寫入的 URV/LRV → DCS 寫入來源（沒有控制器資料、或寫入晚於該控制器 checkout 日期時當基準）；沒有回 None。"""
     if not ('URV' in dw or 'LRV' in dw):
         return None
     parts = []
@@ -506,17 +514,27 @@ def dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note):
             'label': 'DCS 寫入 (AMS 事件)', 'note': '；'.join(notes)}
 
 
+CMP_NOTE_PREFIXES = ('換算為 ', '僅比較', '一致（', '⚠ 與 DCS', '上下限方向相反', '疑似絕壓', 'DCS 基準單位', '此來源', '單位不同（', '絕對壓／表壓')  # compare_range 的 note 段
+
+
 def dcs_write_date(dw_base):
     """DCS 寫入來源字串裡最新的寫入日期（@YYYY-MM-DD）；沒有回 ''。"""
     return max(re.findall(r'@(\d{4}-\d{2}-\d{2})', dw_base.get('src') or ''), default='')
 
 
-def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats):
-    """基準順序：控制器 I/O 組態 (dcdas) > DCS 寫入 (AMS 事件；只有寫入晚於控制器索引、或沒有控制器資料時) > DCS 端子表（設計文件）。
+def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats, eo_ref=None):
+    """基準順序：控制器 I/O 組態 (dcdas) > DCS 寫入 (AMS 事件；只有寫入晚於該控制器 checkout 日期、或沒有控制器資料時) > DCS 端子表（設計文件）。
+    eo_ref＝序號與 AMS 不符（非本台）的 EOMR 證書：只在 others 列一筆 status='ref_only'，不比較、不寫 cmp_mark。
     回傳 (compare, cmp_mark)；不符／未比較時也在該來源 entry 的量程欄位（rows[i][2]）標狀態。"""
     dw = base if base is not None and base.get('kind') == 'dcs_write' else None
-    if dc_primary and (dw is None or dcs_write_date(dw) <= (dc_primary.get('built_at') or '')):
-        note = ('曾有 DCS 寫入事件（%s，見下列「DCS 寫入 (AMS 事件)」）；控制器索引 %s 較新，以控制器為準' % (dcs_write_date(dw), dc_primary.get('built_at'))) if dw else ''
+    if dc_primary and dw:
+        # 統計：改用 checkout 日（而非索引建立日）判定後，基準是否因此不同
+        wd = dcs_write_date(dw)
+        if (wd <= (dc_primary.get('checkout_at') or dc_primary.get('built_at') or '')) != (wd <= (dc_primary.get('built_at') or '')):
+            stats['baseline_changed_by_checkout'] = stats.get('baseline_changed_by_checkout', 0) + 1
+    if dc_primary and (dw is None or dcs_write_date(dw) <= (dc_primary.get('checkout_at') or dc_primary.get('built_at') or '')):
+        note = ('曾有 DCS 寫入事件（%s，見下列「DCS 寫入 (AMS 事件)」）；控制器 %s checkout %s（索引 %s）較新，以控制器為準'
+                % (dcs_write_date(dw), dc_primary.get('ctrl') or '?', dc_primary.get('checkout_at') or '?', dc_primary.get('built_at'))) if dw else ''
         base = dict(dc_primary, label=BASE_LABEL['dcdas'], note=note, bounds={'lo', 'hi'})
     elif base is None and term_primary:
         base = dict(term_primary, label=BASE_LABEL['terminal'], note='', bounds={'lo', 'hi'})
@@ -559,6 +577,10 @@ def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primar
             for row in ent['rows']:
                 if row[0] == fld or (c['kind'] == 'terminal' and row[0].startswith('DCS 量程')):
                     row[2:] = [st]
+    if eo_ref:  # 序號不符的證書：非本台，只列參考、不比較、不標 ⚠
+        others.append({'kind': 'eomr', 'label': 'EOMR 出廠校正量程', 'lvl': eo_ref['lvl'], 'src': eo_ref['src'], 'lo': eo_ref['lo'], 'hi': eo_ref['hi'],
+                       'unit': eo_ref['unit'], 'status': 'ref_only', 'note': '證書序號與 AMS 不符（非本台），僅供參考、未比較'})
+        stats['compare_status']['ref_only'] = stats['compare_status'].get('ref_only', 0) + 1
     b = {k: base[k] for k in ('kind', 'label', 'lvl', 'src', 'lo', 'hi', 'unit', 'note')}
     b['bounds'] = sorted(base['bounds'])
     compare.append({'item': '量程', 'baseline': b, 'others': others})
@@ -577,13 +599,15 @@ def strip_marks(sec):
 
 
 def new_stats(aliases):
-    return {'devices': len(aliases), 'with_compare': 0, 'compare_status': {}, 'baseline': {'dcs_write': 0, 'dcdas': 0, 'terminal': 0}, 'sections': {}}
+    return {'devices': len(aliases), 'with_compare': 0, 'compare_status': {}, 'baseline': {'dcs_write': 0, 'dcdas': 0, 'terminal': 0},
+            'baseline_changed_by_checkout': 0, 'sections': {}}
 
 
 COMPARE_RULE = ('DCS 基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）'
                 '→ (2) AMS 事件中該參數最新一次值有改變的 Cat28 外部主機寫入（URV/LRV；只寫入一端時只比較該端，單位用 AMS 單位；'
-                '只有寫入晚於控制器索引建立日或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）；'
-                '容許 ±0.5% span；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」')
+                '只有寫入晚於該控制器 checkout 日期或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）；'
+                '容許 ±0.5% span；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」；'
+                'EOMR 證書序號與 AMS 不符者（非本台）只列參考（ref_only）不比較，AMS 未寫入序號者仍比對但註明無法確認為同一台')
 
 
 # ------------------------------------------------------------------ 文件 entry → 顯示
@@ -767,6 +791,7 @@ def main():
         E = kinds['eomr']['by_alias'].get(al) or []
         eo_entries = []
         eo_primary = None
+        eo_ref = None  # 序號與 AMS 不符（非本台）的證書：只列參考
         cands = []
         for e in E:
             f = fdict(e)
@@ -786,10 +811,14 @@ def main():
                 ent['d'] = dk
             eo_entries.append(ent)
             if num(f.get('出廠量程下限_num')) is not None and num(f.get('出廠量程上限_num')) is not None:
-                cands.append((0 if f.get('序號與 AMS 相符') == '是' else 1, len(cands), {
-                    'lo': num(f['出廠量程下限_num']), 'hi': num(f['出廠量程上限_num']), 'unit': f.get('量程單位') or '', 'src': ent['src'],
-                    'lvl': lvl, 'kind': 'eomr', 'ent': ent, 'field': '出廠校正量程（原文）',
-                    'pre_note': '' if f.get('序號與 AMS 相符') == '是' else '證書序號與 AMS 不符；'}))
+                mt = str(f.get('序號與 AMS 相符') or '')  # docmap_eomr：'是'｜'否（AMS=…）'｜'AMS 無序號（…）'
+                q = {'lo': num(f['出廠量程下限_num']), 'hi': num(f['出廠量程上限_num']), 'unit': f.get('量程單位') or '', 'src': ent['src'],
+                     'lvl': lvl, 'kind': 'eomr', 'ent': ent, 'field': '出廠校正量程（原文）'}
+                if mt.startswith('否'):  # 序號不符＝非本台：不進候選，只列參考
+                    if eo_ref is None:
+                        eo_ref = q
+                else:
+                    cands.append((0 if mt == '是' else 1, len(cands), dict(q, pre_note='' if mt == '是' else 'AMS 未寫入序號，無法確認為同一台；')))
         if cands:
             eo_primary = sorted(cands, key=lambda x: (x[0], x[1]))[0][2]
         if eo_entries:
@@ -829,7 +858,7 @@ def main():
         r = r13.get(al)
         ams_cur, ams_unit_note = ams_current(r)
         compare, cmp_mark = build_compare(dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note), dc_primary, term_primary,
-                                          ams_cur, il_primary, eo_primary, stats)
+                                          ams_cur, il_primary, eo_primary, stats, eo_ref)
         strip_marks(sec)
         if cmp_mark:
             flags['cmp'] = cmp_mark
@@ -873,7 +902,15 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
                     if len(row) > 2 and row[2] in CMP_STATUSES:
                         del row[2:]
         oc = o.get('compare') or []
-        base_dcs, prim = None, {}
+        base_dcs, prim, eo_ref = None, {}, None
+
+        def eomr_serial(x):
+            """舊 others 列 → 該證書 entry 的「序號與 AMS 相符」欄值（依 src 找 entry）；找不到回 ''。"""
+            ent = next((e for e in (sec.get('eomr') or {}).get('entries', []) if e.get('src') == x.get('src')), None)
+            for row in (ent or {}).get('rows') or []:
+                if row[0] == '序號與 AMS 相符':
+                    return str(row[1] or '')
+            return ''
         if oc:
             b = oc[0]['baseline']
             if b['kind'] == 'dcs_write':
@@ -881,10 +918,21 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
             elif b['kind'] in ('terminal', 'dcdas'):
                 prim[b['kind']] = b
             for x in oc[0].get('others') or []:
-                if x['kind'] in ('terminal', 'instlist', 'eomr'):
+                if x['kind'] == 'eomr':
+                    mt = eomr_serial(x)
+                    note = x.get('note') or ''
+                    # 序號不符（非本台）：entry 欄值以「否」開頭；沒有 entry 可查時看舊 note 前綴／status
+                    is_ref = mt.startswith('否') if mt else (x.get('status') == 'ref_only' or note.startswith('證書序號與 AMS 不符'))
+                    if is_ref:
+                        if eo_ref is None and x.get('lo') is not None and x.get('hi') is not None:
+                            eo_ref = {'lo': x['lo'], 'hi': x['hi'], 'unit': x.get('unit') or '', 'src': x.get('src'), 'lvl': x.get('lvl') or 'factory', 'kind': 'eomr'}
+                    elif 'eomr' not in prim:
+                        prim['eomr'] = x
+                elif x['kind'] in ('terminal', 'instlist'):
                     prim[x['kind']] = x
-                elif x['kind'] == 'dcs_write':  # 舊資料把寫入事件列為一般來源：還原成 DCS 寫入來源（note 去掉比對結果）
-                    base_dcs = dict(x, bounds=set(x.get('bounds') or ['lo', 'hi']), note=(x.get('note') or '').split('；僅比較')[0].split('；一致')[0].split('；⚠')[0])
+                elif x['kind'] == 'dcs_write':  # 舊資料把寫入事件列為一般來源：還原成 DCS 寫入來源（note 去掉 compare_range 產生的段，含「換算為」，否則每次重算累積）
+                    base_dcs = dict(x, bounds=set(x.get('bounds') or ['lo', 'hi']),
+                                    note='；'.join(seg for seg in (x.get('note') or '').split('；') if seg and not seg.startswith(CMP_NOTE_PREFIXES)))
 
         def primary(kind, field):
             p = prim.get(kind)
@@ -897,8 +945,11 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
             note = p.get('note') or ''
             if kind == 'instlist' and note.startswith('此來源量程為數值儲存格'):
                 q['unit_presumed'] = True
-            if kind == 'eomr' and note.startswith('證書序號與 AMS 不符'):
-                q['pre_note'] = '證書序號與 AMS 不符；'
+            if kind == 'eomr':
+                mt = eomr_serial(p)  # entry 欄值優先；找不到 entry 時看舊 note 前綴（舊資料兩種情形都寫「證書序號與 AMS 不符」）
+                no_serial = mt.startswith('AMS 無序號') if mt else note.startswith(('AMS 未寫入序號', '證書序號與 AMS 不符'))
+                if no_serial:
+                    q['pre_note'] = 'AMS 未寫入序號，無法確認為同一台；'
             return q
         term_primary = primary('terminal', None)
         il_primary = primary('instlist', '設計量程（原文）')
@@ -914,7 +965,7 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
             sec['dcdas'] = {'entries': dc_entries}
         if not oc and dc_primary and any(sec.get(k) for k in ('instlist', 'eomr')):
             n_lost += 1  # 新有基準、但舊資料沒有 compare 可借儀器清單／EOMR 數值
-        compare, cmp_mark = build_compare(base_dcs, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats)
+        compare, cmp_mark = build_compare(base_dcs, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats, eo_ref)
         strip_marks(sec)
         flags = dict(o.get('flags') or {})
         flags.pop('cmp', None)
@@ -982,6 +1033,8 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     open(os.path.join(card_dir, 'index.json'), 'wb').write(idata.encode('utf-8'))
     print('card aux: %d aliases, %d parts, max %d KB, total %d KB, index %d KB' % (len(alias_map), len(parts), max(sizes) // 1024, sum(sizes) // 1024, len(idata.encode('utf-8')) // 1024))
     print(json.dumps(stats, ensure_ascii=False))
+    print('compare: EOMR 序號不符只列參考（ref_only）%d 筆；改以控制器 checkout 日判定後基準不同 %d 筆'
+          % (stats['compare_status'].get('ref_only', 0), stats.get('baseline_changed_by_checkout', 0)))
 
     # ---- manifest build（含 card/*.json）＋ 加密 ＋ stamp
     man_path = os.path.join(outdir, 'manifest.json')

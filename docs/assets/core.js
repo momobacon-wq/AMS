@@ -766,6 +766,7 @@
   /* ------------------------------------------------------------------ 位號索引（05）與設備總表（03） */
   const IX = (AMS.index = {});
   IX.norm = (q) => String(q == null ? '' : q).replace(/=/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+  IX.compact = (q) => IX.norm(q).replace(/[^A-Z0-9]/g, ''); // 去掉分隔符（- _ . / 空白…）只留英數：貼上 G12-HAP70-BT001 也對得到
   IX.load = function () {
     if (IX._p) return IX._p;
     IX._p = (async () => {
@@ -781,6 +782,10 @@
         if (!first.has(k)) { first.set(k, i); keys.push(k); }
       });
       IX.first = first; IX.keys = keys;
+      // 去分隔符後的鍵 → 原鍵（第一個）；與 keys 同序的 compact 陣列給「輸入字串包含鍵」掃描用
+      const cmap = new Map(); const kc2 = [];
+      keys.forEach((k) => { const c = IX.compact(k); kc2.push(c); if (c && !cmap.has(c)) cmap.set(c, k); });
+      IX.compactMap = cmap; IX.keysCompact = kc2;
       return IX;
     })();
     IX._p.catch(() => { IX._p = null; });
@@ -800,6 +805,28 @@
       rows.forEach((r) => { if (U.text(r[IX.kc]) === key) { const a = U.text(r[IX.ac]); if (a && !seen.has(a)) { seen.add(a); out.push(a); } } });
     }
     return out;
+  };
+  /** 把使用者輸入解析成索引鍵。順序：完全相符 → 去掉分隔符後相符（G12-HAP70-BT001）→ 輸入字串包含某個鍵，取最長且 ≥6 字元（貼上帶前後綴的 1G12HAP70BT001、G12HAP70BT001.PV）
+   *  → 相近建議（只有一個時直接當結果）。回傳 { key, how: 'exact'|'compact'|'contain'|'suggest'|'none'|'empty', candidates, suggestions }。
+   *  不用寫死的 KKS 正規式：索引裡還有 HostTag、HART 長位號、裝置 ID 等各種鍵。 */
+  IX.resolve = function (q) {
+    const n = IX.norm(q);
+    if (!n) return { key: '', how: 'empty', candidates: [], suggestions: [] };
+    if (IX.first.has(n)) return { key: n, how: 'exact', candidates: [n], suggestions: [] };
+    const c = IX.compact(n);
+    const ck = c ? IX.compactMap.get(c) : null;
+    if (ck) return { key: ck, how: 'compact', candidates: [ck], suggestions: [] };
+    if (c.length >= 6) {
+      let best = ''; let bestLen = 0;
+      const kc = IX.keysCompact || [];
+      for (let i = 0; i < kc.length; i++) {
+        const x = kc[i];
+        if (x.length >= 6 && x.length > bestLen && c.includes(x)) { best = IX.keys[i]; bestLen = x.length; }
+      }
+      if (best) return { key: best, how: 'contain', candidates: [best], suggestions: [] };
+    }
+    const sg = IX.suggest(n, 12);
+    return { key: sg.length === 1 ? sg[0].key : '', how: sg.length ? 'suggest' : 'none', candidates: sg.map((x) => x.key), suggestions: sg };
   };
   IX.suggest = function (q, limit) {
     limit = limit || 12;

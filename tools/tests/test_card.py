@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""查詢卡：文件全文檢索收合組與雲端硬碟連結、DCS 不符旗標、查無位號、上一頁同步查詢框、手機版面、Service Worker、console 零錯誤。"""
+"""查詢卡：文件全文檢索收合組與雲端硬碟連結、DCS 不符旗標、查無位號、上一頁同步查詢框、帶前後綴／分隔符的輸入、換位號捲回頂端、完整資料延後載入、手機版面、Service Worker、console 零錯誤。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
 DOC_TAG = 'C10LAB22BP001'      # 有文件全文檢索與雲端硬碟連結
@@ -40,6 +40,22 @@ def run(ctx):
         ck('back: input synced to route', page.input_value('#cq-input') == FLAG_TAG, page.input_value('#cq-input'))
         page.evaluate("location.hash = '#/card/%s'" % DOC_TAG); page.wait_for_timeout(800)
         ck('hash set: input synced', page.input_value('#cq-input') == DOC_TAG, page.input_value('#cq-input'))
+        # ---- 帶分隔符／前後綴的輸入：深連結與查詢框都自動對應到位號
+        page.goto(ctx['base'] + '/db/#/card/' + 'G12-HAP70-BT001'); page.wait_for_timeout(800)
+        ck('dashed deep link resolves', page.evaluate("(document.querySelector('.sum-tagtext') || {}).textContent || ''").strip() == FLAG_TAG)
+        ck('dashed deep link: status says auto-mapped', '自動對應' in page.locator('.cq-status').inner_text())
+        page.fill('#cq-input', '1' + FLAG_TAG + '.PV'); page.press('#cq-input', 'Enter'); page.wait_for_timeout(800)
+        ck('pasted with prefix/suffix: hash becomes the key', page.evaluate('location.hash') == '#/card/' + FLAG_TAG, page.evaluate('location.hash'))
+        # ---- 完整資料收合時不抓變更歷程；展開才抓
+        rcs = page.evaluate("(() => { const r = performance.getEntriesByType('resource').map(e => e.name); return r.filter(u => /sheets\\/14\\.json/.test(u)).length; })()")
+        ck('collapsed: change-history sheet not fetched', rcs == 0, rcs)
+        page.locator('.cq-more > summary').click(); page.wait_for_timeout(1500)
+        ck('expanded: recent section rendered', page.locator('.cq-more .csec.recent').count() == 1)
+        page.locator('.cq-more > summary').click(); page.wait_for_timeout(200)
+        # ---- 換位號捲回頂端
+        page.evaluate("document.querySelector('.card-view').scrollTop = 600")
+        page.evaluate("location.hash = '#/card/%s'" % DOC_TAG); page.wait_for_timeout(800)
+        ck('switch tag: scrolled to top', page.evaluate("document.querySelector('.card-view').scrollTop") == 0)
         # ---- 查無位號：無建議 vs 有相近建議
         page.goto(ctx['base'] + '/db/#/card/XXXX999'); page.wait_for_timeout(600)
         st = page.locator('.cq-status').inner_text()
@@ -66,6 +82,9 @@ def run(ctx):
         login(page, ctx)
         ck('mobile placeholder explains keys', '位號' in (page.get_attribute('#cq-input', 'placeholder') or ''))
         load_card(page, ctx, FLAG_TAG)
+        page.fill('#cq-input', DOC_TAG); page.press('#cq-input', 'Enter'); page.wait_for_timeout(600)
+        ck('mobile: keyboard dismissed after Enter (input blurred)', page.evaluate("document.activeElement && document.activeElement.id") != 'cq-input')
+        ck('mobile: input has no autocorrect', page.get_attribute('#cq-input', 'autocorrect') == 'off')
         w = page.evaluate("({sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth})")
         ck('mobile: no horizontal scroll', w['sw'] <= w['cw'], w)
         shot(page, ctx, 'card_mobile')

@@ -1,0 +1,30 @@
+#!/bin/sh
+# 下一行是 CRLF 防呆：若被 core.autocrlf 轉成 CRLF，去掉 CR 後以 sh 重跑（整行必須以註解結尾，行尾的 CR 才不會壞掉語法）
+if grep -q "$(printf '\r')" "$0" 2>/dev/null; then tr -d '\r' < "$0" | sh -s -- "$@"; exit $?; fi #
+# push 前關卡（commit 階段）：擋住機密檔與明文資料進 repo。
+# 啟用（只影響本機）：git config core.hooksPath tools/hooks
+# 單獨測試：git add <檔案>; sh tools/hooks/pre-commit（exit 非 0 = 被擋）
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# 機密：密語檔、Cloudflare .dev.vars、AMS 備份、SQL Server sa 密碼、真實庫存 csv、匯入 SQL
+secret=$(printf '%s\n' "$staged" | grep -E 'web\.key$|\.key$|\.dev\.vars$|\.ams_bckup$|\.ams_sa_pw|tools/stock/.*\.csv$|import.*\.sql$')
+# 明文資料：docs/*/data 底下只准 meta.json 是 .json，其餘資料應是加密後的 .bin
+plain=$(printf '%s\n' "$staged" | grep -E '^docs/(.*/)?data/.*\.json$' | grep -vE '(^|/)meta\.json$')
+
+rc=0
+if [ -n "$secret" ]; then
+  echo '!! pre-commit 擋下：以下檔案是機密，不可進 repo（密語／token／備份／庫存匯入檔）：' >&2
+  printf '   %s\n' $secret >&2
+  rc=1
+fi
+if [ -n "$plain" ]; then
+  echo '!! pre-commit 擋下：docs/*/data 底下出現明文 .json（只有 meta.json 可以是 .json，資料必須先用 tools/encrypt_data.py 加密成 .bin）：' >&2
+  printf '   %s\n' $plain >&2
+  rc=1
+fi
+if [ "$rc" -ne 0 ]; then
+  echo '   請 git reset <檔案> 取消暫存；若確定是誤判，用 git commit --no-verify 略過（請三思）。' >&2
+fi
+exit $rc

@@ -8,6 +8,7 @@
 - `worker/schema.sql`：`items`（料號、型號、數量…；`qty CHECK ≥ 0`）、`ledger`（每筆出入庫，只附加）、`txns`（同 txnId 重送不重扣）。
 - 寫入要同時有 AMS 登入 token（同登入閘門的 HMAC，密鑰 `AUTH_SECRET`）與 `STOCK_TOKEN`（由站台密語導出）；只對 `ALLOWED_ORIGINS` 回 CORS。
 - 領取：整批驗證（料號存在、不可扣成負數）→ `DB.batch` 單一交易（寫 txns → 改數量 → 寫紀錄），任一失敗整批回滾。
+- 冪等：前端開領取／放入視窗時產生一次 `txnId`，同一視窗重按幾次都沿用；連線逾時（20 秒）或 fetch 失敗時提示「可能已寫入；再按一次會以同一交易編號重送，不會重扣」，後端對同一 `txnId` 回 `replay:true`，toast 加註「先前已寫入，未重扣」。`mock_stock.py` 同樣回 `replay`（記憶體＋紀錄檔）。
 
 ## 一次性：合約 → 匯入 SQL
 
