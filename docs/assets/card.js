@@ -412,8 +412,9 @@
       const blank = o.val === '' || o.val == null;
       const v = U.h('div', { class: 'cf-v' + (blank ? ' blank' : '') + (o.num && !blank ? ' num' : '') + (o.warn ? ' warn' : '') + (o.soft ? ' soft' : '') });
       if (o.css) v.setAttribute('style', o.css);
-      if (!blank && o.href) v.appendChild(U.h('a', { class: 'cf-t doclk', href: o.href, target: '_blank', rel: 'noopener noreferrer', title: o.hrefTitle || '在 Google 雲端硬碟開啟這份文件' }, U.visible(o.val, true)));
-      else v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(o.val, true)));
+      const shown = o.text != null ? o.text : o.val; // o.text：顯示文字與原值不同時（網址類的值顯示短標籤）
+      if (!blank && o.href) v.appendChild(U.h('a', { class: 'cf-t doclk', href: o.href, target: '_blank', rel: 'noopener noreferrer', title: o.hrefTitle || '在 Google 雲端硬碟開啟這份文件' }, U.visible(shown, true)));
+      else v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(shown, true)));
       for (const fl of o.flags || []) v.appendChild(U.h('span', { class: 'cmp-flag ' + (fl.cls || '') }, fl.t));
       item.appendChild(v);
       if (o.src) {
@@ -596,6 +597,13 @@
     }
     /** 值有文件連結時的 href／標題／來源明細：值指名的文件優先，否則是值所在的來源文件 */
     valueLink(ix, val, srcKey, detail) {
+      const sv = String(val || '');
+      if (/^https?:\/\/\S+$/i.test(sv)) { // 值本身是網址（signal-atlas 深連結等）：顯示「站名 › 最後一段」，整段可點，完整網址放來源明細
+        let text = sv;
+        try { const u = new URL(sv); const segs = (u.hash ? u.hash.replace(/^#\/?/, '') : u.pathname).split('/').filter(Boolean); const site = u.pathname.split('/').filter(Boolean)[0] || u.hostname; text = site + ' › ' + decodeURIComponent(segs[segs.length - 1] || u.hostname); } catch (e) { /* 保留原值 */ }
+        detail.push(['連結', U.h('a', { class: 'lk', href: sv, target: '_blank', rel: 'noopener noreferrer' }, sv)]);
+        return { href: sv, hrefTitle: '開啟 ' + sv, text };
+      }
       const dn = this.docNoLink(ix, val);
       if (dn) {
         const d = ix.docs[dn.key];
@@ -926,7 +934,7 @@
           const stt = this.rowStatus(ent, key);
           const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
           const v = this.rowVal(ent, key); const det = detail.slice(); const lk = this.valueLink(ix, v, ent.d, det);
-          sg.appendChild(this.fieldEl({ label: key, val: v, flags, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
+          sg.appendChild(this.fieldEl({ label: key, val: v, text: lk.text, flags, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
         }
         sig.appendChild(sg);
         grid.appendChild(sig);

@@ -866,7 +866,8 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
 .sum-g { min-width: 0; border-top: 1px solid var(--border); }
 .sum-g:nth-child(odd) { border-right: 1px solid var(--border); }
-.sum-ctrl, .sum-draw, .sum-docs, .sum-search { grid-column: 1 / -1; border-right: 0 !important; }
+/* 每個訊號一塊（dcs＝控制器組態、ctrl＝端子表）與文件類的組佔整列；否則三欄的訊號塊擠在半欄、右半邊空白 */
+.sum-dcs, .sum-ctrl, .sum-draw, .sum-docs, .sum-search { grid-column: 1 / -1; border-right: 0 !important; }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */
 details.sum-g > summary.sum-gh { cursor: pointer; list-style: none; user-select: none; min-height: 28px; box-sizing: border-box; }
 details.sum-g > summary.sum-gh::-webkit-details-marker { display: none; }
