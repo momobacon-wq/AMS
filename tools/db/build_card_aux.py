@@ -19,19 +19,23 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
 與 tools/db/drive_map.py 的 路徑→Google 雲端硬碟檔案 ID 對照 %LOCALAPPDATA%\\AMS\\drive_map.json（`--drive-map`；有就替 index.docs 每份文件補 url，前端把數值變成連結）。
 
 輸出（CONTRACT.md「card aux」）：
-  docs/db/data/card/index.json   {version, parts, alias:{alias: 塊號}, src_defs, searched:{kind:[...]}, docs:{key:{...}}, stats}
-  docs/db/data/card/aux-NN.json  {part, by_alias:{alias:{sec:{...}, compare:[...], flags:{...}}}}
+  docs/db/data/card/index.json   {version:2, parts, alias:{alias: 塊號}, src_defs, searched:{kind:[...]}, source_stats, stats, compare_rule}（只留全廠 alias map 等小東西）
+  docs/db/data/card/aux-NN.json  {part, by_alias:{alias:{sec:{...}, compare:[...], flags:{...}}}, docs:{key:{...}}, doc_no:{編號: key}}（docs／doc_no 只帶該塊用到的子集）
 並重算 manifest.build（含 card/*.json）後重新 stamp docs/db/index.html（tools/db/extract_db.py 的 stamp）。
+外部索引（dcdas／docsearch／drive_map）任一缺席且沒給對應 --no-* 旗標時以非 0 結束（rebuild.py 因此中止並走加密回滾），不再靜默略過。
 
 DCS 基準比對（compare）：量程上/下限的基準依序＝(1) 控制器現行 I/O 組態（dcdas：該位號類比輸入通道的 Low/High Value，sec.dcdas）
 → (2) AMS 事件中該參數最新一次「值有改變」的 Cat28 外部主機寫入（dcs_writes URV/LRV；只有寫入事件晚於該控制器 checkout 日期
 （dcdas controller.last_mod，索引建立日只是備援）、或沒有控制器資料時才當基準）
 → (3) DCS 端子表 DEVICE_LO/HI（設計文件）。（2026-09-24 調整：G12HAP70BT001 的 DCS 寫入 160 之後被人工改回 200、控制器也是 200，
 寫入事件只是歷史，不該讓一致的來源被標 ⚠。）
+同位號對到多個類比輸入通道時，基準優先取控制器與位號機組前綴一致者；各通道量程不一時其餘通道各列一列 others kind='dcdas_ch'、flags.cmp.dcdas_multi='warn'。
 其餘來源——AMS 現值（13 表 LRV/URV/單位）、DCS 寫入事件（只比寫入的那一端）、端子表、儀器清單、EOMR——逐一與基準比對：
-容許 ±0.5% span；單位先換算（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、mm/cm/m/in、%），無法換算 → unit_mismatch。
+同單位者 7 位有效數字完全相同才 ok，差在 ±0.5% span 內為 near（≈ 近似，請確認），其餘 mismatch；需換算單位者（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、
+mm/cm/m/in、%）維持 ±0.5% span 內為 ok（文件常寫圓整值），無法換算 → unit_mismatch。
 EOMR 證書「序號與 AMS 相符」＝否（非本台）者不比較，只在 compare.others 列一筆 status='ref_only' 供參考；AMS 未寫入序號者仍比對但註明無法確認為同一台。
-2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同（所以端子表降為第 3 順位）。
+全廠比對（write_output 結尾會印「AMS 現值 vs 控制器組態：完全相同／近似／不符」三段）：2026-09-26 重算，有控制器基準且 AMS 有現值的 1,240 台中
+完全相同 1,128（91%）、近似 22（2%）、不符 53（4%）、單位不明／不同未比較 37；端子表有 37% 與控制器不同（所以端子表降為第 3 順位）。
 決定性輸出（無時間戳）；不寫入任何本機絕對路徑（最後以 regex 自檢）。
 
 --recompare：cardwork（ams/terminal/instlist/eomr/docindex.json）已不在手邊時，讀已發布的 card/*.json，保留各文件區段，只重算
@@ -171,7 +175,10 @@ ATM_KPA = 101.325
 
 def compare_range(base, other):
     """回傳 (status, note, lo_conv, hi_conv)。
-    status：ok｜mismatch｜unit_mismatch（兩邊單位都明確但量綱不同/絕壓↔表壓）｜unit_unknown（任一邊單位空白、無法辨識或僅為推定）。
+    status：ok｜near（同單位、數值不同但差在 ±0.5% span 內：請確認）｜mismatch｜unit_mismatch（兩邊單位都明確但量綱不同/絕壓↔表壓）
+    ｜unit_unknown（任一邊單位空白、無法辨識或僅為推定）。
+    同單位（不需換算）時只有 7 位有效數字完全相同才算 ok——量程差異只會是 float32 殘差或真的有人改過，URV 1000 vs 996 不該顯示 ✓；
+    需換算的（psi↔kPa、°F↔°C）文件常寫圓整值，維持 ±0.5% span 內為 ok。
     base['bounds']：要比較的端（{'lo','hi'} 的子集；DCS 只寫入一端時另一端不比較）。"""
     if other.get('unit_presumed'):
         return 'unit_unknown', '此來源量程為數值儲存格，原文無單位（單位僅來自儲存格數字格式，推定），未比較', None, None
@@ -216,7 +223,16 @@ def compare_range(base, other):
                 base['unit'], other['unit'], g7(l2), g7(h2)), None, None
     if bad:
         return 'mismatch', note + '⚠ 與 DCS 不符（%s，容許 ±0.5%% span）' % '、'.join(bad), lo, hi
-    return 'ok', note + '一致（容許 ±0.5% span）', lo, hi
+    if not conv:
+        # 同單位：精確相等（7 位有效數字）才 ok；差在容差內另立 near（前端黃色「≈ 近似（請確認）」），逐端標記依 note 括號內的端
+        near = []
+        for k, side, v in (('lo', '下限', lo), ('hi', '上限', hi)):
+            if k in bounds and v is not None and base[k] is not None and g7(v) != g7(base[k]):
+                near.append('%s %s vs %s' % (side, g7(v), g7(base[k])))
+        if near:
+            return 'near', note + '≈ 近似（%s；同單位但數值不同，差在 ±0.5%% span 內，請確認）' % '、'.join(near), lo, hi
+        return 'ok', note + '一致（同單位，數值相同）', lo, hi
+    return 'ok', note + '一致（換算後在 ±0.5% span 內）', lo, hi
 
 
 def unit_of_code_str(s):
@@ -283,10 +299,22 @@ def match_dcdas(tag, dc):
     return [], ''
 
 
+def tag_ctrls(tag):
+    """位號的機組前綴 → 該機組的控制器名（PREFIX_CTRL）；C10（共用）或無前綴回 None（不限控制器）。"""
+    m = re.match(r'^(S10|G11|G12|C10)', re.sub(r'\s+', '', str(tag or '')).upper())
+    return PREFIX_CTRL.get(m.group(1)) if m else None
+
+
 def dcdas_entries(tag, dc):
-    """→ (entries, primary)：每個類比輸入通道一筆 entry（sec.dcdas）；primary＝第一個有 Low/High 的通道（DCS 基準候選）。"""
+    """→ (entries, primary)：每個類比輸入通道一筆 entry（sec.dcdas）；primary＝DCS 基準候選：有 Low/High 的通道中，優先取控制器與位號機組
+    前綴一致者（同一 DeviceTag 可能同時接在 G11／G12／S1 多個控制器），否則依索引排序取第一個。
+    同位號多通道而各通道 (Low, High, 單位) 不全相同時（本機索引實查 19 個位號：96CD-1A/1B/1C 各 4 通道 2 種量程、C10BBT10EW001 同控制器 11 通道 4 種量程），
+    primary['multi'] 列其餘量程不同的通道（build_compare 各自列成 others kind 'dcdas_ch'、flags.cmp.dcdas_multi='warn'）；多點溫度元件多量程可能是正常設計，
+    所以只出黃色提示，不當故障。"""
     recs, how = match_dcdas(tag, dc)
     ents, primary = [], None
+    ctrls = tag_ctrls(tag)
+    cands = []  # 有 Low/High 的通道（DCS 基準候選）
     for x in recs:
         rng = ('%s – %s %s' % (g7(x['lo']), g7(x['hi']), x['units'])).strip()
         rows = [['控制器', x['ctrl']], ['I/O 模組', x['mod'] + ('（機櫃 %s）' % x['cab'] if x['cab'] else '')], ['通道', x['pt']],
@@ -298,9 +326,23 @@ def dcdas_entries(tag, dc):
         ent = {'h': '%s · %s' % (x['ctrl'], x['conn'] or x['pt']), 'lvl': 'ctrl', 'rule': how, 'rows': rows, 'd': dc['doc_key'],
                'src': '控制器 · %s checkout %s（signal-atlas 索引 %s）· %s %s' % (x['ctrl'], co or '?', dc['built_at'], x['mod'], x['pt'])}
         ents.append(ent)
-        if primary is None and x['lo'] is not None and x['hi'] is not None:
-            primary = {'lo': x['lo'], 'hi': x['hi'], 'unit': x['units'], 'src': ent['src'], 'lvl': 'ctrl', 'kind': 'dcdas', 'ent': ent, 'field': DCDAS_FIELD,
-                       'built_at': dc['built_at'], 'checkout_at': co, 'ctrl': x['ctrl']}
+        if x['lo'] is not None and x['hi'] is not None:
+            cands.append({'lo': x['lo'], 'hi': x['hi'], 'unit': x['units'], 'src': ent['src'], 'lvl': 'ctrl', 'kind': 'dcdas', 'ent': ent, 'field': DCDAS_FIELD,
+                          'built_at': dc['built_at'], 'checkout_at': co, 'ctrl': x['ctrl'], 'pt': x['pt'], 'conn': x['conn']})
+    if cands:
+        # 基準：同機組控制器優先，其次單位有寫的（G11 的 AnalogInput06_R 單位空白、G11S 的 a_96ht1a 寫 %：取後者才比得到）；其餘依索引排序
+        primary = sorted(cands, key=lambda c: (0 if ctrls and c['ctrl'] in ctrls else 1, 0 if unit_info(c['unit']) else 1, cands.index(c)))[0]
+
+        def differs(c):
+            if (g7(c['lo']), g7(c['hi'])) != (g7(primary['lo']), g7(primary['hi'])):
+                return True
+            ua, ub = unit_info(c['unit']), unit_info(primary['unit'])
+            return bool(ua and ub and ua != ub)  # 單位空白不算不同（只是沒寫）
+        others = [c for c in cands if c is not primary and differs(c)]
+        if others:
+            primary['multi'] = others
+            primary['multi_note'] = '同位號有 %d 個類比輸入通道，其中 %d 個量程與基準不同（基準取 %s %s；其餘各列一列）' % (
+                len(cands), len(others), primary['ctrl'], primary['conn'] or primary['pt'])
     return ents, primary
 
 
@@ -357,18 +399,21 @@ def load_drive_map(path):
 
 
 def add_drive_urls(docs, drive):
-    """index.docs 每份文件以「資料夾/檔名」（小寫）對照 drive_map → url（Google 雲端硬碟）。回傳有 url 的份數。
-    title 不是檔名時（docindex 的 title 是文件標題；eomr 少了副檔名）退而以 key 的 文件編號-版次 在同資料夾找檔名開頭相符的檔。"""
+    """index.docs 每份文件以「資料夾/檔名」（小寫）對照 drive_map → url（Google 雲端硬碟）。回傳 (有 url 的份數, 其中連到別版次的份數)。
+    title 不是檔名時（docindex 的 title 是文件標題；eomr 少了副檔名）退而以 key 的 文件編號-版次 在同資料夾找檔名開頭相符的檔；
+    只對到文件編號、版次不同的（同資料夾恰有一份）仍給 url 但加 url_note「雲端只找到 <檔名>（版次與本站資料來源 X 不同）」，
+    前端把它列在「Google 雲端硬碟（版次不同：檔名）」，工程師才不會以為點開的就是本站引用的那一版。"""
     if not drive:
-        return sum(1 for d in docs.values() if d.get('url'))
+        return sum(1 for d in docs.values() if d.get('url')), sum(1 for d in docs.values() if d.get('url') and d.get('url_note'))
     files = drive['files']
     by_folder = {}
     for rel in files:
         fo, _, base = rel.rpartition('/')
         by_folder.setdefault(fo, []).append(base)
-    n = 0
+    n = n_alt = 0
     for key, d in docs.items():
         if not d.get('url'):
+            d.pop('url_note', None)
             folder = (d.get('folder') or '').strip('/')
             folder = '' if folder == '.' else folder
             title = (d.get('title') or '').lower()
@@ -392,11 +437,19 @@ def add_drive_urls(docs, drive):
                     if cands[0][0] < 5 or len([c for c in cands if c[0] >= 5]) == 1:
                         base = cands[0][2]
                         fid = files.get(((folder.lower() + '/') if folder else '') + base)
+                        if fid and cands[0][0] >= 5:  # 別版次（或版次不明）的同編號檔：仍給連結但標明
+                            fm = re.match(re.escape(doc_id) + r'-([0-9a-z]{1,2})(?![0-9a-z])', base)
+                            if fm and rev:
+                                d['url_note'] = '雲端只找到 %s（版次 %s，與本站資料來源的版次 %s 不同）' % (base, fm.group(1).upper(), rev.upper())
+                            else:
+                                d['url_note'] = '雲端只找到 %s（檔名版次不明，未必是本站資料來源的版次 %s）' % (base, rev.upper() or '?')
             if fid:
                 d['url'] = 'https://drive.google.com/open?id=%s' % fid
         if d.get('url'):
             n += 1
-    return n
+            if d.get('url_note'):
+                n_alt += 1
+    return n, n_alt
 
 
 DOCNO_VAL_RE = re.compile(r'(HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4})(?:-([0-9A-Z]{1,2})(?![0-9A-Za-z]))?')
@@ -446,15 +499,20 @@ def resolve_doc_numbers(out, docs, drive):
         key = 'file|%s|%s' % (no, rev)
         if key not in docs:
             fo, _, base = rel.rpartition('/')
-            docs[key] = {'title': base, 'folder': fo or '.', 'why': '欄位值的文件編號對檔名（%s）' % ('指定版次' if rev in want else '最高版次'),
-                         'url': 'https://drive.google.com/open?id=%s' % drive['files'][rel]}
+            if rev in want:
+                why = '欄位值的文件編號對檔名（指定版次）'
+            elif want:
+                why = '欄位值的文件編號對檔名：指定版次 %s 不在雲端，改開最高版次 %s' % ('／'.join(sorted(want)), rev or '?')
+            else:
+                why = '欄位值的文件編號對檔名（未指定版次，取最高版次）'
+            docs[key] = {'title': base, 'folder': fo or '.', 'why': why, 'url': 'https://drive.google.com/open?id=%s' % drive['files'][rel]}
         doc_no[no] = key
     return doc_no
 
 
 # ------------------------------------------------------------------ DCS 基準比對
 BASE_LABEL = {'dcdas': 'DCS 控制器組態 (AI Low/High Value)', 'terminal': 'DCS 端子表 (DEVICE_LO/HI)'}
-CMP_STATUSES = ('ok', 'mismatch', 'unit_mismatch', 'unit_unknown', 'ref_only')  # ref_only＝EOMR 序號不符（非本台），只列參考未比較
+CMP_STATUSES = ('ok', 'near', 'mismatch', 'unit_mismatch', 'unit_unknown', 'ref_only')  # near＝同單位數值不同但在容差內（請確認）；ref_only＝EOMR 序號不符（非本台），只列參考未比較
 
 
 def ams_current(r):
@@ -514,7 +572,7 @@ def dcs_write_base(dw, r, term_primary, ams_cur, ams_unit_note):
             'label': 'DCS 寫入 (AMS 事件)', 'note': '；'.join(notes)}
 
 
-CMP_NOTE_PREFIXES = ('換算為 ', '僅比較', '一致（', '⚠ 與 DCS', '上下限方向相反', '疑似絕壓', 'DCS 基準單位', '此來源', '單位不同（', '絕對壓／表壓')  # compare_range 的 note 段
+CMP_NOTE_PREFIXES = ('換算為 ', '僅比較', '一致（', '≈ 近似', '⚠ 與 DCS', '上下限方向相反', '疑似絕壓', 'DCS 基準單位', '此來源', '單位不同（', '絕對壓／表壓')  # compare_range 的 note 段
 
 
 def dcs_write_date(dw_base):
@@ -525,6 +583,8 @@ def dcs_write_date(dw_base):
 def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primary, stats, eo_ref=None):
     """基準順序：控制器 I/O 組態 (dcdas) > DCS 寫入 (AMS 事件；只有寫入晚於該控制器 checkout 日期、或沒有控制器資料時) > DCS 端子表（設計文件）。
     eo_ref＝序號與 AMS 不符（非本台）的 EOMR 證書：只在 others 列一筆 status='ref_only'，不比較、不寫 cmp_mark。
+    dc_primary['multi']（同位號其餘量程不同的控制器通道）：各自與基準比對後列成 others kind 'dcdas_ch'（label「控制器組態 · <ctrl> <通道>」），
+    不寫 cmp_mark['dcdas']，改寫 cmp_mark['dcdas_multi']='warn'（前端黃色 pill「控制器多通道量程不一」）。
     回傳 (compare, cmp_mark)；不符／未比較時也在該來源 entry 的量程欄位（rows[i][2]）標狀態。"""
     dw = base if base is not None and base.get('kind') == 'dcs_write' else None
     if dc_primary and dw:
@@ -535,6 +595,8 @@ def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primar
     if dc_primary and (dw is None or dcs_write_date(dw) <= (dc_primary.get('checkout_at') or dc_primary.get('built_at') or '')):
         note = ('曾有 DCS 寫入事件（%s，見下列「DCS 寫入 (AMS 事件)」）；控制器 %s checkout %s（索引 %s）較新，以控制器為準'
                 % (dcs_write_date(dw), dc_primary.get('ctrl') or '?', dc_primary.get('checkout_at') or '?', dc_primary.get('built_at'))) if dw else ''
+        if dc_primary.get('multi_note'):
+            note = '；'.join(x for x in (note, dc_primary['multi_note']) if x)
         base = dict(dc_primary, label=BASE_LABEL['dcdas'], note=note, bounds={'lo', 'hi'})
     elif base is None and term_primary:
         base = dict(term_primary, label=BASE_LABEL['terminal'], note='', bounds={'lo', 'hi'})
@@ -555,6 +617,8 @@ def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primar
         cand.append(dict(il_primary, label='儀器清單 設計量程'))
     if eo_primary:
         cand.append(dict(eo_primary, label='EOMR 出廠校正量程'))
+    for ch in (dc_primary or {}).get('multi') or []:  # 同位號其餘量程不同的控制器通道：各列一列（kind dcdas_ch），不影響 cmp_mark['dcdas']
+        cand.append(dict(ch, kind='dcdas_ch', label='控制器組態 · %s %s' % (ch['ctrl'], ch['conn'] or ch['pt']), pre_note='同位號另一通道；'))
     for c in cand:
         # DCS 寫入事件當一般來源時只比它寫入的那一端（另一端顯示值只是參考）
         cb = dict(base, bounds=set(base['bounds']) & set(c['bounds'])) if c['kind'] == 'dcs_write' and c.get('bounds') else base
@@ -564,19 +628,31 @@ def build_compare(base, dc_primary, term_primary, ams_cur, il_primary, eo_primar
         if c['kind'] == 'dcs_write':
             o['bounds'] = sorted(c['bounds'])
         others.append(o)
+        stats['compare_status'][st] = stats['compare_status'].get(st, 0) + 1
+        if c['kind'] == 'ams' and base['kind'] == 'dcdas':  # 全廠統計：AMS 現值 vs 控制器組態（完全相同／近似／不符／未比較）
+            k3 = st if st in ('ok', 'near', 'mismatch') else 'not_compared'
+            stats['ams_vs_dcdas'][k3] = stats['ams_vs_dcdas'].get(k3, 0) + 1
+        ent = c.get('ent')
+        if c['kind'] == 'dcdas_ch':
+            if ent is not None and st != 'ok':  # 該通道 entry 的量程欄位標黃（多通道量程不一，非故障判定）
+                for row in ent['rows']:
+                    if row[0] == DCDAS_FIELD:
+                        row[2:] = ['warn']
+            continue
         cmp_mark[c['kind']] = st
-        # 逐端標記（LRV／URV 欄位旁的 ⚠）：只標有列入比較的那一端，不符只標實際不符的那一端
-        bad_sides = note.rsplit('不符（', 1)[-1] if st == 'mismatch' else ''
+        # 逐端標記（LRV／URV 欄位旁的 ⚠／≈）：只標有列入比較的那一端，不符／近似只標實際不同的那一端
+        bad_sides = note.rsplit('不符（', 1)[-1] if st == 'mismatch' else (note.rsplit('≈ 近似（', 1)[-1] if st == 'near' else '')
         for k, side in (('lo', '下限'), ('hi', '上限')):
             if k in cb['bounds']:
-                cmp_mark['%s_%s' % (c['kind'], k)] = ('mismatch' if side in bad_sides else 'ok') if st == 'mismatch' else st
-        stats['compare_status'][st] = stats['compare_status'].get(st, 0) + 1
-        ent = c.get('ent')
+                cmp_mark['%s_%s' % (c['kind'], k)] = (st if side in bad_sides else 'ok') if st in ('mismatch', 'near') else st
         if ent is not None and st != 'ok':  # 在文件／控制器 entry 的量程欄位旁標 ⚠
             fld = c.get('field') or 'DCS 量程 (DEVICE_LO/HI/UNITS)'
             for row in ent['rows']:
                 if row[0] == fld or (c['kind'] == 'terminal' and row[0].startswith('DCS 量程')):
                     row[2:] = [st]
+    if (dc_primary or {}).get('multi'):
+        cmp_mark['dcdas_multi'] = 'warn'
+        stats['dcdas_multi'] += 1
     if eo_ref:  # 序號不符的證書：非本台，只列參考、不比較、不標 ⚠
         others.append({'kind': 'eomr', 'label': 'EOMR 出廠校正量程', 'lvl': eo_ref['lvl'], 'src': eo_ref['src'], 'lo': eo_ref['lo'], 'hi': eo_ref['hi'],
                        'unit': eo_ref['unit'], 'status': 'ref_only', 'note': '證書序號與 AMS 不符（非本台），僅供參考、未比較'})
@@ -600,14 +676,16 @@ def strip_marks(sec):
 
 def new_stats(aliases):
     return {'devices': len(aliases), 'with_compare': 0, 'compare_status': {}, 'baseline': {'dcs_write': 0, 'dcdas': 0, 'terminal': 0},
-            'baseline_changed_by_checkout': 0, 'sections': {}}
+            'baseline_changed_by_checkout': 0, 'dcdas_multi': 0, 'ams_vs_dcdas': {}, 'sections': {}}
 
 
 COMPARE_RULE = ('DCS 基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）'
                 '→ (2) AMS 事件中該參數最新一次值有改變的 Cat28 外部主機寫入（URV/LRV；只寫入一端時只比較該端，單位用 AMS 單位；'
                 '只有寫入晚於該控制器 checkout 日期或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）；'
-                '容許 ±0.5% span；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」；'
-                'EOMR 證書序號與 AMS 不符者（非本台）只列參考（ref_only）不比較，AMS 未寫入序號者仍比對但註明無法確認為同一台')
+                '同單位者數值完全相同才「一致」，差在 ±0.5% span 內標「≈ 近似（請確認）」；需換算單位者（°C↔°F、psi↔kPa…）換算後在 ±0.5% span 內即「一致」；'
+                '量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白/無法辨識/僅為推定標「單位不明未比較」；'
+                'EOMR 證書序號與 AMS 不符者（非本台）只列參考（ref_only）不比較，AMS 未寫入序號者仍比對但註明無法確認為同一台；'
+                '同位號多個控制器通道時基準取同機組控制器，各通道量程不一時其餘通道各列一列並標「控制器多通道量程不一」')
 
 
 # ------------------------------------------------------------------ 文件 entry → 顯示
@@ -694,6 +772,19 @@ def main():
         print('dcdas: 沒有控制器索引（%s），DCS 基準只用 DCS 寫入／端子表' % ('--no-dcdas' if a.no_dcdas else a.dcdas))
     else:
         print('dcdas: 索引 %s，%d 個類比輸入通道，控制器 %s' % (dc['built_at'], dc['channels'], ' '.join(dc['controllers'])))
+    # 外部索引缺席不再靜默略過：少了它查詢卡整個「控制器組態」／「文件全文檢索」區段或所有 Drive 連結會消失，而 build 雜湊照樣一致、
+    # verify_encrypted 也不會報；確定要略過的人自己加 --no-*，rebuild.py 因此中止並走加密回滾
+    missing = []
+    if dc is None and not a.no_dcdas:
+        missing.append(('dcdas', a.dcdas, '--no-dcdas'))
+    if ds is None and not a.no_docsearch:
+        missing.append(('docsearch', a.docsearch, '--no-docsearch'))
+    if drive is None and not a.no_drive_map:
+        missing.append(('drive_map', a.drive_map, '--no-drive-map'))
+    if missing:
+        for name, path, _flag in missing:
+            print('!! 缺 %s（%s）' % (name, path))
+        raise SystemExit('!! 缺 %s，若確定要略過請加 %s' % ('／'.join(m[0] for m in missing), '／'.join(m[2] for m in missing)))
     if a.recompare:
         if len(a.paths) != 1:
             ap.error('--recompare 只給 <outdir>')
@@ -882,9 +973,11 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
     open_outdir(outdir)
     card_dir = os.path.join(outdir, 'card')
     index = load(os.path.join(card_dir, 'index.json'))
-    old = {}
+    old, old_docs = {}, {}
     for fn in index['files']:
-        old.update(load(os.path.join(outdir, fn))['by_alias'])
+        j = load(os.path.join(outdir, fn))
+        old.update(j['by_alias'])
+        old_docs.update(j.get('docs') or {})  # 新版 index 只留 alias map，docs 隨分塊攜帶（P3）；舊版分塊沒有這鍵
     aliases, proto, tag_of, r13 = load_sheets(outdir)
     stats = new_stats(aliases)
     out = {}
@@ -977,18 +1070,72 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
         out[al] = {'sec': sec, 'compare': compare, 'flags': flags}
     stats['recompare_note'] = '由已發布 card aux 重算（cardwork 不在手邊）；%d 台舊資料無 compare、其儀器清單／EOMR 量程未列入比對' % n_lost
     searched = {k: v for k, v in (index.get('searched') or {}).items() if k != 'dcdas'}
-    docs = {k: v for k, v in (index.get('docs') or {}).items() if not k.startswith('dcdas|')}
+    docs = {k: v for k, v in dict(old_docs, **(index.get('docs') or {})).items() if not k.startswith('dcdas|')}
     src_stats = {k: v for k, v in (index.get('source_stats') or {}).items() if k != 'dcdas'}
     if ds is not None:
         searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
+    if drive is not None:
+        # 有 drive_map 就重新對照：去掉上次補的 url／url_note（各文件產生器本來不給 url；docsearch 的 url 是 docmap_docsearch 給的，保留），
+        # 「file|編號|版次」（欄位值的文件編號）整批重算，才能反映 drive_map 更新與 url_note／why 文字
+        docs = {k: dict(v) for k, v in docs.items() if not k.startswith('file|')}
+        for k, v in docs.items():
+            if k.split('|')[0] in ('terminal', 'instlist', 'eomr', 'docindex'):
+                v.pop('url', None)
+                v.pop('url_note', None)
     write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, chunk_kb, no_stamp)
 
 
+def doc_keys_used(o, acc):
+    """遞迴收集分塊 JSON 裡所有鍵名 'd' 的字串（entries[].d、docindex／docsearch 列的 {d}、alt[].d、dcdas 的 doc_key）→ 該分塊用到的 docs key。"""
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k == 'd' and isinstance(v, str):
+                acc.add(v)
+            else:
+                doc_keys_used(v, acc)
+    elif isinstance(o, list):
+        for v in o:
+            doc_keys_used(v, acc)
+    return acc
+
+
+def chunk_docs(p, docs, doc_no):
+    """一個分塊要隨身攜帶的 docs／doc_no 子集：'d' 指到的文件＋分塊文字裡出現的文件編號（前端 docNoLink 對任何欄位值都套 DOCNO 正規式，
+    所以用整塊文字掃，寧多勿少）。"""
+    keys = doc_keys_used(p, set())
+    sub_no = {}
+    for m in DOCNO_VAL_RE.finditer(dumps(p)):
+        no = m.group(1).upper()
+        if no in doc_no:
+            sub_no[no] = doc_no[no]
+            keys.add(doc_no[no])
+    return {k: docs[k] for k in sorted(keys) if k in docs}, sub_no
+
+
 def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, chunk_kb, no_stamp):
-    """分塊寫 card/aux-NN.json 與 index.json（docs 補 Drive url）→ manifest.build → 加密 → stamp。"""
+    """分塊寫 card/aux-NN.json 與 index.json → manifest.build → 加密 → stamp。
+    index.json 只留全廠 alias map 與 searched／stats 等小東西；docs（title／folder／why／Drive url）與 doc_no 隨各分塊攜帶該塊用到的子集
+    （P3：docs 每筆含 33 字元 Drive ID 不可壓縮，原本全放 index 佔第一張卡下載量近半；前端 D.loadAux 把分塊的 docs／doc_no 併回 ix）。"""
     import extract_db, encrypt_data
     card_dir = os.path.join(outdir, 'card')
     os.makedirs(card_dir, exist_ok=True)
+    # ---- index.docs：Drive url 與欄位值的文件編號要先算好，分塊才帶得到
+    if dc is not None:
+        s, d = dcdas_doc(dc)
+        searched = dict(searched, dcdas=[s])
+        docs = dict(docs, **d)
+        src_stats = dict(src_stats, dcdas={'aliases_matched': stats['sections'].get('dcdas', 0), 'rows': dc['channels'], 'notes': s['why']})
+    docs = {k: dict(v) for k, v in docs.items()}
+    _n, n_alt = add_drive_urls(docs, drive)
+    doc_no = resolve_doc_numbers(out, docs, drive)  # 會再加 file|編號|版次 的文件（都有 url），所以 url 份數在這之後才算
+    n_url = sum(1 for d in docs.values() if d.get('url'))
+    stats['docs'] = len(docs)
+    stats['docs_with_url'] = n_url
+    stats['docs_with_url_altrev'] = n_alt
+    stats['doc_no_resolved'] = len(doc_no)
+    stats['near'] = stats['compare_status'].get('near', 0)
+    print('docs: %d 份文件，%d 份有 Google 雲端硬碟連結（其中 %d 份連到別版次，帶 url_note）；欄位值的文件編號可開圖 %d 個' % (len(docs), n_url, n_alt, len(doc_no)))
+    # ---- 分塊（依 03 列序，每塊 ≤ 約 chunk_kb）
     limit = chunk_kb * 1024
     parts, cur, cur_b = [], {}, 0
     for al in aliases:
@@ -999,10 +1146,12 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     if cur:
         parts.append(cur)
     width = max(2, len(str(len(parts) - 1)))
-    alias_map, sizes, blobs = {}, [], []
+    alias_map, sizes, blobs, used_keys = {}, [], [], set()
     for k, p in enumerate(parts):  # 先全部序列化並自檢，確定沒問題才刪舊檔寫新檔
         fn = 'aux-%0*d.json' % (width, k)
-        data = dumps({'part': k, 'by_alias': p}).encode('utf-8')
+        sub_docs, sub_no = chunk_docs(p, docs, doc_no)
+        used_keys.update(sub_docs)
+        data = dumps({'part': k, 'by_alias': p, 'docs': sub_docs, 'doc_no': sub_no}).encode('utf-8')
         if ABS_PATH_RE.search(data.decode('utf-8')):
             raise SystemExit('absolute local path found in ' + fn)
         blobs.append((fn, data))
@@ -1013,28 +1162,26 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         os.remove(p)
     for fn, data in blobs:
         open(os.path.join(card_dir, fn), 'wb').write(data)
-    if dc is not None:
-        s, d = dcdas_doc(dc)
-        searched = dict(searched, dcdas=[s])
-        docs = dict(docs, **d)
-        src_stats = dict(src_stats, dcdas={'aliases_matched': stats['sections'].get('dcdas', 0), 'rows': dc['channels'], 'notes': s['why']})
-    docs = {k: dict(v) for k, v in docs.items()}
-    n_url = add_drive_urls(docs, drive)
-    doc_no = resolve_doc_numbers(out, docs, drive)
-    stats['docs_with_url'] = n_url
-    stats['doc_no_resolved'] = len(doc_no)
-    print('index.docs: %d 份文件，%d 份有 Google 雲端硬碟連結；欄位值的文件編號可開圖 %d 個' % (len(docs), n_url, len(doc_no)))
-    index = {'version': 1, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
+    stats['docs_unreferenced'] = len(set(docs) - used_keys)  # searched 有列但沒有任何欄位引用的文件（只在 index.searched 出現）
+    index = {'version': 2, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
              'alias': alias_map, 'src_defs': SRC_DEFS, 'kind_label': KIND_LABEL, 'doc_cat_order': DOC_CAT_ORDER,
-             'searched': searched, 'docs': docs, 'doc_no': doc_no, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
+             'searched': searched, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
     idata = dumps(index)
     if ABS_PATH_RE.search(idata):
         raise SystemExit('absolute local path found in index.json')
     open(os.path.join(card_dir, 'index.json'), 'wb').write(idata.encode('utf-8'))
     print('card aux: %d aliases, %d parts, max %d KB, total %d KB, index %d KB' % (len(alias_map), len(parts), max(sizes) // 1024, sum(sizes) // 1024, len(idata.encode('utf-8')) // 1024))
     print(json.dumps(stats, ensure_ascii=False))
-    print('compare: EOMR 序號不符只列參考（ref_only）%d 筆；改以控制器 checkout 日判定後基準不同 %d 筆'
-          % (stats['compare_status'].get('ref_only', 0), stats.get('baseline_changed_by_checkout', 0)))
+    cs = stats['compare_status']
+    print('compare: 近似（near，同單位差在容差內）%d 筆；EOMR 序號不符只列參考（ref_only）%d 筆；控制器多通道量程不一（dcdas_multi）%d 台；'
+          '改以控制器 checkout 日判定後基準不同 %d 筆；Drive 連結連到別版次 %d 份'
+          % (cs.get('near', 0), cs.get('ref_only', 0), stats.get('dcdas_multi', 0), stats.get('baseline_changed_by_checkout', 0), n_alt))
+    av = stats.get('ams_vs_dcdas') or {}
+    tot = sum(av.values())
+    if tot:
+        print('AMS 現值 vs 控制器組態：完全相同 %d（%.0f%%）、近似 %d（%.0f%%）、不符 %d（%.0f%%）、未比較 %d，共 %d 台'
+              % (av.get('ok', 0), 100.0 * av.get('ok', 0) / tot, av.get('near', 0), 100.0 * av.get('near', 0) / tot,
+                 av.get('mismatch', 0), 100.0 * av.get('mismatch', 0) / tot, av.get('not_compared', 0), tot))
 
     # ---- manifest build（含 card/*.json）＋ 加密 ＋ stamp
     man_path = os.path.join(outdir, 'manifest.json')

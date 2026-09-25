@@ -2,7 +2,7 @@
 """採購規範 .docx → 試算表「物料管理系統」Inventory 分頁匯入檔（A–L 欄）。
 
   py tools/stock/contracts_to_inventory.py 合約1.docx [合約2.docx …] [--current 現行Inventory.csv] [--qty contract|current]
-                                           [--out inventory_import.csv] [--sql import.sql]
+                                           [--out inventory_import.csv] [--sql import.sql] [--min-rule quarter|none] [--min-sql min_qty.sql]
   py tools/stock/contracts_to_inventory.py --from-json tools/stock/mock_inventory.json --sql worker/mock_import.sql   # 假資料 → 本機 D1
 
 - 每份 .docx 的 word/document.xml 逐段解析：「<廠牌>傳送器(料號: CRxxxxxxxxx)」開頭一項，接著「型號:」「測量範圍:」「數量:N只」等鍵值列
@@ -13,6 +13,8 @@
 - --out CSV 欄：PartNumber(=料號), Name(=完整型號), Brand, Spec, Location, Quantity, Protocol, Family, Contract, ContractQty, MinQty, Note
   （A–F 與 Transmitter 網站相容；試算表「Import」分頁＋Apps Script migrateFromImport() 用）。
 - --sql：D1 匯入檔（items INSERT ＋ 每料號一列 ledger IMPORT），`npx wrangler d1 execute ams-stock --remote --file import.sql`（見 worker/README）。
+- 安全存量 min_qty：--min-rule quarter（預設）＝ max(1, ceil(合約數量 × 0.25))；none＝不填（NULL，前端不提醒）。
+  --min-sql：只輸出 `UPDATE items SET min_qty=… WHERE pn=…`（已上線的 D1 用，不撞 INSERT 主鍵；只改 min_qty 為 NULL 的列，手動調過的不覆蓋）。
 """
 import argparse
 import csv
@@ -132,6 +134,28 @@ def write_sql(path, rows, ts):
         f.write('\n'.join(out) + '\n')
 
 
+def min_qty(cqty, rule):
+    """安全存量預設規則：quarter＝合約數量的四分之一（無條件進位、至少 1）；none＝NULL"""
+    if rule == 'none' or cqty is None:
+        return None
+    return max(1, -(-int(cqty) // 4))
+
+
+def write_min_sql(path, rows):
+    """已上線 D1 用：只補 min_qty 仍為 NULL 的列（手動改過的不覆蓋）"""
+    out = ['-- 由 tools/stock/contracts_to_inventory.py --min-sql 產生；npx wrangler d1 execute ams-stock --remote --file ' + os.path.basename(path),
+           '-- 只更新 min_qty 為 NULL 的料號；要重算已手動設定的列，把 AND min_qty IS NULL 拿掉']
+    n = 0
+    for r in rows:
+        if r.get('min') in (None, ''):
+            continue
+        out.append(f"UPDATE items SET min_qty = {int(r['min'])} WHERE pn = {sql_str(r['pn'])} AND min_qty IS NULL;")
+        n += 1
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write('\n'.join(out) + '\n')
+    return n
+
+
 def load_current(path):
     with open(path, encoding='utf-8-sig', newline='') as f:
         rows = list(csv.DictReader(f))
@@ -146,14 +170,22 @@ def main(argv):
     ap.add_argument('--out', default=None, help='CSV（試算表 Import 用）')
     ap.add_argument('--sql', default=None, help='D1 匯入 SQL')
     ap.add_argument('--from-json', default=None, help='items JSON（mock_inventory.json 格式）→ 只輸出 --sql')
+    ap.add_argument('--min-rule', choices=['quarter', 'none'], default='quarter', help='安全存量規則：quarter＝max(1, ceil(合約數量×0.25))（預設）；none＝NULL')
+    ap.add_argument('--min-sql', default=None, help='只輸出 UPDATE items SET min_qty（已上線 D1 補安全存量用）')
     a = ap.parse_args(argv)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
     if a.from_json:
         rows = json.load(open(a.from_json, encoding='utf-8'))
-        if not a.sql:
-            raise SystemExit('--from-json 需要 --sql')
-        write_sql(a.sql, rows, ts)
-        print(f'寫出 {a.sql}：{len(rows)} 項（來自 {a.from_json}）')
+        if not a.sql and not a.min_sql:
+            raise SystemExit('--from-json 需要 --sql 或 --min-sql')
+        if a.sql:
+            write_sql(a.sql, rows, ts)
+            print(f'寫出 {a.sql}：{len(rows)} 項（來自 {a.from_json}）')
+        if a.min_sql:
+            for r in rows:
+                if r.get('min') in (None, ''):
+                    r['min'] = min_qty(r.get('cqty'), a.min_rule)
+            print(f'寫出 {a.min_sql}：{write_min_sql(a.min_sql, rows)} 列 UPDATE（--min-rule {a.min_rule}）')
         return 0
     if not a.docx:
         raise SystemExit('請給合約 .docx')
@@ -194,17 +226,19 @@ def main(argv):
     if a.qty == 'contract':
         for it in items:
             it['now'] = it['qty']
-    rows = [dict(pn=it['mat'], model=it['model'], brand=it['brand'], spec=it['spec'], loc=it['loc'], qty=it['now'], proto=it['proto'], family=family(it['model']), contract=it['contract'], cqty=it['qty'], min=None, note='') for it in items]
+    rows = [dict(pn=it['mat'], model=it['model'], brand=it['brand'], spec=it['spec'], loc=it['loc'], qty=it['now'], proto=it['proto'], family=family(it['model']), contract=it['contract'], cqty=it['qty'], min=min_qty(it['qty'], a.min_rule), note='') for it in items]
     if a.sql:
         write_sql(a.sql, rows, ts)
-        print(f'寫出 {a.sql}：{len(rows)} 項，{sum(r["qty"] for r in rows)} 只')
+        print(f'寫出 {a.sql}：{len(rows)} 項，{sum(r["qty"] for r in rows)} 只（安全存量 --min-rule {a.min_rule}）')
+    if a.min_sql:
+        print(f'寫出 {a.min_sql}：{write_min_sql(a.min_sql, rows)} 列 UPDATE min_qty（--min-rule {a.min_rule}）')
     if not a.out:
         a.out = None
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator='\n')
     w.writerow(['PartNumber', 'Name', 'Brand', 'Spec', 'Location', 'Quantity', 'Protocol', 'Family', 'Contract', 'ContractQty', 'MinQty', 'Note'])
-    for it in items:
-        w.writerow([it['mat'], it['model'], it['brand'], it['spec'], it['loc'], it['now'], it['proto'], family(it['model']), it['contract'], it['qty'], '', ''])
+    for it, r in zip(items, rows):
+        w.writerow([it['mat'], it['model'], it['brand'], it['spec'], it['loc'], it['now'], it['proto'], family(it['model']), it['contract'], it['qty'], '' if r['min'] is None else r['min'], ''])
     if a.out:
         with open(a.out, 'w', encoding='utf-8-sig', newline='') as f:
             f.write(buf.getvalue())

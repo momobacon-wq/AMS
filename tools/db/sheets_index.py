@@ -5,12 +5,12 @@ Devices.AmsDeviceId (GUID), DeviceLocation.HostTag, DeviceKey, and the old-workb
 sheets_cache.pkl (devices/設備總表) when available, else from 20260910_AMS解析.xlsx.
 Column order is fixed (the web front-end reads by index): 0 查詢鍵, 1 位號字串(原樣), 2 來源類型, 3 目前位號, 4 設備別名, 5 設備鍵, 6 型號, 7 此字串對應設備數.
 """
-import os, re, sqlite3, pickle
+import os, re, sqlite3, pickle, sys
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SP = os.path.dirname(HERE)
-DB = os.path.join(SP, 'AmsDb.sqlite')
+sys.path.insert(0, HERE)  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB, SHEETS_CACHE, PREV_XLSX  # noqa: E402
 
 CTRL = re.compile(r'[\x00-\x1f\x7f-\x9f\u2028\u2029]')
 
@@ -35,7 +35,7 @@ CLEAN_TAG_OF = {}  # DeviceKey -> the cleaned current tag shown in 設備總表 
 
 def alias_map(conn):
     """DeviceKey -> alias (D0xxxx). Prefer the cached 設備總表 (already matched by GUID against the old workbook)."""
-    cache = os.path.join(HERE, 'sheets_cache.pkl')
+    cache = SHEETS_CACHE
     if os.path.exists(cache):
         raw = pickle.load(open(cache, 'rb'))
         for s in raw.get('devices', []):
@@ -48,7 +48,7 @@ def alias_map(conn):
                 return {int(k): (a if isinstance(a, str) else '') for k, a in zip(df[kc], df[ac])}
     # fallback: GUID match against the old workbook
     import openpyxl
-    xlsx = r'C:\Users\bacon\我的雲端硬碟\@@新機組資料備份\AMS\20260910_AMS解析.xlsx'
+    xlsx = PREV_XLSX
     wb = openpyxl.load_workbook(xlsx, read_only=True)
     ws = wb['03_設備總表']
     hdr = None; guid_col = alias_col = None; g2a = {}

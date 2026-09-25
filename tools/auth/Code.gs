@@ -4,9 +4,15 @@
  * 綁定的試算表：「物料管理系統 的副本」（或任何含 Users 分頁的試算表）
  *   Users 分頁：EMPLOYEE_ID、EMPLOYEE_NAME（以表頭名稱尋找，找不到才用 A/B 欄）
  *   AMS_Log 分頁：自動建立；7 欄 Timestamp | EmployeeID | EmployeeName | ActionType | Site | Page | UserAgent
- *     ActionType：LOGIN（登入成功）、LOGIN_FAIL（代號不在清單）、LOGIN_BLOCKED（10 分鐘內失敗過多，只記第一次）、
+ *     ActionType：LOGIN（登入成功）、LOGIN_FAIL（代號不在清單）、LOGIN_BLOCKED（同一代號 10 分鐘內失敗過多，只記第一次）、
  *                 VISIT（沿用工作階段再次開站）、LOGOUT（登出；只記有效工作階段）
  *   Timestamp 依「試算表」的時區顯示：檔案 → 設定 → 時區 請設為 (GMT+08:00) 台北。
+ * 枚舉節流（登入只憑 6 位數代號，必須擋住逐一猜代號）：
+ *   - 全站每分鐘登入嘗試 ≥ MAX_LOGIN_PER_MIN、或全站每分鐘失敗 ≥ MAX_FAILS_PER_MIN → 一律回「嘗試次數過多」，不查 Users、不寫紀錄
+ *   - 同一代號 10 分鐘內失敗 ≥ MAX_FAILS_PER_10MIN → 擋住（原有規則）
+ *   - LOGIN_FAIL／LOGIN_BLOCKED 每 10 分鐘全站最多寫 MAX_FAIL_LOG_PER_10MIN 列，其餘只計數（避免紀錄被灌到儲存格上限，讓正常人登不進）
+ *   - 每次失敗回應前 Utilities.sleep(FAIL_DELAY_MS)，拉長逐一猜測的時間
+ *   計數用 CacheService（get/put 非原子，會少算幾次，作為節流足夠；TTL 每次寫入都重設，攻擊持續時視窗不會歸零）。
  *
  * 部署：擴充功能 → Apps Script → 貼上本檔 → 部署 → 新增部署作業 → 類型「網頁應用程式」
  *       執行身分「我」、誰可以存取「所有人」→ 部署 → 複製「網頁應用程式網址」(…/exec) → 填到 docs/auth-config.json 的 endpoint
@@ -18,6 +24,10 @@ var USERS_SHEET = 'Users';
 var LOG_SHEET = 'AMS_Log';
 var SESSION_HOURS = 12;          // 工作階段有效時數
 var MAX_FAILS_PER_10MIN = 20;    // 同一代號 10 分鐘內失敗次數上限（CacheService 計數）
+var MAX_LOGIN_PER_MIN = 30;      // 全站（不分代號）每分鐘登入嘗試上限
+var MAX_FAILS_PER_MIN = 20;      // 全站每分鐘登入失敗上限
+var MAX_FAIL_LOG_PER_10MIN = 20; // LOGIN_FAIL／LOGIN_BLOCKED 每 10 分鐘最多寫入 AMS_Log 的列數
+var FAIL_DELAY_MS = 1500;        // 失敗回應前的延遲
 
 function doGet(e) {
   try { readUsers_(); return json_({ ok: true, service: 'ams-auth' }); }
@@ -33,12 +43,15 @@ function doPost(e) {
   try {
     if (action === 'login') {
       if (!id) return json_({ ok: false, error: '請輸入員工代號。' });
+      // 全站節流：不分代號計數，超過就直接回絕（不查 Users、不寫紀錄），換代號也躲不掉
+      if (count_('login:_all') >= MAX_LOGIN_PER_MIN || count_('fail:_all') >= MAX_FAILS_PER_MIN) return fail_('嘗試次數過多，請稍後再試。');
+      bump_('login:_all', 60);
       if (failCount_(id) >= MAX_FAILS_PER_10MIN) {
-        if (failCount_(id) === MAX_FAILS_PER_10MIN) { log_(id, name, 'LOGIN_BLOCKED', site, page, ua); bumpFail_(id); }
-        return json_({ ok: false, error: '嘗試次數過多，請 10 分鐘後再試。' });
+        if (failCount_(id) === MAX_FAILS_PER_10MIN) { logFail_(id, name, 'LOGIN_BLOCKED', site, page, ua); bumpFail_(id); }
+        return fail_('嘗試次數過多，請 10 分鐘後再試。');
       }
       var u = findUserById_(id); // 只憑員工代號；姓名由 Users 分頁帶出
-      if (!u) { bumpFail_(id); log_(id, name, 'LOGIN_FAIL', site, page, ua); return json_({ ok: false, error: '員工代號不在使用者清單中，請再試一次。' }); }
+      if (!u) { bumpFail_(id); logFail_(id, name, 'LOGIN_FAIL', site, page, ua); return fail_('員工代號不在使用者清單中，請再試一次。'); }
       var exp = Date.now() + SESSION_HOURS * 3600 * 1000;
       var token = sign_(u.id, exp);
       log_(u.id, u.name, 'LOGIN', site, page, ua);
@@ -114,8 +127,17 @@ function log_(id, name, action, site, page, ua) {
     logSheet_().appendRow([new Date(), cell_(id), cell_(name), action, cell_(site), cell_(page), cell_(ua)]);
   } finally { try { lock.releaseLock(); } catch (e) { /* ignore */ } }
 }
-function failCount_(id) { return Number(CacheService.getScriptCache().get('fail:' + canon_(id)) || 0); }
-function bumpFail_(id) { var c = CacheService.getScriptCache(), k = 'fail:' + canon_(id); c.put(k, String(Number(c.get(k) || 0) + 1), 600); }
+/* CacheService 計數器：count_ 讀目前值；bump_ 加一（TTL 秒，每次寫入重設）並回傳加後的值 */
+function count_(key) { return Number(CacheService.getScriptCache().get(key) || 0); }
+function bump_(key, ttlSec) { var c = CacheService.getScriptCache(), n = Number(c.get(key) || 0) + 1; c.put(key, String(n), ttlSec); return n; }
+function failCount_(id) { return count_('fail:' + canon_(id)); }
+function bumpFail_(id) { bump_('fail:' + canon_(id), 600); bump_('fail:_all', 60); } // 同一代號 10 分鐘視窗 ＋ 全站 1 分鐘視窗
+/* 失敗類紀錄限量：每 10 分鐘全站最多寫 MAX_FAIL_LOG_PER_10MIN 列，其餘只計數（faillog:_all） */
+function logFail_(id, name, action, site, page, ua) {
+  if (bump_('faillog:_all', 600) <= MAX_FAIL_LOG_PER_10MIN) log_(id, name, action, site, page, ua);
+}
+/* 失敗回應：先延遲再回，拉長枚舉時間（Apps Script 單次執行上限 6 分鐘，1.5 秒無虞） */
+function fail_(msg) { Utilities.sleep(FAIL_DELAY_MS); return json_({ ok: false, error: msg }); }
 
 /* ---------------- 工作階段 token（HMAC-SHA256，密鑰存在指令碼屬性） ---------------- */
 function secret_() {

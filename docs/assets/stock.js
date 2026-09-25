@@ -1,7 +1,9 @@
 /* AMS 解析網頁 — 備品庫存（倉庫試算表「物料管理系統」＋ tools/stock/Code.gs API）
  *  - AMS.Stock：設定（stock-config.json）、API 呼叫（與 auth.js 同樣 text/plain JSON POST）、清單快取、對照規則、領取／放入視窗、紀錄視窗
- *  - AMS.StockView：#/stock/ 備品庫存總表（搜尋、購物車批次領取／放入、紀錄、裝機位號反查）
- *  - 查詢卡（card.js）在「一目了然」加「備品庫存」一組，呼叫 AMS.Stock.fillCard()
+ *  - AMS.StockView：#/stock/ 備品庫存總表（搜尋、購物車批次領取／放入、紀錄（日期區間／載入更多／匯出區間全部）、庫存匯出 CSV、裝機位號反查）
+ *      路由參數 ?q=搜尋字串、?kks=本次領用位號（橫幅；帶進領取／放入視窗與紀錄篩選）；進頁面時若有低於安全存量的料號預選該篩選
+ *  - 查詢卡（card.js）在「一目了然」加「備品庫存」一組，呼叫 AMS.Stock.fillCard()；無對應時給「到總表搜尋」「登記領用其他料號」出口
+ *  - 後端回 stale（別人剛領走）時領取視窗就地更新現量不關窗；txn 回應的 low 觸發「低於安全存量」toast；list.lowCount 填側欄徽章（S.badge）
  * 寫入需要 AMS 工作階段（AMSAuth.user）＋由解鎖金鑰導出的 STOCK_TOKEN（sha256("ams-stock:"+base64(raw key))），沒有密語的人拿到端點也不能讀寫。
  * 對照規則（與 tools/stock/contracts_to_inventory.py 的 FAMILY_RULES 一致）：
  *   正規化＝大寫、去空白／-／_／／；E+H 以「+」前段為本體；Rosemount 壓力／溫度元件／雷達／電磁（3051、2051、2088、3051S、3051L、214C、5408、8732E）本體＝前 12 碼
@@ -52,18 +54,22 @@
     const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
       const r = await fetch(S.config.endpoint, { method: 'POST', mode: 'cors', redirect: 'follow', signal: ctl.signal, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body });
-      if (!r.ok) throw new Error('端點錯誤 HTTP ' + r.status);
       let j = null;
-      try { j = JSON.parse(await r.text()); } catch (e) { throw new Error('端點回應不是 JSON'); }
-      if (!j || typeof j !== 'object') throw new Error('端點回應格式錯誤');
-      if (!j.ok) { const err = new Error(j.error || '失敗'); err.auth = !!j.auth; err.transient = !!j.transient; throw err; }
+      try { j = JSON.parse(await r.text()); } catch (e) { j = null; }
+      if (!j || typeof j !== 'object') throw new Error(r.ok ? '端點回應不是 JSON' : '端點錯誤 HTTP ' + r.status); // 429（限速）等也帶 JSON，照 j.error 顯示
+      if (!j.ok) {
+        const err = new Error(j.error || (r.ok ? '失敗' : '端點錯誤 HTTP ' + r.status));
+        err.auth = !!j.auth; err.transient = !!j.transient;
+        err.stale = !!j.stale; err.items = Array.isArray(j.items) ? j.items : null; // 庫存不足：後端附本批料號現量，領取視窗就地更新
+        throw err;
+      }
       return j;
     } catch (e) {
       if (e && e.name === 'AbortError') throw new Error('連線逾時（' + TIMEOUT_MS / 1000 + ' 秒）');
       throw e;
     } finally { clearTimeout(t); }
   };
-  /** 全部料號（30 秒快取；force 重抓）→ {items, byPn, rev, at} */
+  /** 全部料號（30 秒快取；force 重抓）→ {items, byPn, rev, at, lowCount} */
   S.list = function (force) {
     const now = Date.now();
     if (!force && listData && now - listAt < LIST_TTL) return Promise.resolve(listData);
@@ -71,13 +77,25 @@
     listP = S.call('list').then((j) => {
       const items = (j.items || []).map((it) => Object.assign({}, it, { qty: U.num(it.qty), core: S.core(it.model), fam: S.family(it.model) }));
       const byPn = new Map(items.map((it) => [it.pn, it]));
-      listData = { items, byPn, rev: j.rev || '', at: Date.now() };
+      const lowCount = j.lowCount != null ? U.num(j.lowCount) : items.filter((it) => it.min != null && it.qty <= it.min).length; // 舊後端沒回就前端算
+      listData = { items, byPn, rev: j.rev || '', at: Date.now(), lowCount };
       listAt = listData.at;
+      S.badge();
       return listData;
     }).finally(() => { listP = null; });
     return listP;
   };
   S.invalidate = function () { listAt = 0; };
+  /** 側欄「備品庫存」徽章（app.js buildSidebar 交給 .sl-rows 元素）：低於安全存量的料號數；每次 S.list 完成都更新 */
+  let badgeEl = null;
+  S.badge = function (el) {
+    if (el) { badgeEl = el; if (!listData) { S.list().catch(() => {}); } }
+    if (!badgeEl || !badgeEl.isConnected || !listData) return;
+    const n = listData.lowCount || 0;
+    badgeEl.textContent = n ? String(n) : '';
+    badgeEl.classList.toggle('sl-low', n > 0);
+    badgeEl.title = n ? n + ' 個料號低於安全存量（含缺貨）' : '';
+  };
   /** 交易編號（後端以它去重：同一 txnId 重送回同一結果、不重扣） */
   S.newTxnId = () => (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2, 10))).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
   /** o.txnId 沒給才新產生；領取視窗會沿用同一 txnId 重送，逾時後再按不會重扣 */
@@ -88,6 +106,24 @@
     return j;
   };
   S.logs = (o) => S.call('logs', o || {}).then((j) => j.rows || []);
+  /** #/stock/ 連結：q＝搜尋字串、kks＝本次領用位號（總表顯示橫幅並帶進領取／放入視窗與紀錄篩選） */
+  S.stockHref = function (q, kks) {
+    const p = new URLSearchParams();
+    if (q) p.set('q', q);
+    if (kks) p.set('kks', kks);
+    const s = p.toString();
+    return '#/stock/' + (s ? '?' + s : '');
+  };
+  /** 位號正規化：在設備索引裡找 key／alias 完全相等者，回 {tag, found}；索引未載入或找不到回原字串 */
+  S.normKks = async function (v) {
+    const s = String(v || '').trim().toUpperCase();
+    if (!s || !AMS.tagSuggestSource) return { tag: s, found: null };
+    try {
+      const hits = await AMS.tagSuggestSource.fetch(s);
+      const hit = (hits || []).find((it) => String(it.key || '').toUpperCase() === s || String(it.alias || '').toUpperCase() === s || String(it.tag || '').toUpperCase() === s);
+      return { tag: hit ? (hit.tag || hit.key || s) : s, found: !!hit };
+    } catch (e) { return { tag: s, found: null }; }
+  };
 
   /* ---------------- 對照規則 ---------------- */
   const FAMILY_RULES = [/^3051S/, /^3051[CLT][A-Z]?/, /^2051[CT][A-Z]?/, /^2088[AG]/, /^644/, /^848T/, /^5408/, /^8732E/, /^214C/, /^PMD75/, /^PMP71/, /^TMT82/];
@@ -130,8 +166,8 @@
   function actBtns(it, ctx, onDone) {
     const out = U.h('button', { type: 'button', class: 'btn xs', disabled: it.qty <= 0, title: it.qty <= 0 ? '缺貨' : '領取 ' + it.pn }, '領取');
     const inn = U.h('button', { type: 'button', class: 'btn xs', title: '放入 ' + it.pn }, '放入');
-    out.addEventListener('click', () => S.openTxn({ mode: 'out', items: [{ it, n: 1 }], kks: ctx.kks, source: ctx.source, onDone }));
-    inn.addEventListener('click', () => S.openTxn({ mode: 'in', items: [{ it, n: 1 }], kks: ctx.kks, source: ctx.source, onDone }));
+    out.addEventListener('click', () => S.openTxn({ mode: 'out', items: [{ it, n: 1 }], kks: ctx.kks, source: ctx.source, onDone, onStale: onDone }));
+    inn.addEventListener('click', () => S.openTxn({ mode: 'in', items: [{ it, n: 1 }], kks: ctx.kks, source: ctx.source, onDone, onStale: onDone }));
     return U.h('span', { class: 'stk-acts' }, out, inn);
   }
   function rowEl(it, ctx, onDone, tier) {
@@ -165,10 +201,20 @@
       U.h('span', { class: 'muted small' }, ' 更新 ' + new Date(L.at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })),
       U.h('button', { type: 'button', class: 'btn xs', onclick: redo }, '重新整理'),
       U.h('button', { type: 'button', class: 'btn xs', onclick: () => S.showLogs({ kks: ctx.tag, title: '此位號的備品出入紀錄' }) }, '此位號紀錄'),
-      U.h('a', { class: 'lk small', href: '#/stock/' }, '庫存總表 ›'));
+      U.h('a', { class: 'lk small', href: S.stockHref('', ctx.tag) }, '庫存總表 ›'));
     grid.appendChild(head);
     if (!m.exact.length && !m.family.length) {
-      grid.appendChild(U.h('p', { class: 'muted cl-empty' }, '無對應備品（同系列亦無）。' + (m.basis.length ? '依據：' + m.basis.join('；') : '此設備沒有可比對的型號碼')));
+      // 三種情況給不同文案與出口：(a) 完全沒有型號碼；(b) 有 AMS 型號但不在 AMS_FAMILY 對照規則內；(c) 有比對依據但倉庫沒這系列
+      const codes = (ctx.codes || []).filter((c) => c && c.code);
+      const amsModel = String(ctx.amsModel || '').trim();
+      const q = codes.length ? S.family(codes[0].code) : amsModel;
+      let text;
+      if (!codes.length && !amsModel) text = '無對應備品。此設備沒有可比對的型號碼（儀器清單／EOMR／AMS 型號皆無）。';
+      else if (!m.basis.length) text = `無對應備品。AMS 型號「${amsModel}」不在對照規則內，無法自動比對，請用總表搜尋。`;
+      else text = '無對應備品（同系列亦無）。依據：' + m.basis.join('；');
+      grid.appendChild(U.h('p', { class: 'muted cl-empty' }, text, ' ',
+        q ? U.h('a', { class: 'lk', href: S.stockHref(q, ctx.tag) }, `到總表搜尋「${q}」 ›`) : null, q ? ' · ' : '',
+        U.h('a', { class: 'lk', href: S.stockHref('', ctx.tag) }, '登記領用其他料號 ›')));
       return;
     }
     if (m.exact.length) grid.appendChild(table(m.exact.map((it) => rowEl(it, rctx, redo, '同型號'))));
@@ -196,15 +242,41 @@
     document.addEventListener('keydown', onKey, true);
     setTimeout(() => { const f = focusSel ? el.querySelector(focusSel) : null; if (f) { f.focus(); if (f.select) f.select(); } }, 0);
   }
-  /** o: {mode:'out'|'in', items:[{it, n}], kks, source, onDone} */
+  /** o: {mode:'out'|'in', items:[{it, n}], kks, source, onDone(j), onStale?(items)}
+   *  onStale：後端回 stale（別人剛領走）時視窗不關、數量就地更新後呼叫，讓卡片／總表重繪（不要在這裡清購物車） */
   S.openTxn = function (o) {
     closeModal();
     const out = o.mode === 'out';
     const rows = o.items.map(({ it, n }) => {
       const inp = U.h('input', { type: 'number', min: 1, max: out ? Math.max(1, it.qty) : 9999, step: 1, value: String(Math.max(1, n || 1)), class: 'stk-n', 'aria-label': '數量 ' + it.pn });
-      return { it, inp, el: U.h('div', { class: 'stk-line' }, U.h('div', { class: 'stk-line-t' }, U.h('b', { class: 'mono' }, it.pn), ' ', U.h('span', { class: 'mono small' }, it.model), U.h('span', { class: 'muted small' }, ` 現有 ${it.qty}${it.loc ? ' · ' + it.loc : ''}`)), inp) };
+      const have = U.h('span', { class: 'muted small stk-have' }, ` 現有 ${it.qty}${it.loc ? ' · ' + it.loc : ''}`);
+      return { it, inp, have, el: U.h('div', { class: 'stk-line' }, U.h('div', { class: 'stk-line-t' }, U.h('b', { class: 'mono' }, it.pn), ' ', U.h('span', { class: 'mono small' }, it.model), have), inp) };
     });
+    /** 後端回 stale（別人剛領走）：依現量就地更新每列的上限、「現有 N」與快取，不關窗 */
+    const applyStale = (items) => {
+      let changed = false;
+      for (const x of items || []) {
+        const r = rows.find((y) => y.it.pn === x.pn); if (!r) continue;
+        const q = U.num(x.qty);
+        if (r.it.qty !== q) changed = true;
+        r.it.qty = q;
+        if (listData && listData.byPn.has(x.pn)) listData.byPn.get(x.pn).qty = q;
+        r.have.textContent = ` 現有 ${q}${r.it.loc ? ' · ' + r.it.loc : ''}`;
+        r.el.classList.toggle('out', out && q <= 0);
+        if (out) { r.inp.max = String(Math.max(1, q)); if (Math.trunc(Number(r.inp.value)) > q) r.inp.value = String(Math.max(1, q)); }
+      }
+      return changed;
+    };
     const kks = U.h('input', { type: 'text', value: o.kks || '', placeholder: '安裝位號 KKS（選填）', autocapitalize: 'characters', spellcheck: 'false', maxlength: 40 });
+    // 離開位號框時用設備索引正規化（別名／小寫→正式位號）；不在清單只提示，仍允許送出
+    kks.addEventListener('blur', async () => {
+      const v = kks.value.trim(); if (!v) return;
+      const r = await S.normKks(v);
+      if (kks.value.trim() !== v) return; // 期間又改了
+      kks.value = r.tag;
+      if (r.found === false) { msg.textContent = '位號 ' + r.tag + ' 不在設備清單，仍可送出（請確認拼字）'; msg.className = 'auth-msg'; }
+      else if (msg.className === 'auth-msg' && /^位號 /.test(msg.textContent)) msg.textContent = '';
+    });
     const note = U.h('input', { type: 'text', placeholder: out ? '用途／備註（例：故障更換）' : '用途／備註（例：退回倉庫）', maxlength: 200 });
     const wo = U.h('input', { type: 'text', placeholder: '工單／申請單號（選填）', maxlength: 40 });
     const msg = U.h('div', { class: 'auth-msg', role: 'status', 'aria-live': 'polite' });
@@ -236,15 +308,23 @@
       try {
         const j = await S.txn({ txnId, items, kks: kks.value.trim(), note: note.value.trim(), wo: wo.value.trim(), source: o.source || 'ams' });
         closeModal();
-        U.toast((out ? '已領取：' : '已放入：') + (j.results || []).map((x) => `${x.pn} → 剩 ${x.qty}`).join('、') + (j.replay ? '（先前已寫入，未重扣）' : ''), 4000);
+        const low = (j.results || []).filter((x) => x.low); // 後端：寫入後 qty ≤ 安全存量
+        U.toast((out ? '已領取：' : '已放入：') + (j.results || []).map((x) => `${x.pn} → 剩 ${x.qty}`).join('、') + (j.replay ? '（先前已寫入，未重扣）' : '')
+          + (low.length ? '；⚠ 已低於安全存量：' + low.map((x) => `${x.pn}（剩 ${x.qty}，最低 ${x.min}）`).join('、') + '，請通知採購' : ''), low.length ? 7000 : 4000);
         if (o.onDone) o.onDone(j);
       } catch (err) {
         const m = (err && err.message) || String(err);
         const netErr = !!err && (err.name === 'TypeError' || /^連線逾時/.test(m)); // fetch 失敗／逾時：後端可能已寫入
         if (netErr) msg.textContent = '連線不穩，可能已寫入；再按一次會以同一交易編號重送，不會重扣（' + m + '）';
-        else msg.textContent = ((err && err.auth) ? '未授權：' : '寫入失敗：') + m;
+        else if (err && err.stale) {
+          // 別人剛領走：就地更新數量（視窗不關），並讓卡片／總表重繪
+          applyStale(err.items);
+          S.invalidate();
+          msg.textContent = m + '。數量已更新為目前現量，請調整後再按一次。';
+          if (o.onStale) { try { o.onStale(err.items); } catch (e2) { /* ignore */ } }
+        } else msg.textContent = ((err && err.auth) ? '未授權：' : '寫入失敗：') + m;
         msg.className = 'auth-msg bad';
-      } finally { busy = false; btn.disabled = false; }
+      } finally { busy = false; btn.disabled = (out && rows.every((r) => r.it.qty <= 0)); }
     });
     openModal(gate, '.stk-n');
   };
@@ -336,34 +416,85 @@
       this.root = root; this.route = route;
       this.cart = new Map(); // pn → n
       this.tab = 'inv'; this.sortKey = 'pn'; this.sortDir = 1; this.filter = 'all';
+      this.kks = ''; // 本次領用位號（?kks=；帶進領取／放入視窗與紀錄篩選）
+      this.since = ''; this.until = ''; // 紀錄分頁日期區間（台北日期 YYYY-MM-DD）
+      this.logs = []; this.logsMore = false; // 已載入的紀錄；後端還有更多（上一頁滿 300 列）
       root.className = 'view stock-view';
       root.innerHTML = `<header class="sv-head"><div class="sv-crumb"><span class="mode-badge">庫存</span> 倉庫備品 · <a class="lk soft" href="#/card/">⌂ 設備查詢</a></div><h1 class="sv-title">備品庫存</h1>
         <p class="sv-lead">資料來自倉庫試算表「物料管理系統」；領取／放入會即時寫回並留下紀錄（員工、位號、用途、單號）。搜尋：空白＝同時符合、逗號＝任一符合（例：<code>3051CD, PMD75</code>）。</p></header>
         <div class="stk-tools"><div class="seg" role="tablist"><button type="button" class="seg-btn" data-tab="inv" aria-pressed="true">庫存</button><button type="button" class="seg-btn" data-tab="log" aria-pressed="false">紀錄</button></div>
         <input class="cq-input stk-q" type="search" placeholder="搜尋料號／型號／量程／儲位…" spellcheck="false" aria-label="搜尋庫存">
         <div class="stk-filters"></div><button type="button" class="btn sm stk-reload">重新整理</button><span class="muted small stk-at"></span></div>
+        <div class="stk-kks" hidden></div>
         <div class="stk-body"><div class="loading-box"><div class="spinner"></div><p class="lb-msg">載入庫存…</p></div></div>
         <div class="stk-cart" hidden></div>`;
-      this.q = root.querySelector('.stk-q'); this.body = root.querySelector('.stk-body'); this.cartEl = root.querySelector('.stk-cart');
+      this.q = root.querySelector('.stk-q'); this.body = root.querySelector('.stk-body'); this.cartEl = root.querySelector('.stk-cart'); this.kksEl = root.querySelector('.stk-kks');
       const q0 = route && route.params ? route.params.get('q') : '';
       if (q0) this.q.value = q0;
+      this.setKks(route && route.params ? route.params.get('kks') : '', true);
       this.q.addEventListener('input', U.debounce(() => this.render(), 120));
       root.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => { this.tab = b.dataset.tab; root.querySelectorAll('.seg-btn').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); this.load(); }));
       root.querySelector('.stk-reload').addEventListener('click', () => { S.invalidate(); this.load(true); });
       const fl = root.querySelector('.stk-filters');
       for (const [k, l] of [['all', '全部'], ['out', '缺貨'], ['low', '低於安全存量'], ['HART', 'HART'], ['FF', 'FF']]) {
         const b = U.h('button', { type: 'button', class: 'chip-btn' + (k === 'all' ? ' on' : ''), 'data-f': k }, l);
-        b.addEventListener('click', () => { this.filter = k; fl.querySelectorAll('.chip-btn').forEach((x) => x.classList.toggle('on', x === b)); this.render(); });
+        b.addEventListener('click', () => this.setFilter(k));
         fl.appendChild(b);
       }
+      this.preselectLow = !q0 && !this.kks; // 沒帶查詢進來：第一次載入若有低量料號就預選「低於安全存量」
       this.load();
     }
-    update(route) { this.route = route; const q0 = route && route.params ? route.params.get('q') : null; if (q0 != null) { this.q.value = q0; this.render(); } }
+    setFilter(k) { this.filter = k; this.root.querySelectorAll('.stk-filters .chip-btn').forEach((x) => x.classList.toggle('on', x.dataset.f === k)); this.render(); }
+    /** 本次領用位號橫幅：由 ?kks= 帶入（查詢卡「登記領用其他料號」），× 清掉 */
+    setKks(v, quiet) {
+      this.kks = String(v || '').trim().toUpperCase();
+      this.kksEl.innerHTML = '';
+      this.kksEl.hidden = !this.kks;
+      if (this.kks) {
+        this.kksEl.appendChild(U.h('span', {}, '本次領用位號：', U.h('a', { class: 'lk mono', href: '#/card/' + encodeURIComponent(this.kks) }, this.kks), U.h('span', { class: 'muted small' }, '（領取／放入會自動帶入；紀錄分頁只列此位號）')));
+        this.kksEl.appendChild(U.h('button', { type: 'button', class: 'btn xs', 'aria-label': '清除本次領用位號', onclick: () => this.setKks('') }, '×'));
+        S.normKks(this.kks).then((r) => { if (r.found && r.tag !== this.kks) this.setKks(r.tag, true); }).catch(() => {}); // 別名→正式位號
+      }
+      if (!quiet && this.tab === 'log') this.load(true);
+    }
+    update(route) {
+      this.route = route;
+      const p = route && route.params;
+      const q0 = p ? p.get('q') : null;
+      const k0 = p ? p.get('kks') : null;
+      if ((q0 || k0) && this.filter !== 'all') this.setFilter('all'); // 從查詢卡帶查詢／位號進來：不讓先前預選的「低於安全存量」悄悄縮小結果
+      if (q0 != null) { this.q.value = q0; this.render(); }
+      if (k0 != null && k0.trim().toUpperCase() !== this.kks) this.setKks(k0);
+    }
     destroy() { this.destroyed = true; closeModal(); }
-    async load(force) {
-      if (this.tab === 'log') { this.body.innerHTML = '<p class="muted cl-empty">載入紀錄…</p>'; try { this.logs = await S.logs({ limit: 300 }); if (!this.destroyed) this.render(); } catch (e) { this.body.innerHTML = ''; this.body.appendChild(errBox(e, () => this.load(true))); } return; }
-      try { this.L = await S.list(force); if (!this.destroyed) this.render(); }
-      catch (e) { this.body.innerHTML = ''; this.body.appendChild(errBox(e, () => this.load(true))); }
+    /** 紀錄查詢參數：台北日期區間 → UTC ISO 邊界（since 含當日 00:00、until 為次日 00:00，後端 ts < until） */
+    logParams(before) {
+      const o = { limit: 300 };
+      if (this.kks) o.kks = this.kks;
+      if (this.since) o.since = new Date(this.since + 'T00:00:00+08:00').toISOString();
+      if (this.until) { const d = new Date(this.until + 'T00:00:00+08:00'); d.setUTCDate(d.getUTCDate() + 1); o.until = d.toISOString(); }
+      if (before) o.before = before;
+      return o;
+    }
+    async load(force, more) {
+      if (this.tab === 'log') {
+        if (!more) { this.logs = []; this.logsMore = false; this.body.innerHTML = '<p class="muted cl-empty">載入紀錄…</p>'; }
+        const last = this.logs.length ? this.logs[this.logs.length - 1] : null;
+        try {
+          const rows = await S.logs(this.logParams(more && last ? last.rid : 0));
+          if (this.destroyed) return;
+          this.logs = this.logs.concat(rows);
+          this.logsMore = rows.length >= 300 && !!(rows[rows.length - 1] || {}).rid; // 沒有 rid（舊後端／mock 舊版）就不提供「載入更多」
+          this.render();
+        } catch (e) { this.body.innerHTML = ''; this.body.appendChild(errBox(e, () => this.load(true))); }
+        return;
+      }
+      try {
+        this.L = await S.list(force);
+        if (this.destroyed) return;
+        if (this.preselectLow) { this.preselectLow = false; if (this.L.lowCount > 0 && this.filter === 'all') { this.setFilter('low'); return; } }
+        this.render();
+      } catch (e) { this.body.innerHTML = ''; this.body.appendChild(errBox(e, () => this.load(true))); }
     }
     terms() { return this.q.value.trim().toUpperCase().split(/[,，]/).map((g) => g.trim().split(/\s+/).filter(Boolean)).filter((g) => g.length); }
     hit(text) { const g = this.terms(); if (!g.length) return true; return g.some((and) => and.every((t) => text.includes(t))); }
@@ -371,7 +502,15 @@
       if (this.tab === 'log') {
         const rows = (this.logs || []).filter((r) => this.hit([r.ts, r.action, r.pn, r.id, r.name, r.kks, r.note, r.wo].join(' ').toUpperCase()));
         this.body.innerHTML = '';
-        const bar = U.h('div', { class: 'stk-head' }, U.h('span', { class: 'stk-sum' }, `${rows.length} 筆（最新 300 筆內）`), U.h('button', { type: 'button', class: 'btn xs', onclick: () => this.exportCsv(rows) }, '匯出 CSV'));
+        const range = (this.since || this.until) ? `${this.since || '…'} ～ ${this.until || '…'}` : '不限日期';
+        const dIn = (k, label) => { const i = U.h('input', { type: 'date', class: 'stk-date', value: this[k], 'aria-label': label, max: '2999-12-31' }); i.addEventListener('change', () => { this[k] = i.value; this.load(true); }); return i; };
+        const bar = U.h('div', { class: 'stk-head' },
+          U.h('span', { class: 'stk-sum' }, `${rows.length} 筆` + (rows.length !== this.logs.length ? `（已載入 ${this.logs.length} 筆內）` : (this.logsMore ? '（還有更早的紀錄）' : ''))),
+          U.h('label', { class: 'small stk-range' }, '從 ', dIn('since', '起始日期'), ' 到 ', dIn('until', '結束日期')),
+          (this.since || this.until) ? U.h('button', { type: 'button', class: 'btn xs', onclick: () => { this.since = ''; this.until = ''; this.load(true); } }, '清除日期') : null,
+          this.logsMore ? U.h('button', { type: 'button', class: 'btn xs', onclick: () => this.load(true, true) }, '載入更多（更早 300 筆）') : null,
+          U.h('button', { type: 'button', class: 'btn xs', onclick: () => this.exportCsv(rows) }, '匯出顯示中的 CSV'),
+          U.h('button', { type: 'button', class: 'btn xs', title: '不管顯示了多少，把這個區間（與位號篩選）的全部紀錄從後端一頁頁抓完再匯出', onclick: (e) => this.exportAll(e.currentTarget) }, '匯出區間全部（' + range + '）'));
         this.body.appendChild(bar); this.body.appendChild(S.logRows(rows, { pnLink: true }));
         this.cartEl.hidden = true;
         return;
@@ -386,7 +525,9 @@
       items.sort((a, b) => { const x = a[k], y = b[k]; return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'zh-Hant')) * d || a.pn.localeCompare(b.pn); });
       const total = items.reduce((s, it) => s + it.qty, 0);
       this.body.innerHTML = '';
-      this.body.appendChild(U.h('div', { class: 'stk-head' }, U.h('span', { class: 'stk-sum' }, `${items.length} 個料號 · 共 ${U.int(total)} 只`), U.h('span', { class: 'muted small' }, `（全部 ${this.L.items.length} 個料號，缺貨 ${this.L.items.filter((x) => x.qty <= 0).length}）`)));
+      this.body.appendChild(U.h('div', { class: 'stk-head' }, U.h('span', { class: 'stk-sum' }, `${items.length} 個料號 · 共 ${U.int(total)} 只`),
+        U.h('span', { class: 'muted small' }, `（全部 ${this.L.items.length} 個料號，缺貨 ${this.L.items.filter((x) => x.qty <= 0).length}，低於安全存量 ${this.L.lowCount || 0}）`),
+        U.h('button', { type: 'button', class: 'btn xs', title: '匯出目前篩選／排序後的料號清單（今天的庫存快照）', onclick: () => this.exportInv(items) }, '匯出庫存 CSV')));
       const cols = [['pn', '料號'], ['model', '型號'], ['brand', '廠牌'], ['spec', '量程／規格'], ['proto', '協定'], ['qty', '庫存'], ['loc', '儲位'], ['contract', '合約'], ['', '購物車'], ['', '']];
       const th = cols.map(([key, label]) => { const b = U.h('th', { class: key ? 'sortable' + (this.sortKey === key ? (d > 0 ? ' asc' : ' desc') : '') : '' }, label); if (key) b.addEventListener('click', () => { if (this.sortKey === key) this.sortDir = -this.sortDir; else { this.sortKey = key; this.sortDir = 1; } this.render(); }); return b; });
       const tb = U.h('tbody');
@@ -417,20 +558,50 @@
       let units = 0; this.cart.forEach((n) => { units += n; });
       const items = () => Array.from(this.cart, ([pn, n]) => ({ it: this.L.byPn.get(pn), n })).filter((x) => x.it);
       const done = () => { this.cart.clear(); S.invalidate(); this.load(true); };
+      const stale = () => { S.invalidate(); this.load(true); }; // 別人剛領走：重繪總表但保留購物車（視窗還開著）
       el.hidden = false; el.innerHTML = '';
-      el.appendChild(U.h('span', { class: 'stk-cart-sum' }, `已選 ${this.cart.size} 個料號 · ${units} 只`));
-      el.appendChild(U.h('button', { type: 'button', class: 'btn sm primary', onclick: () => S.openTxn({ mode: 'out', items: items(), source: 'ams-stock', onDone: done }) }, '領取'));
-      el.appendChild(U.h('button', { type: 'button', class: 'btn sm', onclick: () => S.openTxn({ mode: 'in', items: items(), source: 'ams-stock', onDone: done }) }, '放入'));
+      el.appendChild(U.h('span', { class: 'stk-cart-sum' }, `已選 ${this.cart.size} 個料號 · ${units} 只` + (this.kks ? ` · 位號 ${this.kks}` : '')));
+      el.appendChild(U.h('button', { type: 'button', class: 'btn sm primary', onclick: () => S.openTxn({ mode: 'out', items: items(), kks: this.kks, source: 'ams-stock', onDone: done, onStale: stale }) }, '領取'));
+      el.appendChild(U.h('button', { type: 'button', class: 'btn sm', onclick: () => S.openTxn({ mode: 'in', items: items(), kks: this.kks, source: 'ams-stock', onDone: done, onStale: stale }) }, '放入'));
       el.appendChild(U.h('button', { type: 'button', class: 'btn sm', onclick: () => { this.cart.clear(); this.render(); } }, '清空'));
     }
-    exportCsv(rows) {
-      const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-      const lines = [['時間', '動作', '料號', '增減', '結餘', '員工代號', '姓名', '位號', '備註', '單號', '來源', 'TxnId'].join(',')];
-      for (const r of rows) lines.push([r.ts, r.action, r.pn, r.delta, r.bal, r.id, r.name, r.kks, r.note, r.wo, r.source, r.txn].map(esc).join(','));
-      const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-      const a = U.h('a', { href: URL.createObjectURL(blob), download: 'stock_logs_' + new Date().toISOString().slice(0, 10) + '.csv' });
-      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    /** 紀錄 CSV（rows：logs 列） */
+    exportCsv(rows, name) {
+      const lines = [['時間', '動作', '料號', '增減', '結餘', '員工代號', '姓名', '位號', '備註', '單號', '來源', 'TxnId']];
+      for (const r of rows) lines.push([r.ts, r.action, r.pn, r.delta, r.bal, r.id, r.name, r.kks, r.note, r.wo, r.source, r.txn]);
+      downloadCsv(lines, name || ('stock_logs_' + tpDate() + '.csv'));
     }
+    /** 庫存快照 CSV（目前篩選／排序後的料號） */
+    exportInv(items) {
+      const lines = [['料號', '型號', '廠牌', '量程／規格', '協定', '庫存', '安全存量', '儲位', '合約', '合約數量', '備註']];
+      for (const it of items) lines.push([it.pn, it.model, it.brand, it.spec, it.proto, it.qty, it.min, it.loc, it.contract, it.cqty, it.note]);
+      downloadCsv(lines, 'stock_items_' + tpDate() + '.csv');
+    }
+    /** 匯出區間全部：用 before 游標一頁頁抓到不滿 300 列為止（不受畫面已載入筆數與搜尋框影響），檔名含區間 */
+    async exportAll(btn) {
+      if (btn) { btn.disabled = true; btn.textContent = '抓取中…'; }
+      try {
+        const all = []; let before = 0;
+        for (let page = 0; page < 200; page++) { // 上限 6 萬列，避免無限迴圈
+          const rows = await S.logs(this.logParams(before));
+          all.push(...rows);
+          const last = rows[rows.length - 1];
+          if (rows.length < 300 || !last || !last.rid) break;
+          before = last.rid;
+          if (btn) btn.textContent = `抓取中… ${all.length} 筆`;
+        }
+        this.exportCsv(all, `stock_logs_${this.since || 'start'}_${this.until || tpDate()}${this.kks ? '_' + this.kks : ''}.csv`);
+        U.toast(`已匯出 ${all.length} 筆紀錄`, 3000);
+      } catch (e) { U.toast('匯出失敗：' + ((e && e.message) || e), 4000); }
+      finally { if (btn) { btn.disabled = false; this.render(); } }
+    }
+  }
+  const tpDate = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); // 台北今天 YYYY-MM-DD
+  function downloadCsv(lines, filename) {
+    const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const blob = new Blob(['﻿' + lines.map((l) => l.map(esc).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = U.h('a', { href: URL.createObjectURL(blob), download: filename });
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
   AMS.StockView = StockView;
 })();

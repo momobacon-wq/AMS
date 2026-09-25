@@ -4,27 +4,34 @@
  *  1. 讀 auth-config.json（<meta name="ams-auth-config" content="路徑" data-site="站名">；預設 auth-config.json）
  *     {"endpoint": "https://script.google.com/macros/s/.../exec", "sessionHours": 12, "title": "..."}
  *     endpoint 空白（或設定檔 404）＝ 閘門關閉，網站照舊（console 會提示）；設定檔存在但格式錯誤 ＝ 鎖住並顯示錯誤（fail closed）。
- *  2. localStorage 'ams.auth' 有未過期的工作階段 → 向 endpoint 送 resume（記一筆 VISIT；30 分鐘內驗證過就不再送）→ 通過。
+ *     讀取成功時把設定存到 localStorage 'ams.authcfg'；連不上（斷網、hosts 擋掉）或回 5xx 時改用這份快取走下面的流程——
+ *     有工作階段照常放行（離線仍能查已看過的資料），沒有工作階段就鎖住顯示「目前離線，無法登入」。不能因為拿不到設定檔就整個跳過閘門。
+ *  2. localStorage 'ams.auth' 有未過期的工作階段 → 向 endpoint 送 resume（記一筆 VISIT；REVERIFY_MS＝10 分鐘內驗證過就不再送）→ 通過。
  *     endpoint 連不上／逾時／回 5xx／回覆 transient 錯誤時，沿用快取的工作階段放行（軟性閘門）；伺服器明確回 ok:false 才重新登入。
  *  3. 否則顯示全螢幕登入表單：員工代號 → endpoint login → 成功記 LOGIN 並存工作階段（姓名由 Users 分頁帶出）。
+ *  4. 登出：清掉工作階段，也清掉 core.js「記住此裝置」存的密語金鑰（localStorage 'ams.key'），共用工作站上不會留下可解密的金鑰。
  *  注意：這是「軟性」閘門——資料檔仍是公開的靜態檔案，閘門只擋一般瀏覽並留下登入紀錄，不是資安防線。
  *  端點以 text/plain 送 JSON（避免 CORS preflight，Apps Script 網頁應用程式的標準做法；302 到 script.googleusercontent.com 由 fetch 自動跟隨）。
  */
 'use strict';
 (function () {
   const KEY = 'ams.auth';
+  const CFG_KEY = 'ams.authcfg';    // 最近一次成功讀到的 auth-config.json（離線／5xx 時的後備）
+  const KEY_STORE = 'ams.key';      // core.js「記住此裝置」存的密語金鑰；登出時一併清掉
   const LOGIN_TIMEOUT_MS = 15000;   // Apps Script 冷啟動可達 5–8 秒
   const RESUME_TIMEOUT_MS = 6000;   // resume 只是補紀錄，逾時就沿用快取放行
-  const REVERIFY_MS = 30 * 60 * 1000;
+  const REVERIFY_MS = 10 * 60 * 1000; // 幾分鐘內驗證過就不重打端點；縮短＝被移出 Users 分頁的人更快失效（換 Worker 的 revoked 表即時擋寫入）
   const meta = document.querySelector('meta[name="ams-auth-config"]');
   const CONFIG_URL = (meta && meta.getAttribute('content')) || 'auth-config.json';
   const SITE = (meta && meta.getAttribute('data-site')) || document.title || 'AMS';
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const norm = (s) => { s = String(s == null ? '' : s); try { s = s.normalize('NFKC'); } catch (e) { /* old engines */ } return s.replace(/\s+/g, '').trim(); };
-  const A = (window.AMSAuth = { user: null, config: null, enabled: false });
+  const A = (window.AMSAuth = { user: null, config: null, enabled: false, offline: false }); // offline：這次是靠快取設定檔撐起閘門
 
   function load() { try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); return j && j.id && j.token ? j : null; } catch (e) { return null; } }
   function save(s) { try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch (e) { /* 私密模式 */ } }
+  function loadCfg() { try { const j = JSON.parse(localStorage.getItem(CFG_KEY) || 'null'); return j && typeof j === 'object' ? j : null; } catch (e) { return null; } }
+  function saveCfg(c) { try { if (c) localStorage.setItem(CFG_KEY, JSON.stringify(c)); else localStorage.removeItem(CFG_KEY); } catch (e) { /* 私密模式 */ } }
   function payload(action, extra) {
     return JSON.stringify(Object.assign({ action, site: SITE, page: location.hash.slice(0, 200), ua: navigator.userAgent.slice(0, 200) }, extra || {}));
   }
@@ -133,7 +140,7 @@
     if (!chip) {
       chip = document.createElement('button');
       chip.id = 'auth-chip'; chip.type = 'button'; chip.className = 'auth-chip';
-      chip.addEventListener('click', () => { if (confirm('登出 ' + A.user.name + '？')) A.logout(); });
+      chip.addEventListener('click', () => { if (confirm('登出 ' + A.user.name + '，並清除此裝置記住的密語？')) A.logout(); });
       const theme = document.getElementById('btn-theme');
       if (theme) hdr.insertBefore(chip, theme); else hdr.appendChild(chip);
     }
@@ -144,6 +151,7 @@
   A.logout = function () {
     const s = A.user || load();
     A.user = null; save(null);
+    try { localStorage.removeItem(KEY_STORE); } catch (e) { /* 私密模式 */ } // 密語金鑰一併清掉：共用工作站登出後不能不輸密語就解密
     // 登出紀錄用 fire-and-forget（sendBeacon 可送 text/plain），畫面立刻回到登入
     try {
       if (s && A.config && A.config.endpoint) {
@@ -170,8 +178,20 @@
         showLogin('登入設定檔格式錯誤，請聯絡站台管理者。', null, true);
         await new Promise(() => {}); // 永不放行
       }
+      const validCfg = (c) => !!(c && c.endpoint && /^https?:\/\//.test(String(c.endpoint)));
+      if (status === -1 || (status >= 400 && status !== 404)) {
+        // 連不上（斷網、hosts 擋掉）、5xx、429／403 之類：用上次成功讀到的設定撐起閘門，不能因此整站打開；只有 404 才算「管理者拿掉設定檔」
+        const cached = loadCfg();
+        if (validCfg(cached)) { cfg = cached; A.offline = true; console.info('AMSAuth: 讀不到 auth-config.json（' + (status > 0 ? 'HTTP ' + status : '離線') + '），改用快取設定'); }
+        else { // 從沒成功讀過設定（第一次就離線）：沒有依據判斷閘門該開該關，鎖住
+          A.config = {}; A.enabled = true;
+          showLogin('目前離線，無法讀取登入設定；請連上網路後重新整理。', null, true);
+          await new Promise(() => {});
+        }
+      } else if (status === 200 && validCfg(cfg)) saveCfg(cfg); // 讀到正常設定：更新快取
+      else saveCfg(null); // 404 或 endpoint 空白＝管理者關閉閘門：快取一併清掉，離線時才不會誤鎖
       A.config = cfg || {};
-      if (!cfg || !cfg.endpoint || !/^https?:\/\//.test(String(cfg.endpoint))) {
+      if (!validCfg(cfg)) {
         A.enabled = false;
         console.warn('AMSAuth: 未設定登入端點（' + CONFIG_URL + (status > 0 ? ' HTTP ' + status : ' 讀取失敗') + '），閘門關閉');
         return;
@@ -179,7 +199,7 @@
       A.enabled = true;
       const s = load();
       if (s && s.exp > Date.now()) {
-        if (s.verified && Date.now() - s.verified < REVERIFY_MS) { A.user = s; renderChip(); return; } // 30 分鐘內驗證過，不再打端點
+        if (s.verified && Date.now() - s.verified < REVERIFY_MS) { A.user = s; renderChip(); return; } // REVERIFY_MS 內驗證過，不再打端點
         try {
           const j = await call('resume', { id: s.id, token: s.token }, RESUME_TIMEOUT_MS);
           if (j.ok) { A.user = Object.assign(s, { name: j.name || s.name, verified: Date.now() }); save(A.user); renderChip(); return; }
@@ -194,6 +214,10 @@
       }
       const expired = !!s;
       save(null);
+      if (A.offline) { // 沒有可沿用的工作階段又連不上設定檔：鎖住（登入端點多半也連不上；連上網路後重新整理即可）
+        showLogin('目前離線，無法登入；請連上網路後重新整理。', null, true);
+        await new Promise(() => {});
+      }
       await new Promise((res) => { resolveReady = res; showLogin(expired ? '工作階段已逾期（超過 ' + (A.config.sessionHours || 12) + ' 小時），請重新登入。' : '', s ? { name: s.name, id: s.id } : null); });
     })();
     return A._ready;

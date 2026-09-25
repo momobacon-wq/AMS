@@ -300,9 +300,9 @@ def summary_spec(ci3, ci13):
                 K('銘牌序號（EOMR）', 'eomr', '銘牌序號', alt=DS('序號命中（文件）')),
             ]},
             {'key': 'range', 'label': '量程、單位與警報／跳機設定值', 'items': [
-                {'label': 'AMS 量程（現值）', 'stats': {'lo': ci13('LRV'), 'hi': ci13('URV'), 'unit': ci13('單位(解碼)')}, 'proto': 'HART', 'cmp': 'ams',
+                {'label': 'AMS 量程（資料庫快照）', 'stats': {'lo': ci13('LRV'), 'hi': ci13('URV'), 'unit': ci13('單位(解碼)')}, 'proto': 'HART', 'cmp': 'ams',
                  'src': src('decoded', 'BlockData {c16} float32 → HART 單位碼表 · 最後記錄 {c36}')},
-                {'label': 'AMS FF XD_SCALE（現值）', 'stats': {'lo': ci13('FF XD_SCALE EU0'), 'hi': ci13('FF XD_SCALE EU100'), 'unit': ci13('FF XD_SCALE 單位')}, 'proto': 'FF', 'cmp': 'ams',
+                {'label': 'AMS FF XD_SCALE（資料庫快照）', 'stats': {'lo': ci13('FF XD_SCALE EU0'), 'hi': ci13('FF XD_SCALE EU100'), 'unit': ci13('FF XD_SCALE 單位')}, 'proto': 'FF', 'cmp': 'ams',
                  'src': src('decoded', 'BlockData 80020192 FF hex float32／單位碼（區塊 {c34}）')},
                 K('DCS 控制器組態（AI Low/High）', 'dcdas', 'DCS AI 量程 (Low/High Value)', cmp='dcdas'),
                 K('DCS 量程（端子表，設計文件）', 'terminal', 'DCS 量程 (DEVICE_LO/HI/UNITS)', cmp='terminal'),
@@ -311,7 +311,7 @@ def summary_spec(ci3, ci13):
                 K('警報／跳機設定值（儀器清單）', 'instlist', '警報/跳機設定值'),
                 K('DCS 警報設定（端子表）', 'terminal', ['警報 1_HI', '警報 1_LO', '警報 2_HI', '警報 2_LO', '警報 3_HI', '警報 3_LO'], kv=True),
             ]},
-            {'key': 'dcs', 'label': '控制系統（控制器現行 I/O 組態）', 'kind': 'dcdas', 'per_entry': True,
+            {'key': 'dcs', 'label': '控制系統（控制器 I/O 組態，checkout 快照）', 'kind': 'dcdas', 'per_entry': True,
              'head': ['訊號名', '控制器', '通道'],
              'items': ['控制器', 'I/O 模組', '通道', '訊號名', '裝置位號 (DeviceTag)', '輸入型式', 'HART 通道', 'DCS AI 量程 (Low/High Value)', '訊號說明', 'signal-atlas 深連結'],
              'note': '來源：signal-atlas 索引（ToolboxST checkout 快照，非即時）；只涵蓋類比輸入通道，FF 設備不在其中。'},
@@ -475,16 +475,16 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
     }
 
 
-CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器現行 I/O 組態（signal-atlas 索引）。數值帶底線可點者＝在 Google 雲端硬碟開啟該份文件。'
+CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器 I/O 組態（checkout 快照，signal-atlas 索引）。數值帶底線可點者＝在 Google 雲端硬碟開啟該份文件。'
 # 02 查詢卡附加區段（card aux）的標題與順序；patch_site_spec.py 也直接用它套到已發布的 02.json
 SECTIONS_AUX = [
         {'key': 'sync', 'label': '維護狀態（AMS 同步）', 'empty': '（無同步紀錄）'},
         {'key': 'change', 'label': '最後修改（人工 AMS／DCS·外部主機寫入）', 'empty': '（排除動態值後，無參數修改紀錄）',
          'note': '依 BlockData 相鄰值不同判定；排除 pv_value、OperatingHours 等動態/計數值與 7 位有效數字相同的浮點殘差，故可能與 14_參數變更歷程 略有不同。Cat 28「Change performed by foreign host」＝DCS／外部主機寫入。'},
         {'key': 'compare', 'label': 'DCS 比對（量程；以 DCS 為主）', 'empty': '（無 DCS 基準：控制器 I/O 索引與 DCS 端子表都查無此位號，AMS 事件也無 Cat28 量程寫入）',
-         'note': '基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (2) AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考；只有寫入晚於該控制器 checkout 日期或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。其他來源與基準差超過 ±0.5% span 標「⚠ 與 DCS 不符」；單位先換算，量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」；EOMR 證書序號與 AMS 不符者（非本台）只列參考、標「序號不符未比較」。2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同，端子表有 37% 與控制器不同。'},
+         'note': '基準依序＝(1) 控制器現行 I/O 組態（signal-atlas 索引：該位號類比輸入通道的 Low/High Value）→ (2) AMS 事件中最新一次 Cat28 外部主機寫入的量程（標「DCS 寫入 (AMS 事件)」；只寫入上限或下限時只比較該端，另一端顯示值僅供參考；只有寫入晚於該控制器 checkout 日期或沒有控制器資料時才當基準，否則列為一般來源）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。其他來源與基準同單位時數值完全相同才「✓ 一致」，差在 ±0.5% span 內標「≈ 近似（請確認）」，超過標「⚠ 與 DCS 不符」；需換算單位者（°C↔°F、psi↔kPa…）換算後在 ±0.5% span 內即「一致」；量綱不同或明確絕壓↔表壓標「單位不同未比較」，任一邊單位空白、無法辨識或僅為推定標「單位不明未比較」；EOMR 證書序號與 AMS 不符者（非本台）只列參考、標「序號不符未比較」；同位號接在多個控制器通道時基準取同機組控制器，各通道量程不一時其餘通道另列並標「控制器多通道量程不一」。2026-09-26 全廠比對（1,240 台）：AMS 現值與控制器組態完全相同 91%、近似 2%、不符 4%；端子表有 37% 與控制器不同。'},
         {'key': 'ff', 'label': 'FF 診斷（僅 FF 設備）', 'only_ff': True, 'empty': '（此 FF 設備在 AMS 無 FF 參數紀錄）', 'note': 'WRITE_LOCK 依 FF 規範 1＝未鎖定、2＝鎖定。'},
-        {'key': 'dcdas', 'label': '控制系統（控制器現行 I/O 組態，signal-atlas 索引）', 'kind': 'dcdas', 'note': 'ToolboxST checkout 快照的類比輸入通道組態（非即時）；位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。FF 設備與 HART 多工器本體不在 I/O 索引。'},
+        {'key': 'dcdas', 'label': '控制系統（控制器 I/O 組態 checkout 快照，signal-atlas 索引）', 'kind': 'dcdas', 'note': 'ToolboxST checkout 快照的類比輸入通道組態（非即時）；位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。FF 設備與 HART 多工器本體不在 I/O 索引。'},
         {'key': 'terminal', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
         {'key': 'instlist', 'label': '設計規格（儀器清單）', 'kind': 'instlist'},
         {'key': 'eomr', 'label': '出廠紀錄（EOMR 校正證書）', 'kind': 'eomr', 'note': '目前只解析 Rosemount/Emerson 格式證書；銘牌序號後 7 碼與 AMS final_assembly_number 比對。'},
@@ -626,9 +626,46 @@ def main(pkl, outdir):
     return manifest
 
 
+# 首訪 preload：登入閘門往返（auth-config.json＋Apps Script）期間先把 manifest 與查詢卡首頁必用的三張表抓進 HTTP 快取
+# （02 查詢卡規格、04 位號索引、03 設備總表；與 card_spec 的 lookup.index_sheet='04'／target_sheet='03' 同源）。
+# stamp 跑在加密之後、讀不到明文 manifest，所以清單寫死；加密站檔名加 .bin（core.js D.url 規則），?v= 一律＝資料建置雜湊。
+PRELOAD_DATA = ['manifest.json', 'sheets/02.json', 'sheets/04.json', 'sheets/03.json']
+PRELOAD_BLOCK_RE = re.compile(r'[ \t]*<!-- ams-preload -->.*?<!-- /ams-preload -->[ \t]*\n?', re.S)
+PRELOAD_LINE_RE = re.compile(r'[ \t]*<link rel="preload" href="data/(?:meta|manifest)\.json(?:\?v=[0-9a-zA-Z]*)?"[^>]*>[ \t]*\n?')
+
+
+def preload_block(build, encrypted):
+    """<head> 內的 preload 區塊：整段以 <!-- ams-preload --> … <!-- /ams-preload --> 標記重寫（重複 stamp 不會累加）。
+    第一行永遠是 meta.json（加密站）或 manifest.json（明文站），verify_encrypted 也只認這一行。"""
+    src = 'meta.json' if encrypted else 'manifest.json'
+    lines = ['<link rel="preload" href="data/%s?v=%s" as="fetch" crossorigin>' % (src, build)]
+    for rel in PRELOAD_DATA:
+        if rel == src:
+            continue
+        lines.append('<link rel="preload" href="data/%s%s?v=%s" as="fetch" crossorigin>' % (rel, '.bin' if encrypted else '', build))
+    return '<!-- ams-preload -->\n' + '\n'.join(lines) + '\n<!-- /ams-preload -->\n'
+
+
+def stamp_html(html, build, encrypted, fh, app):
+    """純函式：把 index.html 字串戳記成新版（assets ?v=、<meta ams-build>、preload 區塊）。stamp() 與測試都用它。"""
+    def ref(m):
+        name = m.group(2)
+        return m.group(1) + '../assets/' + name + ('?v=' + fh[name] if name in fh else '') + m.group(4)
+    html = re.sub(r'((?:src|href)=")\.\./assets/([\w.-]+\.(?:js|css))(\?v=[0-9a-zA-Z]*)?(")', ref, html)
+    html = re.sub(r'<meta name="ams-build"[^>]*>', '<meta name="ams-build" content="%s" data-app="%s" data-chart="%s">' % (build, app, fh.get('chart.umd.min.js', '')), html)
+    block = preload_block(build, encrypted)
+    if PRELOAD_BLOCK_RE.search(html):
+        html = PRELOAD_BLOCK_RE.sub(lambda m: block, html, count=1)
+    elif PRELOAD_LINE_RE.search(html):  # 舊版單行 preload → 換成標記區塊
+        html = PRELOAD_LINE_RE.sub(lambda m: block, html, count=1)
+    else:  # 沒有 preload：放在第一個 <script 之前
+        html = re.sub(r'(?=[ \t]*<script\b)', block, html, count=1)
+    return html
+
+
 def stamp(docs_db, assets_dir):
     """Version-stamp docs/db/index.html (assets live in ../assets) and write docs/db/version.json.
-    加密站（encrypt_data）：manifest 是 .bin，build 讀明文 meta.json，preload 指向 meta.json。"""
+    加密站（encrypt_data）：manifest 是 .bin，build 讀明文 meta.json，preload 指向 meta.json（＋PRELOAD_DATA 的 .bin）。"""
     encrypted = encrypt_data.is_encrypted(os.path.join(docs_db, 'data'))
     src = 'meta.json' if encrypted else 'manifest.json'
     build = json.load(open(os.path.join(docs_db, 'data', src), encoding='utf-8'))['build']
@@ -637,13 +674,7 @@ def stamp(docs_db, assets_dir):
         fh[os.path.basename(p)] = hashlib.sha256(open(p, 'rb').read()).hexdigest()[:10]
     app = hashlib.sha256(''.join('%s=%s;' % kv for kv in sorted(fh.items())).encode('utf-8')).hexdigest()[:10]
     ix = os.path.join(docs_db, 'index.html')
-    html = open(ix, encoding='utf-8').read()
-    def ref(m):
-        name = m.group(2)
-        return m.group(1) + '../assets/' + name + ('?v=' + fh[name] if name in fh else '') + m.group(4)
-    html = re.sub(r'((?:src|href)=")\.\./assets/([\w.-]+\.(?:js|css))(\?v=[0-9a-zA-Z]*)?(")', ref, html)
-    html = re.sub(r'<meta name="ams-build"[^>]*>', '<meta name="ams-build" content="%s" data-app="%s" data-chart="%s">' % (build, app, fh.get('chart.umd.min.js', '')), html)
-    html = re.sub(r'(<link rel="preload" href=")data/(?:meta|manifest)\.json(\?v=[0-9a-zA-Z]*)?(")', r'\g<1>data/%s?v=%s\g<3>' % (src, build), html)
+    html = stamp_html(open(ix, encoding='utf-8').read(), build, encrypted, fh, app)
     open(ix, 'w', encoding='utf-8', newline='\n').write(html)
     open(os.path.join(docs_db, 'version.json'), 'w', encoding='utf-8', newline='\n').write(json.dumps({'build': build, 'app': app}, separators=(',', ':')))
     print('stamped', build, app)

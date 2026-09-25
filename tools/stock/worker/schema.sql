@@ -53,3 +53,8 @@ CREATE TABLE IF NOT EXISTS client_log ( -- 前端錯誤回報（docs/assets/repo
   ua       TEXT
 );
 CREATE INDEX IF NOT EXISTS client_log_ts ON client_log (ts);
+CREATE INDEX IF NOT EXISTS client_log_emp_ts ON client_log (emp_id, ts);   -- clientlog 每人每分鐘上限用
+CREATE TABLE IF NOT EXISTS revoked (    -- 停權黑名單：auth() 與 clientlog 每次都查，INSERT 即時生效（離職／停權 SOP 見 tools/stock/README.md）
+  emp_id TEXT PRIMARY KEY,              -- 員工代號（去前導 0，與 token 內的 id 相同）
+  ts     TEXT                           -- 停權時間 datetime('now')
+);

@@ -19,10 +19,10 @@
       try { id = decodeURIComponent(id); } catch (e) { /* 截斷的 %XX：保留原字串 → 找不到工作表 */ }
       return { view: 'sheet', id, params: new URLSearchParams(m[2] || '') };
     }
-    if ((m = /^\/card\/?(.*)$/.exec(h))) {
+    if ((m = /^\/card\/?([^?]*)(?:\?(.*))?$/.exec(h))) { // #/card/<鍵>?a=<alias>：同一鍵對到多台時指定顯示哪一台（card.js）
       let q = m[1];
       try { q = decodeURIComponent(q); } catch (e) { /* 保留原字串 */ }
-      return { view: 'card', query: m[1] === '' ? null : q, params: new URLSearchParams() };
+      return { view: 'card', query: m[1] === '' ? null : q, params: new URLSearchParams(m[2] || '') };
     }
     if ((m = /^\/stock\/?(?:\?(.*))?$/.exec(h))) return { view: 'stock', params: new URLSearchParams(m[1] || '') }; // 備品庫存總表（stock.js）
     return null;
@@ -141,6 +141,8 @@
       const isC = collapsed.has(g);
       return `<div class="sg${isC ? ' collapsed' : ''}"><button type="button" class="sg-h" aria-expanded="${!isC}" data-g="${U.esc(g)}"><span class="caret" aria-hidden="true">▾</span>${U.esc(g)}<span class="sg-n">${gm.get(g).length}</span></button><ul class="sg-list">${items}</ul></div>`;
     }).join('');
+    // 備品庫存徽章：低於安全存量的料號數（stock.js 每次 S.list 完成都更新；30 秒快取）
+    if (stock && AMS.Stock.badge) { const be = nav.querySelector('a[data-id="stock"] .sl-rows'); if (be) AMS.Stock.badge(be); }
     nav.addEventListener('click', (e) => {
       const b = e.target.closest('.sg-h');
       if (!b) return;
@@ -293,6 +295,7 @@
     const gs = U.$('#global-search');
     if (U.isMobile()) gs.placeholder = '搜尋位號／alias…'; // 360px 寬時完整提示會被截斷
     new AMS.Autocomplete(gs, Object.assign({}, AMS.tagSuggestSource, {
+      emptyItems: () => (AMS.CardView && AMS.CardView.recentItems ? AMS.CardView.recentItems() : []), // 框內空白時列「最近查過」
       onPick: (it) => { gs.value = ''; gs.blur(); R.go('#/card/' + encodeURIComponent(it.key)); },
       onEnter: async (t) => {
         if (!t.trim()) return;

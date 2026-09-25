@@ -54,8 +54,17 @@ def main():
     ctx = {'base': a.base or 'http://127.0.0.1:%d' % a.port, 'pass': passphrase(), 'out': out, 'uid': '900001'}
     proc = None
     if not a.base:
+        # mock 備品庫存要驗 stockToken：由密語＋salt 算出（與 Worker 的 STOCK_TOKEN 同一算法），交給 mock_stock.py 比對；
+        # 密語輪替後忘了更新 token 的情況，E2E 的 test_stock 因此抓得到
+        env = dict(os.environ)
+        try:
+            sys.path.insert(0, os.path.join(ROOT, 'tools', 'stock'))
+            from print_token import stock_token  # noqa: E402
+            env['AMS_MOCK_STOCK_TOKEN'] = stock_token(*passphrase_and_salt(persist=False))
+        except Exception as e:  # 沒有 cryptography 等：mock 退回只檢查非空
+            print('（mock 不驗 stockToken：%s）' % e)
         proc = subprocess.Popen([sys.executable, os.path.join(ROOT, 'tools', 'auth', 'mock_server.py'), str(a.port), os.path.join(ROOT, 'docs')],
-                                cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
         if not wait_up(ctx['base']):
             proc.kill()
             print('mock server 沒有起來（port %d 被占用？）' % a.port); sys.exit(2)

@@ -4,15 +4,23 @@
 輸出：GitHub 公開 repo `momobacon-wq/AMS`，GitHub Pages 從 `main:/docs` 發佈。
 
 ```
-C:\Users\bacon\AMS\
+C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README「結構」；repo 外檔案與線上服務也列在那裡）
   CONTRACT.md            ← 本檔
-  tools/extract.py       ← py tools/extract.py <xlsx> docs/data   （可重跑；純 Python + openpyxl）
-  tools/verify_data.py   ← 獨立對帳：xlsx vs docs/data（列數、抽樣儲存格、連結、公式值）
-  docs/index.html        ← 單頁 App（vanilla JS，無 build step）
-  docs/assets/app.js, app.css, chart.umd.min.js（Chart.js 4.x，vendored）
-  docs/data/manifest.json
-  docs/data/sheets/<id>.json            ← 一般工作表
-  docs/data/sheets/<id>-<nnn>.json      ← 大表分塊（21、22，以及任何 > 8 MB 的表）
+  README.md              ← 操作手冊：重建步驟表、加密／密語輪替、備品庫存、登入閘門、E2E、結構
+  tools/extract.py       ← 主站產生器：py tools/extract.py <xlsx> docs/data（可重跑；純 Python + openpyxl；結尾加密＋戳記）
+  tools/verify_data.py   ← 主站獨立對帳：xlsx vs docs/data（列數、抽樣儲存格、連結、公式值）
+  tools/encrypt_data.py / verify_encrypted.py / rotate_passphrase.py / stamp_assets.py   ← 加密、驗證、密語輪替、版本戳（「加密與封裝」）
+  tools/db/              ← db 站：paths.py（repo 外路徑唯一來源）、install.sh／restore.sh（WSL SQL Server → AmsDb.sqlite）、sheets_*.py＋build_workbook.py（Excel）、
+                            extract_db.py（→ docs/db/data）、card_ams_extra／docmap_*／drive_map（cardwork）、build_card_aux.py（card aux）、rebuild.py（一鍵／--sqlite 一條龍）
+  tools/auth/  tools/stock/  tools/tests/  tools/hooks/   ← 登入閘門、備品庫存 Worker、端對端測試、pre-commit（各節）
+  docs/index.html        ← 主站單頁 App 殼（vanilla JS，無 build step）；docs/db/index.html ← db 站殼（同一套 assets）
+  docs/assets/           ← boot / auth / report / core / table / grid / card / stock / app .js、app.css、chart.umd.min.js（Chart.js 4.x，vendored）
+  docs/sw.js             ← Service Worker（兩站共用）
+  docs/data/meta.json    ← 唯一明文（加密參數與 build）；其餘為密文：
+  docs/data/manifest.json.bin
+  docs/data/sheets/<id>.json.bin        ← 一般工作表
+  docs/data/sheets/<id>-<nnn>.json.bin  ← 大表分塊（21、22，以及任何 > 8 MB 的表）
+  docs/db/data/…                        ← 同上（第二資料集）＋ card/index.json.bin、card/aux-NN.json.bin（card aux）
 ```
 
 ## 關鍵事實（extractor 必須處理）
@@ -167,20 +175,21 @@ C:\Users\bacon\AMS\
 - `summary.groups[].items[]` 的 `alt`（單一 `{kind,key}` 或陣列）：主來源空白時依序改用的備援；標籤加「（<kind 中文名>）」。`kind` 為 rows 型區段（`docindex`／`docsearch`）時以列名（類別／推定值名）對照，該列自帶 lvl／來源／文件。
 
 ### card aux（`docs/db/data/card/`）
-產生：`py tools/db/build_card_aux.py <cardwork_dir> docs/db/data`（在 extract_db 之後執行；會把 card/*.json 納入 `manifest.build` 並重新 stamp）。輸入為 `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py` 的輸出（不進 repo），加上 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（`--dcdas` 可指定、`--no-dcdas` 略過；不進 repo）、`docmap_docsearch.py` 的輸出 `%LOCALAPPDATA%\AMS\cardwork\docsearch.json`（`--docsearch`／`--no-docsearch`）與 `drive_map.py` 的 `%LOCALAPPDATA%\AMS\drive_map.json`（`--drive-map`／`--no-drive-map`；文件庫相對路徑 → Google 雲端硬碟檔案 ID，由 Drive 桌面版中繼資料庫產生）。`--recompare docs/db/data`：cardwork 不在手邊時讀已發布的 card/*.json 只重算 `sec.dcdas`／`compare`／`flags.cmp`（舊資料無 compare 的設備，儀器清單／EOMR 量程不列入比對），有給 docsearch.json 就換掉 `sec.docsearch`，有 drive_map 就補 `docs[].url`。
+產生：`py tools/db/build_card_aux.py <cardwork_dir> docs/db/data`（在 extract_db 之後執行；會把 card/*.json 納入 `manifest.build` 並重新 stamp）。輸入為 `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py` 的輸出（不進 repo），加上 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（`--dcdas` 可指定、`--no-dcdas` 略過；不進 repo）、`docmap_docsearch.py` 的輸出 `%LOCALAPPDATA%\AMS\cardwork\docsearch.json`（`--docsearch`／`--no-docsearch`）與 `drive_map.py` 的 `%LOCALAPPDATA%\AMS\drive_map.json`（`--drive-map`／`--no-drive-map`；文件庫相對路徑 → Google 雲端硬碟檔案 ID，由 Drive 桌面版中繼資料庫產生）。`--recompare docs/db/data`：cardwork 不在手邊時讀已發布的 card/*.json 只重算 `sec.dcdas`／`compare`／`flags.cmp`（舊資料無 compare 的設備，儀器清單／EOMR 量程不列入比對），有給 docsearch.json 就換掉 `sec.docsearch`，有 drive_map 就重新對照 `docs[].url`／`url_note`（`file|…` 整批重算）。dcdas／docsearch／drive_map 任一缺席而沒給對應 `--no-*` 旗標時以非 0 結束（印「!! 缺 …，若確定要略過請加 --no-…」），`rebuild.py` 因此中止並走加密回滾——少了它們查詢卡的「控制器組態」／「文件全文檢索」區段或所有 Drive 連結會整個消失，而 build 雜湊與 verify_encrypted 都不會察覺。
 - `manifest.aux.card = {index, desc, parts, bytes}`。`manifest.build` 雜湊涵蓋 `sheets/*.json`＋`card/*.json`＋manifest（不含 build）；前端所有資料請求加 `?v=<build>`。
-- `card/index.json`：`{version:1, parts, part_width, files:["card/aux-00.json",…], alias:{alias: 塊號}, src_defs, kind_label, doc_cat_order, searched:{dcdas|terminal|instlist|eomr|docindex|docsearch: [{doc_id, rev, ref?, title, folder, used, why, category?}]}, docs:{"kind|doc_id|rev": {title, folder, why?, category?, url?}}, source_stats, stats, compare_rule}`（`dcdas` 那筆＝signal-atlas 索引本身：doc_id `signal-atlas`、rev＝各控制器 checkout 日（`controller.last_mod`）列表、ref 含 checkout 區間與索引建立日；`docsearch` 那筆＝hst-docsearch 索引本身：doc_id `hst-docsearch`、rev＝索引日期）。`docs[].url`＝`https://drive.google.com/open?id=<Drive 檔案 ID>`（有 drive_map 時；前端把該文件來源的數值變成連結，來源展開列「Google 雲端硬碟」）；無編號的檔 key 為 `docsearch|<sha1(路徑)前 12 碼>|`。`doc_no: {文件編號: "file|編號|版次"}`＝欄位值本身寫的文件編號（P&ID、邏輯圖、Hook-up 圖、位置圖、EOMR 亦見於…）對到文件庫裡那份檔（檔名以編號開頭；值有寫版次取該版，否則最高版次；PDF 優先、排除副本夾），docs 同 key 給 title/folder/url；前端讓這種值直接開那份圖（來源展開多一列「欄位所指文件」），不是開提到它的來源文件。`folder` 一律是相對工程文件庫根目錄的資料夾名；**任何 JSON 不得含本機絕對路徑**（產生器以 regex 自檢，命中即中止）。
-- `card/aux-NN.json`（依 03 列序分塊，每塊 ≤ 約 300 KB）：`{part, by_alias:{alias: {sec, compare, flags}}}`。
+- `card/index.json`（v2，只留全廠共用的小東西；密文約 27 KB）：`{version:2, parts, part_width, files:["card/aux-00.json",…], alias:{alias: 塊號}, src_defs, kind_label, doc_cat_order, searched:{dcdas|terminal|instlist|eomr|docindex|docsearch: [{doc_id, rev, ref?, title, folder, used, why, category?}]}, source_stats, stats, compare_rule}`（`dcdas` 那筆＝signal-atlas 索引本身：doc_id `signal-atlas`、rev＝各控制器 checkout 日（`controller.last_mod`）列表、ref 含 checkout 區間與索引建立日；`docsearch` 那筆＝hst-docsearch 索引本身：doc_id `hst-docsearch`、rev＝索引日期）。`stats` 另含 `near`、`dcdas_multi`、`ams_vs_dcdas:{ok,near,mismatch,not_compared}`、`docs_with_url`、`docs_with_url_altrev`、`doc_no_resolved`。
+- 文件中繼資料 `docs` 與 `doc_no` **隨各分塊攜帶**（v1 全放 index，每筆含 33 字元 Drive ID 不可壓縮、占第一張卡下載量近半）：`card/aux-NN.json = {part, by_alias:{alias: {sec, compare, flags}}, docs:{"kind|doc_id|rev": {title, folder, why?, category?, url?, url_note?}}, doc_no:{文件編號: "file|編號|版次"}}`，`docs`／`doc_no` 只含該塊 by_alias 引用到的子集（所有鍵名 `d` 指到的文件＋塊內文字出現的文件編號）；前端 `D.loadAux` 把分塊的 `docs`／`doc_no` 併回 `ix` 再交給卡片，卡片端仍讀 `ix.docs`／`ix.doc_no`（舊版 index 也相容）。`docs[].url`＝`https://drive.google.com/open?id=<Drive 檔案 ID>`（有 drive_map 時；前端把該文件來源的數值變成連結，來源展開列「Google 雲端硬碟」）；`url_note`＝退路只對到同編號、別版次（或檔名版次不明）的檔時的說明「雲端只找到 <檔名>（版次 X，與本站資料來源的版次 Y 不同）」——連結仍給（同編號別版次仍有參考價值），前端列「Google 雲端硬碟（版次不同：檔名）」並併入滑鼠提示，工程師才不會把別版次的值拿去改現場。無編號的檔 key 為 `docsearch|<sha1(路徑)前 12 碼>|`。`doc_no`＝欄位值本身寫的文件編號（P&ID、邏輯圖、Hook-up 圖、位置圖、EOMR 亦見於…）對到文件庫裡那份檔（檔名以編號開頭；值有寫版次取該版，否則最高版次；PDF 優先、排除副本夾；指定版次不在雲端時 why 寫「指定版次 X 不在雲端，改開最高版次 Y」），docs 同 key 給 title/folder/url；前端讓這種值直接開那份圖（來源展開多一列「欄位所指文件」），不是開提到它的來源文件。`folder` 一律是相對工程文件庫根目錄的資料夾名；**任何 JSON 不得含本機絕對路徑**（產生器以 regex 自檢，命中即中止）。
+- `card/aux-NN.json`（依 03 列序分塊，每塊 ≤ 約 300 KB＋該塊的 docs 子集）：`{part, by_alias:{alias: {sec, compare, flags}}, docs, doc_no}`。
   - `sec.sync|change|ident|device|alarm|ff = {rows: [[欄位, 值, lvl, 來源字串]]}`（AMS DB 補充）。
-  - `sec.dcdas|terminal|instlist|eomr = {entries: [{h, lvl, src, rule, d?, note?, rows: [[欄位, 值, 狀態?]]}]}`：一筆 entry＝一份文件的一列/一頁（dcdas：控制器的一個類比輸入通道，lvl `ctrl`，rows＝控制器、I/O 模組、通道、訊號名、裝置位號 (DeviceTag)、輸入型式、HART 通道、`DCS AI 量程 (Low/High Value)`、訊號說明、signal-atlas 深連結；`rule`＝位號對照方式）；entry 內各欄共用 `src`；`d` 指向 index.docs；狀態 `mismatch|unit_mismatch|unit_unknown`（量程欄與 DCS 基準比對）或 `warn`（EOMR 序號與 AMS 不符）。
+  - `sec.dcdas|terminal|instlist|eomr = {entries: [{h, lvl, src, rule, d?, note?, rows: [[欄位, 值, 狀態?]]}]}`：一筆 entry＝一份文件的一列/一頁（dcdas：控制器的一個類比輸入通道，lvl `ctrl`，rows＝控制器、I/O 模組、通道、訊號名、裝置位號 (DeviceTag)、輸入型式、HART 通道、`DCS AI 量程 (Low/High Value)`、訊號說明、signal-atlas 深連結；`rule`＝位號對照方式）；entry 內各欄共用 `src`；`d` 指向 docs（分塊自帶）；狀態 `near|mismatch|unit_mismatch|unit_unknown`（量程欄與 DCS 基準比對）或 `warn`（EOMR 序號與 AMS 不符；dcdas：同位號另一通道的量程與基準通道不同）。
   - 文件參照字串：產生器可給 `ref`（完整顯示字串），否則 `doc_id-rev`。DCS 端子表 xlsx 本身沒有版次字母（CoverSheet「Revision」欄未隨 IO Rev 更新）：字母取自同 IO Rev 的 PDF 檔名時寫 `HT1-1-IMI01-A0001-H（推定）`；找不到對應 PDF 時寫 `HT3-1-IMI01-A0001（IO Rev3，版次字母不明）`。同 IO Rev 多份 xlsx 取修改時間最新者。
   - 儀器清單 HRSG xls 的 RANGE 若為數值儲存格（原文無單位，「0~」與單位只來自整欄數字格式）：`設計量程（原文）` 寫原數值並說明格式，另加 `量程單位來源＝儲存格數字格式（推定）`；比對一律 `unit_unknown`。
   - `sec.docindex = {rows: [[類別, "文件-版次 · p.頁", lvl, 來源字串, {rule, d?}]]}`。
   - `sec.docsearch = {rows: [[類別 | 推定值名, 值, lvl, 來源字串, {rule, d, hit?, pages?, term?, alt?:[{ref, d, p, why}]}]]}`（`docmap_docsearch.py`）：同家族（HT0/HT1/HT2 同編號、EOMR 的 AQA01-T####／AQP01-Q#### 兩本、noKKS_ 原件副本）只列代表，其餘放 `alt`（前端來源明細列「其他版本／副本」各自可點開）；同類別第 2 個家族的標籤寫「類別（另：編號 標題）」；根目錄 `all instrument list` 個人彙整檔排除。類別列（儀器清單、出廠證書／EOMR、規格表、DCS 端子表、P&ID、Hook-up、位置圖、邏輯圖、接線圖／迴路圖、電纜表、操作說明、手冊、Open Item／查修、教材、其他）的值＝`"文件-版次 p.N｜命中行"`（Office 檔無頁碼），每類別最多 2 份、同編號取最高版次、副本夾與本站匯出排除；推定值列（`序號命中（文件）`、`出廠型號（文件）`、`型號（文件）`、`廠牌（文件）`、`量程（文件）`、`量程（邏輯圖）`）由命中行／命中頁以規則抽出（rule `FTS-…`），lvl `factory`（出廠證書類）或 `doc`；位號不採 OCR 命中，序號的 OCR 命中在來源字串標「需開原圖確認」。不列入 compare。
-  - `compare = [{item:"量程", baseline:{kind:"dcs_write"|"dcdas"|"terminal", label, lvl, src, lo, hi, unit, note, bounds:["hi"]|["lo"]|["hi","lo"]}, others:[{kind:"dcdas"|"terminal"|"ams"|"instlist"|"eomr", label, lvl, src, lo, hi, unit, status:"ok"|"mismatch"|"unit_mismatch"|"unit_unknown"|"ref_only", note}]}]`。
-    - 基準（以 DCS 為主）依序：(1) 控制器現行 I/O 組態（`sec.dcdas` 第一個有 Low/High 的通道，標「DCS 控制器組態 (AI Low/High Value)」）→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat 28 外部主機寫入（`dcs_writes` URV/LRV，標「DCS 寫入 (AMS 事件)」；只有寫入日期晚於該控制器的 checkout 日期（dcdas `controller.last_mod`；索引建立日只是備援）、或沒有控制器資料時才當基準，否則列為 others 且只比它寫入的那一端，`others[].bounds` 註明）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。非基準的 DCS 來源也列入 others 比對。（2026-09-24：G12HAP70BT001 的 DCS 寫入 160 已被人工改回 200 且控制器為 200，寫入事件是歷史，不能讓一致的來源被標 ⚠。）DCS 只寫入一端時 `bounds` 只含該端：另一端顯示端子表（或 AMS 現值）僅供參考，不比較（前端標「（不比較）」）。DCS 寫入基準的單位＝AMS 單位（UNIT 寫入 > AMS 現值單位）；AMS 單位空白時留空（不借端子表單位），note 註明未翻譯的 AMS 單位碼。2026-09-24 全廠比對：AMS 現值與控制器組態 93% 相同、端子表 37% 與控制器不同，所以端子表排第 3。
-    - 比對：容許 ±0.5% span；單位先換算（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、mm/cm/m/in、%）。兩邊單位都明確但量綱不同、或明確「絕對壓 vs 表壓/差壓」→ `unit_mismatch`（單位不同未比較）；一邊明確絕壓、另一邊未標示且差 1 atm（容許 max(2% span, 2 kPa)）即相符 → 也判 `unit_mismatch`，note「疑似絕壓↔表壓表示不同」。任一邊單位空白、無法辨識或僅為推定 → `unit_unknown`（單位不明未比較）。儀器清單只取主體列（排除保護管／感測元件）；EOMR 優先取「序號與 AMS 相符＝是」的證書；序號不符（「否（AMS=…）」＝非本台）者不比較、不寫 `flags.cmp`，只在 others 列一筆 `status:"ref_only"`（note「證書序號與 AMS 不符（非本台），僅供參考、未比較」）；AMS 未寫入序號者仍比對，note 前綴「AMS 未寫入序號，無法確認為同一台；」。
-  - `flags = {last_change_dcs, has_dcs_write, dcs_write_keys, sync_unrecovered, cmp:{kind: status, "<kind>_lo"|"<kind>_hi": status}, ff}`（`<kind>_lo/_hi` 只給列入比較的那一端；整體 mismatch 時未不符的那一端為 `ok`）。
+  - `compare = [{item:"量程", baseline:{kind:"dcs_write"|"dcdas"|"terminal", label, lvl, src, lo, hi, unit, note, bounds:["hi"]|["lo"]|["hi","lo"]}, others:[{kind:"dcdas"|"dcdas_ch"|"terminal"|"ams"|"instlist"|"eomr", label, lvl, src, lo, hi, unit, status:"ok"|"near"|"mismatch"|"unit_mismatch"|"unit_unknown"|"ref_only", note}]}]`。`kind:"dcdas_ch"`＝同位號其餘量程不同的控制器通道（label「控制器組態 · <控制器> <訊號名>」，note 前綴「同位號另一通道；」），各自與基準比對但不寫 `flags.cmp.dcdas`。
+    - 基準（以 DCS 為主）依序：(1) 控制器現行 I/O 組態（`sec.dcdas` 有 Low/High 的通道中，優先取控制器與位號機組前綴一致者（同一 DeviceTag 可能接在 G11／G12／S1 多個控制器），其次單位有寫的，否則索引排序第一個；標「DCS 控制器組態 (AI Low/High Value)」；各通道量程不一時 baseline.note 註明、其餘通道列成 others `dcdas_ch`、`flags.cmp.dcdas_multi="warn"`（前端黃色 pill「控制器多通道量程不一」；多點溫度元件多量程可能是正常設計，不當故障））→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat 28 外部主機寫入（`dcs_writes` URV/LRV，標「DCS 寫入 (AMS 事件)」；只有寫入日期晚於該控制器的 checkout 日期（dcdas `controller.last_mod`；索引建立日只是備援）、或沒有控制器資料時才當基準，否則列為 others 且只比它寫入的那一端，`others[].bounds` 註明）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。非基準的 DCS 來源也列入 others 比對。（2026-09-24：G12HAP70BT001 的 DCS 寫入 160 已被人工改回 200 且控制器為 200，寫入事件是歷史，不能讓一致的來源被標 ⚠。）DCS 只寫入一端時 `bounds` 只含該端：另一端顯示端子表（或 AMS 現值）僅供參考，不比較（前端標「（不比較）」）。DCS 寫入基準的單位＝AMS 單位（UNIT 寫入 > AMS 現值單位）；AMS 單位空白時留空（不借端子表單位），note 註明未翻譯的 AMS 單位碼。2026-09-26 全廠比對（有控制器基準且 AMS 有現值的 1,240 台）：AMS 現值與控制器組態完全相同 1,128（91%）、近似 22（2%）、不符 53（4%）、未比較 37；端子表 37% 與控制器不同，所以端子表排第 3。
+    - 比對：同單位（不需換算）時 7 位有效數字完全相同才 `ok`（量程差異只會是 float32 殘差或真的有人改過，URV 1000 vs 996 不該顯示 ✓），差在 ±0.5% span 內為 `near`（note「≈ 近似（上限 x vs y；同單位但數值不同，差在 ±0.5% span 內，請確認）」；前端黃色「≈ 近似（請確認）」、不併入紅色 ⚠），超過為 `mismatch`；需換算單位者（°C/°F/K、Pa/kPa/MPa/mbar/bar/psi/mmH2O/inH2O/inHg/mmHg、mm/cm/m/in、%）文件常寫圓整值（0-145 psi 對 0-1000 kPa 換算 999.7），維持換算後 ±0.5% span 內為 `ok`。兩邊單位都明確但量綱不同、或明確「絕對壓 vs 表壓/差壓」→ `unit_mismatch`（單位不同未比較）；一邊明確絕壓、另一邊未標示且差 1 atm（容許 max(2% span, 2 kPa)）即相符 → 也判 `unit_mismatch`，note「疑似絕壓↔表壓表示不同」。任一邊單位空白、無法辨識或僅為推定 → `unit_unknown`（單位不明未比較）。儀器清單只取主體列（排除保護管／感測元件）；EOMR 優先取「序號與 AMS 相符＝是」的證書；序號不符（「否（AMS=…）」＝非本台）者不比較、不寫 `flags.cmp`，只在 others 列一筆 `status:"ref_only"`（note「證書序號與 AMS 不符（非本台），僅供參考、未比較」）；AMS 未寫入序號者仍比對，note 前綴「AMS 未寫入序號，無法確認為同一台；」。
+  - `flags = {last_change_dcs, has_dcs_write, dcs_write_keys, sync_unrecovered, cmp:{kind: status, "<kind>_lo"|"<kind>_hi": status, dcdas_multi?: "warn"}, ff}`（`<kind>_lo/_hi` 只給列入比較的那一端；整體 mismatch／near 時未不同的那一端為 `ok`；`dcdas_multi` 只在同位號多通道量程不一時出現，`dcdas_ch` 列不寫進 cmp）。
 - 多份副本／多版次：各產生器以新版為主（版次大者；同版次取修改時間最新），來源字串寫「文件編號-版次＋工作表!列 或 p.頁」。
 
 ### 前端（card.js／core.js／app.css）
@@ -188,7 +197,13 @@ C:\Users\bacon\AMS\
 - 完整模式每區段表頭「欄位｜數據｜來源」三欄；徽章模式值後加色點按鈕（≥32px 觸控區，`aria-expanded`）點開完整來源；窄容器上下堆疊。
 - `beforeprint` 展開卡片內 `<details>`（參數現值除外）並強制完整模式；`afterprint` 還原。
 - `D.loadAux(alias)`：先取 `card/index.json`，再按需載入該 alias 所在的 `aux-NN.json`（以 `this.res.alias` 防競態）。文件區段無資料時顯示「查無（已比對：文件編號-版次…）」。
-- 文件連結：欄位值來自某份文件（entry 的 `d` 或列的 `{d}`）且 `index.docs[d].url` 存在時，值渲染成 `<a class="cf-t doclk" target="_blank" rel="noopener noreferrer">`（底線點狀＋↗），來源展開的「文件資訊」多一列「Google 雲端硬碟 → 開啟檔案」。CSP 不需放行（只是導覽連結）。
+- 文件連結：欄位值來自某份文件（entry 的 `d` 或列的 `{d}`）且 `index.docs[d].url` 存在時，值渲染成 `<a class="cf-t doclk" target="_blank" rel="noopener noreferrer">`（底線點狀＋↗），來源展開的「文件資訊」多一列「Google 雲端硬碟 → 開啟檔案」。`docs[d].url_note`（雲端只找到同編號別版次）存在時該列改「Google 雲端硬碟（版次不同）：<url_note> → 開啟 ↗」，並併進 doclk 的滑鼠提示。CSP 不需放行（只是導覽連結）。
+- 路由 `#/card/<查詢鍵>?a=<alias>`（app.js `R.parse` 把 `?` 後解析成 `params`）：同一鍵對到多台時指定顯示哪一台；`lookup()` 在 `count>1` 且 `a` ∈ `IX.aliasesOf(key)` 時改用該 alias 的 03 列，輸入框／網址主體／分頁標題維持原查詢鍵，`.cq-alts` chips 一直顯示（第一台連 `#/card/<鍵>`，其餘帶 `?a=`；位號在前、alias 在後、目前這台 `.on`）。hero「分享」鈕的網址由 `shareUrl(res)` 產生（`navigator.share` 沒有就複製）。
+- 「最近查過」（localStorage `ams.card.recent`）：`AMS.CardView.recent()`／`recentItems()` 為靜態方法，查詢卡與頂列搜尋的 Autocomplete 以 `emptyItems` 選項在框內空白（聚焦或清空）時列出（`src` 顯示「最近查過」）；結果頁 `.cq-meta` 尾端有「← 上一個：<位號>」chip（最近查過裡第一個不是目前設備者）。
+- 摘要標頭 `.sum-asof`「資料：AMS 資料庫 yyyy-mm-dd｜控制器 checkout 起～迄｜文件索引 yyyy-mm-dd」：初值取 `manifest.workbook.source` 的 yyyymmdd，card/index.json 到達後改用 `source_stats.ams.backup_date`、`searched.dcdas[0].ref`（去掉括號；沒有 ref 就從 `rev` 取最早～最晚日期）與 `searched.docsearch[0].rev`；列印保留。
+- 複製：`AMS.copyText(s)`（`navigator.clipboard` 不存在或被拒時退回 textarea＋`execCommand('copy')`）；摘要 `.sumgrid` 的值點一下即複製（`.cf-v[data-copy]` 原值，網址類複製完整網址；連結／按鈕／來源展開／拖曳選字不攔）並 `U.toast`。
+- 比對狀態顯示：`near` → 黃色 `.cmp-flag.warn`「≈ 近似（請確認）」，摘要標頭另出黃色 pill「≈ 量程近似（請確認）：<來源>」不併入紅色 ⚠；`flags.cmp.dcdas_multi === 'warn'` → 黃色 pill「控制器多通道量程不一（n 個通道）」（n＝`sec.dcdas.entries` 數）；`kind` `dcdas_ch`（其他通道）標籤「控制器組態（其他通道）」。這些鍵沒有資料時前端不顯示。
+- 查詢卡連到分塊表（參數現值）的連結帶 `rn=<此設備最後一列>`（`sheetHref(sid, {r, rn, f})`），table.js 可只載 r..rn 所在的分塊。table.js 的部分載入模式：`U.isMobile()`、或路由帶 `r`／`f` 時分塊表只 `ensurePart(partOf(r)..partOf(rn))`、不自動 `loadAll`；工具列載入列顯示「已載入 k/N 部分 · …（篩選、排序、CSV 只含已載入的列）」與「載入全部」鈕（`data-act="loadall"` → `loadRest(null)`）；桌機無參數維持自動全載。
 
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
@@ -198,7 +213,7 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
 - salt（16 bytes）存 key 檔第 2 行，**固定不隨建置改變**（salt 本來就公開在 meta.json；固定後「記住此裝置」的金鑰在資料重建後仍可用，且 docs/ 與 docs/db/ 同源共用同一把）。`--fresh-salt` 或改密語＝輪替，兩站都要重新加密。
 - 每個資料檔（`manifest.json`、`sheets/*.json`、`card/*.json`）存成 `<rel>.bin` ＝ `12-byte 隨機 IV ‖ AES-GCM(gzip(JSON UTF-8, level 6, mtime 0))`（含 16-byte tag，WebCrypto 版面），**AAD＝相對路徑 rel（不含 .bin）**，密文不能搬到別的路徑。
 - `meta.json` ＝ `{"enc":1,"gzip":1,"build":<manifest.build>,"kdf":{"name":"PBKDF2","hash":"SHA-256","iter":200000,"salt":<b64>},"check":<b64 seal(key,"ams-ok",aad="check")>}`；`check` 只用來驗密語。
-- `manifest.build` 仍以**明文**內容計算（IV 隨機，密文不可拿來算 hash）：產生器先算 build 寫 manifest → `encrypt_dir` → stamp。`tools/stamp_assets.py`／`extract_db.stamp` 在 `meta.json` 存在時從它取 build，並把 index.html 的 preload 改指 `data/meta.json`。
+- `manifest.build` 仍以**明文**內容計算（IV 隨機，密文不可拿來算 hash）：產生器先算 build 寫 manifest → `encrypt_dir` → stamp。`tools/stamp_assets.py`／`extract_db.stamp` 在 `meta.json` 存在時從它取 build，並把 index.html 的 preload 改指 `data/meta.json`。db 站的 `extract_db.stamp` 另以 `<!-- ams-preload --> … <!-- /ams-preload -->` 標記整段重寫首訪 preload（第一行 meta.json，其後 `PRELOAD_DATA`＝manifest＋sheets/02、04、03 的 `.bin`，全部 `?v=<build>`，讓 600 KB 與登入閘門往返重疊；重複 stamp 不累加，舊版單行會自動遷移成區塊；`stamp_html()` 是純函式可單測）；主站 `stamp_assets.py` 維持只 preload meta。這些 `?v=` 都等於 build，已在 SW keep 清單內。
 - 前端（core.js）：`D.loadMeta()` 與登入閘門並行；`meta.json` 404 或 `enc:0` → 明文模式（本機開發／mock）。加密模式下 `D.url` 檔名加 `.bin`、`D.fetchJSON` 收齊 bytes → `crypto.subtle.decrypt`（AAD＝path）→ `DecompressionStream('gzip')` → JSON；進度以密文 content-length 為分母（不再用 manifest bytes 估計）。`D.unlock()`：先試 `localStorage['ams.key']`（raw key base64，「記住此裝置」勾選才存；**不可用 `atlas.key`**，同源會與 signal-atlas 互踩），否則密語視窗；標頭「清除密語」＝ `D.forgetKey()`。`D.cryptoOK()` 不通過（舊瀏覽器／非 https）顯示說明。
 - 指令：
   - `py tools/encrypt_data.py docs/data`、`py tools/encrypt_data.py docs/db/data`（明文 → 密文，原地，刪明文）；`--decrypt`（原地還原）；`--decrypt-to DIR`（另存明文副本）；`--dry-run`。
@@ -209,16 +224,19 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
 
 ## 備品庫存（stock；docs/db 站；tools/stock/）
 
-倉庫資料不在 `data/`，而是即時來自 **Cloudflare Worker + D1**（`tools/stock/worker/`：`src/index.js`、`schema.sql`；表 items／ledger／txns）；前端 `docs/assets/stock.js`。`tools/stock/Code.gs`（試算表＋Apps Script）是同一 API 格式的替代後端，前端不分後端。
+倉庫資料不在 `data/`，而是即時來自 **Cloudflare Worker + D1**（`tools/stock/worker/`：`src/index.js`、`schema.sql`；表 items／ledger／txns／client_log／revoked）；前端 `docs/assets/stock.js`。`tools/stock/Code.gs`（試算表＋Apps Script）是同一 API 格式的替代後端，前端不分後端。
 
 - 啟用條件：`docs/db/stock-config.json` `{"endpoint": "https://script.google.com/macros/s/…/exec"}`（空＝關閉，查詢卡沒有該組、側欄沒有「備品庫存」、`#/stock/` 顯示未啟用）且已登入（`AMSAuth.user.token`）。`app.js` 在 `loadManifest` 後 `AMS.Stock.ready()`。
 - D1 `items(pn PK, model, brand, spec, loc, qty CHECK≥0, proto, family, contract, cqty, min_qty, note, updated_at)`、`ledger(id, ts ISO-UTC, emp_id, emp_name, action OUT／IN／STOCKTAKE／IMPORT, pn, delta, balance, kks, note, wo, source ams-card／ams-stock, txn_id)`（只附加）、`txns(txn_id PK)`。
   試算表版（Code.gs）對應：Inventory A–L＝PartNumber, Name(型號), Brand, Spec, Location, Quantity, Protocol, Family, Contract, ContractQty, MinQty, Note（A–F 與 Transmitter 相容）；Logs A–L＝Timestamp, EmployeeID, ActionType, PartNumber, ChangeAmount, Balance, EmployeeName, KKS, Note, WorkOrder, Source, TxnId。
 - API（POST text/plain JSON，回 `{ok,…}`；每個 action 都帶 `id`、`name`（只做紀錄顯示）、`token`（登入 HMAC token，後端用同一個 `AUTH_SECRET` 驗）與 `stockToken`；Worker 只對 `ALLOWED_ORIGINS` 回 CORS 標頭）：
-  `list` → `{rev, items[{pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min, note}]}`；`logs {pn?, kks?, limit≤300}` → `{rows[{ts,id,name,action,pn,delta,bal,kks,note,wo,source,txn}]}`；
-  `txn {txnId, items[{pn, delta}], kks?, note?, wo?, source?}` → `{results[{pn, qty, delta}], replay?}`（整批驗證、任一失敗不寫；Worker 用 `DB.batch` 單一交易：INSERT txns → UPDATE items → INSERT ledger，`CHECK(qty>=0)` 兜底，同 txnId 重送回同結果 `replay:true`）；`adjust {pn, qty, note?}`（盤點）。
+  `list` → `{rev, lowCount, items[{pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min, note}]}`（`lowCount`＝`min_qty` 非 NULL 且 `qty ≤ min_qty` 的料號數；側欄「備品庫存」徽章、`#/stock/` 進頁面預選「低於安全存量」）；
+  `logs {pn?, kks?, limit≤300, since?, until?, before?}` → `{rows[{ts,id,name,action,pn,delta,bal,kks,note,wo,source,txn,rid}]}`（`since`／`until` ISO UTC 字串，`ts >= since`、`ts < until`，非 ISO 視為沒給；`before`＝ledger id 游標只回 `id < before`；`rid`＝該列 ledger id，前端「載入更多」「匯出區間全部」以最後一列的 `rid` 當下一頁 `before`）；
+  `txn {txnId, items[{pn, delta}], kks?, note?, wo?, source?}` → `{results[{pn, qty, delta, min, low}], replay?}`（整批驗證、任一失敗不寫；Worker 用 `DB.batch` 單一交易：INSERT txns → UPDATE items → INSERT ledger，`CHECK(qty>=0)` 兜底，同 txnId 重送回同結果 `replay:true`；`low`＝寫入後 `qty ≤ min_qty`，前端 toast 加「已低於安全存量」）。
+  庫存不足（預檢或 CHECK 兜底）→ `{ok:false, stale:true, error, items[{pn, qty}]}`：本批全部料號的現量，前端領取視窗就地更新「現有 N」與上限、不關窗（`S.openTxn` 的 `onStale`），不清購物車。盤點 `adjust` 動作已移除（數量調整用 SQL 同時 UPDATE items ＋ INSERT ledger STOCKTAKE，見 `tools/stock/README.md`）。
   前端 `S.openTxn` 開窗時產生一次 `txnId`（`S.newTxnId`），同一視窗重送沿用同一 txnId（`S.txn(o)` 有 `o.txnId` 就用它）；連線逾時／fetch 失敗只提示「可能已寫入，重按不重扣」，不自動重送；回應 `replay` 為真時 toast 加「先前已寫入，未重扣」。
-  失敗：`{ok:false, auth:true}` 未授權、`{ok:false, transient:true}` 伺服器錯誤。
+  失敗：`{ok:false, auth:true}` 未授權（含 `revoked` 表命中：「此員工代號已停用」，`clientlog` 同樣擋）、`{ok:false, transient:true}` 伺服器錯誤（固定文案「伺服器暫時無法服務，請稍後再試」，D1 原文只進 Worker console）、HTTP 429 `{ok:false, transient:true}` 每 IP 每分鐘 60 次 POST 超限（`wrangler.toml` `[[ratelimits]]` binding `RL`；沒有 binding 時不限）；`clientlog` 每人每分鐘 10 筆，超過回 `{ok:true, dropped:true}` 不寫（索引 `client_log_emp_ts`）。
+  停權：`revoked(emp_id PK, ts)`，`auth()` 與 `clientlog` 在 token 驗證通過後查一次；`INSERT OR IGNORE INTO revoked` 即時生效，離職 SOP 見 `tools/stock/README.md`。
 - `STOCK_TOKEN`＝`hex(SHA-256("ams-stock:" + base64(AES 原始金鑰)))`：瀏覽器由解鎖後的 `D.key` 算（明文模式送 `plain`，只有 mock 接受）；建置端 `tools/stock/print_token.py`。換密語／salt → `npx wrangler secret put STOCK_TOKEN` 重貼。
 - 對照規則（`AMS.Stock.match`；`contracts_to_inventory.py` 的 FAMILY_RULES 同步維護）：正規化＝大寫、去空白／-／_／／；E+H 取 `+` 前段；本體碼＝`3051|2051|2088|214C|5408|8732E` 開頭者取前 12 碼，其餘整段。
   第一層「同型號」＝本體碼相同；第二層「同系列」＝系列鍵相同（`3051S`、`3051[CLT]X`、`2051[CT]X`、`2088[AG]`、`644`、`848T`、`5408`、`8732E`、`214C`、`PMD75`、`PMP71`、`TMT82`）。

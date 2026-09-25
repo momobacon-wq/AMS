@@ -11,11 +11,13 @@ import socket
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
+import os, sys
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB, SHEETS_OUT as OUT  # noqa: E402
+
 KEY = "modules"
-DB = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/AmsDb.sqlite"
-OUT = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/build/out"
 
 # ----------------------------------------------------------------------------
 # 資料表中文說明（由欄位名 + 模組原始碼註解推得）

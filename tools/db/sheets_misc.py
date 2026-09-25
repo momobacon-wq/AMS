@@ -9,10 +9,12 @@ build(conn) -> list[dict]
 import re
 import os
 import sqlite3
+import sys
 import pandas as pd
 
-DB = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/AmsDb.sqlite"
-OUT = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/build/out"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB, SHEETS_OUT as OUT  # noqa: E402
+
 KEY = "misc"
 
 _BAD = re.compile(r"[^\x20-\x7e]")               # 非可列印 ASCII (與 sheets_devices 同規則)

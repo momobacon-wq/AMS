@@ -24,10 +24,11 @@ ParamData BLOB 解碼規則 (以資料驗證; 見各工作表 notes):
 import os, sys, json, struct, math, datetime, re
 import sqlite3
 import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB_PATH, SHEETS_OUT as OUT_DIR  # noqa: E402
 import numpy as np
 
-DB_PATH = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/AmsDb.sqlite"
-OUT_DIR = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/build/out"
 HERE = os.path.dirname(os.path.abspath(__file__))
 KEY = "params"
 

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Runs inside WSL. Dumps every user table of AmsDb (SQL Server) into one SQLite file,
+"""Runs inside WSL (called by tools/db/restore.sh). Dumps every user table of AmsDb (SQL Server) into one SQLite file,
 plus a _schema table (table/column/type/rowcount) and _views/_procs source text.
-Output: /mnt/c/.../scratchpad/AmsDb.sqlite
+Usage: python3 export_to_sqlite.py <out.sqlite>   (sa password: env MSSQL_SA_PASSWORD or /root/.ams_sa_pw; database: env AMS_MSSQL_DB, default AmsDb)
 """
 import pyodbc, sqlite3, sys, os, decimal, datetime, uuid, json, time
 
 OUT = sys.argv[1]
-SA_PW = open('/root/.ams_sa_pw').read().strip()
+SA_PW = os.environ.get('MSSQL_SA_PASSWORD') or open('/root/.ams_sa_pw').read().strip()
+DBNAME = os.environ.get('AMS_MSSQL_DB', 'AmsDb')
 cn = pyodbc.connect(
-    'DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=AmsDb;'
+    'DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=' + DBNAME + ';'
     f'UID=sa;PWD={SA_PW};TrustServerCertificate=yes', autocommit=True)
 cur = cn.cursor()
 
@@ -59,7 +60,7 @@ lite.execute('CREATE TABLE _modules(type_desc, schema_name, object_name, definit
 lite.executemany('INSERT INTO _modules VALUES (?,?,?,?)', [tuple(r) for r in cur.fetchall()])
 
 # extended properties / db info
-cur.execute("SELECT name, compatibility_level, collation_name, create_date FROM sys.databases WHERE name='AmsDb'")
+cur.execute("SELECT name, compatibility_level, collation_name, create_date FROM sys.databases WHERE name=?", DBNAME)
 lite.execute('CREATE TABLE _dbinfo(name, compatibility_level, collation_name, create_date)')
 lite.executemany('INSERT INTO _dbinfo VALUES (?,?,?,?)', [tuple(conv(v) for v in r) for r in cur.fetchall()])
 lite.commit()

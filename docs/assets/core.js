@@ -561,14 +561,17 @@
     const p = path || (D.manifest && D.manifest.aux && D.manifest.aux.card && D.manifest.aux.card.index) || 'card/index.json';
     return D.fetchJSON(p);
   };
-  /** alias → {sec, compare, flags}（無資料回 null）；index 不存在時 reject */
+  /** alias → {sec, compare, flags}（無資料回 null）；index 不存在時 reject。
+   *  index v2 只留 alias map，docs（文件標題／資料夾／Drive url）與 doc_no 隨各分塊攜帶該塊用到的子集：這裡併回 ix（不動 D.cache 裡的 index），
+   *  卡片端照舊讀 ix.docs／ix.doc_no；舊版 index（docs 全在 index）也相容。 */
   D.loadAux = async function (alias, path) {
     const ix = await D.loadAuxIndex(path);
     const k = ix && ix.alias ? ix.alias[alias] : undefined;
     if (k == null) return { ix, aux: null };
     const f = (ix.files && ix.files[k]) || ('card/aux-' + String(k).padStart(ix.part_width || 2, '0') + '.json');
     const j = await D.fetchJSON(f);
-    return { ix, aux: (j.by_alias && j.by_alias[alias]) || null };
+    const ixm = Object.assign({}, ix, { docs: Object.assign({}, ix.docs || {}, j.docs || {}), doc_no: Object.assign({}, ix.doc_no || {}, j.doc_no || {}) });
+    return { ix: ixm, aux: (j.by_alias && j.by_alias[alias]) || null };
   };
 
   /* ------------------------------------------------------------------ 密語 → 金鑰（PBKDF2-HMAC-SHA-256 → AES-256-GCM） */
@@ -601,7 +604,7 @@
   };
   function showKeyModal(resolve) {
     const input = U.h('input', { id: 'key-pass', name: 'passphrase', type: 'password', autocomplete: 'current-password', autocapitalize: 'off', spellcheck: 'false', required: true, placeholder: '密語' });
-    const remember = U.h('input', { id: 'key-remember', type: 'checkbox', checked: true });
+    const remember = U.h('input', { id: 'key-remember', type: 'checkbox' }); // 預設不勾：共用工作站不該一勾就把金鑰留在瀏覽器（登出時 auth.js 也會清掉）
     const msg = U.h('div', { class: 'auth-msg', role: 'status', 'aria-live': 'polite' });
     const btn = U.h('button', { id: 'key-submit', class: 'btn primary auth-btn', type: 'submit' }, '解鎖');
     const form = U.h('form', { class: 'auth-card key-card', autocomplete: 'on', novalidate: true },
@@ -767,12 +770,12 @@
   const IX = (AMS.index = {});
   IX.norm = (q) => String(q == null ? '' : q).replace(/=/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
   IX.compact = (q) => IX.norm(q).replace(/[^A-Z0-9]/g, ''); // 去掉分隔符（- _ . / 空白…）只留英數：貼上 G12-HAP70-BT001 也對得到
-  IX.load = function () {
-    if (IX._p) return IX._p;
+  IX.load = function (onProgress) { // onProgress(0..1)：只有第一個呼叫者的回呼接到下載進度；之後的呼叫者在完成時收到 1
+    if (IX._p) { if (onProgress) IX._p.then(() => onProgress(1), () => {}); return IX._p; }
     IX._p = (async () => {
       const cfg = (D.manifest && D.manifest.search) || {};
       const sid = cfg.index_sheet || '05';
-      const j = await D.loadSheet(sid);
+      const j = await D.loadSheet(sid, onProgress);
       const kc = cfg.key_col ?? 0; const ac = cfg.alias_col ?? 4;
       IX.sheet = j; IX.sid = sid; IX.kc = kc; IX.ac = ac;
       IX.srcCol = cfg.src_col ?? 2; IX.tagCol = cfg.tag_col ?? 3; IX.countCol = cfg.count_col ?? 7;
@@ -845,10 +848,10 @@
     });
   };
   const DV = (AMS.devices = {});
-  DV.load = function () {
-    if (DV._p) return DV._p;
+  DV.load = function (onProgress) { // onProgress 同 IX.load
+    if (DV._p) { if (onProgress) DV._p.then(() => onProgress(1), () => {}); return DV._p; }
     DV._p = (async () => {
-      const j = await D.loadSheet('03');
+      const j = await D.loadSheet('03', onProgress);
       DV.sheet = j;
       DV.byAlias = new Map();
       j.rows.forEach((r, i) => { const a = U.text(r[1]); if (a && !DV.byAlias.has(a)) DV.byAlias.set(a, i); });
@@ -995,7 +998,7 @@
       input.setAttribute('aria-controls', this.id);
       this.upd = U.debounce(() => this.update(), 90);
       input.addEventListener('input', () => this.upd());
-      input.addEventListener('focus', () => { if (this.o.prepare) this.o.prepare(); if (input.value) this.upd(); });
+      input.addEventListener('focus', () => { if (this.o.prepare) this.o.prepare(); if (input.value || this.o.emptyItems) this.upd(); });
       input.addEventListener('keydown', (e) => this.key(e));
       input.addEventListener('blur', () => setTimeout(() => this.hide(), 160));
       this.list.addEventListener('mousedown', (e) => e.preventDefault());
@@ -1004,9 +1007,18 @@
         if (li) this.pick(+li.dataset.i);
       });
     }
+    /** opts.emptyItems() → items：框內空白（聚焦或清空）時列出的項目（查詢卡用它列「最近查過」）；沒有或空陣列就收起 */
     async update() {
       const q = this.input.value;
-      if (!q.trim()) { this.hide(); return; }
+      if (!q.trim()) {
+        let items = [];
+        try { items = (this.o.emptyItems && this.o.emptyItems()) || []; } catch (e) { items = []; }
+        if (!items.length) { this.hide(); return; }
+        this.items = items; this.active = -1;
+        this.list.innerHTML = items.map((it, i) => `<li role="option" id="${this.id}-${i}" data-i="${i}" aria-selected="false">${this.o.render(it, '')}</li>`).join('');
+        this.show();
+        return;
+      }
       let items;
       try { items = await this.o.fetch(q); } catch (e) { items = []; }
       if (q !== this.input.value) return;

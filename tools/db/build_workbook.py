@@ -19,7 +19,8 @@ from openpyxl.utils import get_column_letter
 import sqlite3
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(os.path.dirname(HERE), 'AmsDb.sqlite')
+sys.path.insert(0, HERE)  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB, SHEETS_CACHE, SHEETS_FINAL  # noqa: E402
 
 order_path, out_main, out_detail = sys.argv[1:4]
 THRESH = int(sys.argv[4]) if len(sys.argv) > 4 else 120000
@@ -30,8 +31,12 @@ CARD_NUM = '02'
 DEFAULT_QUERY = cfg.get('default_query', 'G12HAP70BT001')
 
 # ---- load modules (cached in sheets_cache.pkl; delete the file to force a rebuild)
-conn = sqlite3.connect(DB)
-CACHE = os.path.join(HERE, 'sheets_cache.pkl')
+if not os.path.exists(DB):
+    raise SystemExit('沒有 AmsDb.sqlite：%s（tools/db/restore.sh 的輸出；或設環境變數 AMS_SQLITE）' % DB)
+conn = sqlite3.connect('file:' + DB.replace('\\', '/') + '?mode=ro', uri=True)
+CACHE = SHEETS_CACHE
+os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+print('AmsDb.sqlite:', DB, '\n快取:', CACHE, flush=True)
 raw_sheets = pickle.load(open(CACHE, 'rb')) if os.path.exists(CACHE) else {}
 all_sheets = {}   # (module_key, name) -> sheet dict
 for path in sorted(glob.glob(os.path.join(HERE, 'sheets_*.py'))):
@@ -178,7 +183,8 @@ dev['df'] = ddf
 # final sheet set for the web extractor
 pickle.dump({'title': TITLE, 'ordered': [(num, {k: v for k, v in s.items()}) for num, s in ordered], 'cfg': cfg,
              'card_number': CARD_NUM, 'default_query': DEFAULT_QUERY},
-            open(os.path.join(HERE, 'sheets_final.pkl'), 'wb'), protocol=5)
+            open(SHEETS_FINAL, 'wb'), protocol=5)
+print('sheets_final.pkl:', SHEETS_FINAL, flush=True)
 
 # ---- styles
 HDR_FILL = PatternFill('solid', fgColor='DDEBF7')

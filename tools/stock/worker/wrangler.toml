@@ -12,5 +12,12 @@ database_id = "4666315c-09c8-4fe2-a7fa-e8348d3f15a4"   # npx wrangler d1 create 
 # 允許呼叫的網站來源（逗號分隔）；本機測試 8766 是 tools/auth/mock_server.py
 ALLOWED_ORIGINS = "https://momobacon-wq.github.io,http://127.0.0.1:8766"
 
+# 每 IP 限速（Cloudflare Rate Limiting binding，免費方案可用）：所有 POST 每分鐘 60 次，超過回 429（src/index.js fetch 開頭）
+# namespace_id 是這個 Worker 內的任意整數識別；wrangler dev 本機也支援（沒有 binding 時 index.js 不限速）
+[[ratelimits]]
+name = "RL"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
 # 機密（不在此檔）：npx wrangler secret put AUTH_SECRET（登入閘門同一值）、npx wrangler secret put STOCK_TOKEN（py tools/stock/print_token.py）
 # 本機 wrangler dev 用 .dev.vars（見 .dev.vars.example）

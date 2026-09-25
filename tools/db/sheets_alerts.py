@@ -15,12 +15,12 @@ Sheets produced
 """
 import os
 import sqlite3
+import sys
 import pandas as pd
 
-DB_PATH = (r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/"
-           r"2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/AmsDb.sqlite")
-OUT_DIR = (r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/"
-           r"2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/build/out")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB_PATH, SHEETS_OUT as OUT_DIR  # noqa: E402
+
 KEY = "alerts"
 HELP_TRIM = 500
 

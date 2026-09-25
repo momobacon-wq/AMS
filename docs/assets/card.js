@@ -24,6 +24,8 @@
         found_via: '「{q}」已自動對應到 {key}（去掉前後綴／分隔符）。',
         found: '來源：{src}［鍵 {key}］', no_device: '（測試定義清單位號，無對應設備）', device: ' → 目前位號 {tag}',
         multi: '只顯示第一台（優先序最高）',
+        multi_pick: '顯示第 {i} 台（共 {n} 台）',
+        prev: '← 上一個',
       },
       labels: { alias: '設備別名 alias', count: '此字串對應設備數' },
     },
@@ -59,17 +61,33 @@
   const SRC_MODES = ['hide', 'badge', 'full'];
   const SRC_MODE_LABEL = { hide: '隱藏', badge: '徽章', full: '完整' };
   const STORE_MODE = 'card.srcMode';
-  const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ref_only: '序號不符未比較', ok: '✓ 與 DCS 一致' };
-  const cmpCls = (st) => (st === 'mismatch' ? 'bad' : st === 'ok' ? 'ok' : 'soft');
+  // near＝同單位但數值不完全相同（±0.5% span 內）：黃色「請確認」，不併入紅色 ⚠
+  const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', near: '≈ 近似（請確認）', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ref_only: '序號不符未比較', ok: '✓ 與 DCS 一致' };
+  const cmpCls = (st) => (st === 'mismatch' ? 'bad' : st === 'near' ? 'warn' : st === 'ok' ? 'ok' : 'soft');
+  const CMP_KIND = { ams: 'AMS 量程（資料庫快照）', dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', dcs_write: 'DCS 寫入事件', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' };
   let uid = 0;
 
   const fill = (tpl, o) => String(tpl).replace(/\{(\w+)\}/g, (_, k) => (o[k] == null ? '' : String(o[k])));
-  /** 站內工作表連結（已跳脫，可直接放進 href="…"）：id 以 encodeURIComponent、r 只接受非負整數（SEC-1） */
+  /** 複製文字：navigator.clipboard 不存在（http 區網 IP）或被拒時，退回暫時 textarea＋execCommand('copy')；回傳是否成功 */
+  async function copyText(s) {
+    s = String(s == null ? '' : s);
+    if (navigator.clipboard && navigator.clipboard.writeText) { try { await navigator.clipboard.writeText(s); return true; } catch (e) { /* 退路 */ } }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = s; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, s.length);
+      const ok = document.execCommand('copy'); ta.remove(); return !!ok;
+    } catch (e) { return false; }
+  }
+  AMS.copyText = copyText;
+  /** 站內工作表連結（已跳脫，可直接放進 href="…"）：id 以 encodeURIComponent、r／rn 只接受非負整數（SEC-1）；rn＝此設備的最後一列（分塊表只載 r..rn 所在的分塊） */
   function sheetHref(sid, o) {
     o = o || {};
     const p = [];
     const r = o.r == null ? NaN : Number(o.r);
     if (Number.isInteger(r) && r >= 0) p.push('r=' + r);
+    const rn = o.rn == null ? NaN : Number(o.rn);
+    if (Number.isInteger(r) && r >= 0 && Number.isInteger(rn) && rn >= r) p.push('rn=' + rn);
     if (o.f) p.push('f=' + encodeURIComponent(JSON.stringify(o.f)));
     return U.esc('#/s/' + encodeURIComponent(String(sid)) + (p.length ? '?' + p.join('&') : ''));
   }
@@ -95,8 +113,16 @@
     }
     async load() {
       try {
-        const specP = D.loadSheet(this.id).catch(() => ({}));
-        const [spec] = await Promise.all([specP, AMS.index.load(), AMS.devices.load()]);
+        // 進度條：三份（查詢卡規格、位號索引、設備總表）各自的下載進度平均寫進 .lb-bar；全部下載完（0.98）到解密完成前改字
+        const fr = [0, 0, 0];
+        const upd = () => {
+          const b = this.root.querySelector('.lb-bar > div'); if (!b) return;
+          b.style.width = Math.round((fr[0] + fr[1] + fr[2]) / 3 * 100) + '%';
+          const m = this.root.querySelector('.lb-msg');
+          if (m && fr.every((x) => x >= 0.98)) m.textContent = D.enc() ? '解密中…' : '整理資料…';
+        };
+        const specP = D.loadSheet(this.id, (f) => { fr[0] = f; upd(); }).catch(() => ({}));
+        const [spec] = await Promise.all([specP, AMS.index.load((f) => { fr[1] = f; upd(); }), AMS.devices.load((f) => { fr[2] = f; upd(); })]);
         if (this.destroyed) return;
         this.spec = Object.assign({}, DEFAULT, spec || {});
         this.spec.lookup = Object.assign({}, DEFAULT.lookup, (spec && spec.lookup) || {});
@@ -159,6 +185,7 @@
       const form = root.querySelector('.cq');
       form.addEventListener('submit', (e) => { e.preventDefault(); this.go(this.input.value); });
       this.ac = new AMS.Autocomplete(this.input, Object.assign({}, AMS.tagSuggestSource, {
+        emptyItems: () => CardView.recentItems(), // 聚焦或清空時列「最近查過」
         onPick: (it) => this.go(it.key),
         onEnter: (t) => this.go(t),
       }));
@@ -219,6 +246,13 @@
       res.src = U.text(r5[L.src_col]);
       const k = U.text(r5[L.key_col]);
       const DV = AMS.devices;
+      // 同一鍵對到多台：#/card/<鍵>?a=<alias> 指定顯示哪一台（輸入框、網址主體、其他設備 chips 都維持原查詢鍵）
+      const want = this.route && this.route.params ? this.route.params.get('a') : null;
+      if (want && typeof res.count === 'number' && res.count > 1) {
+        const list = IX.aliasesOf(k);
+        const pos = list.indexOf(want);
+        if (pos > 0) { res.alias = want; res.pick = pos; res.alts = list; }
+      }
       res.i3 = res.alias ? (DV.byAlias.get(res.alias) ?? null) : null;
       res.status = (rs.how !== 'exact' && M.found_via ? fill(M.found_via, { q: IX.norm(q), key: k }) : '') + fill(M.found, { src: res.src, key: k });
       if (res.i3 == null) res.status += M.no_device;
@@ -226,8 +260,9 @@
       return res;
     }
     run(q) {
-      const changed = this.lastQuery !== undefined && this.lastQuery !== q; // 換了位號（卡片內的 chip／相近建議／最近查過）→ 捲回頂端
-      this.lastQuery = q;
+      const sig = String(q == null ? '' : q) + '|' + ((this.route && this.route.params && this.route.params.get('a')) || '');
+      const changed = this.lastSig !== undefined && this.lastSig !== sig; // 換了位號或切到另一台（卡片內的 chip／相近建議／最近查過）→ 捲回頂端
+      this.lastQuery = q; this.lastSig = sig;
       // 查詢一律由路由驅動（送出、站內連結、上一頁、網址列貼深連結都會經過這裡）→ 框內文字無條件同步成目前查詢；
       // 以前「框內有焦點就不覆寫」會讓按「上一頁」後卡片換了、框裡還是上一個位號
       const qs = q == null ? '' : String(q);
@@ -249,20 +284,26 @@
       const meta = root.querySelector('.cq-meta');
       if (res.empty || res.notfound) meta.innerHTML = '';
       else {
+        const multiMsg = typeof res.count === 'number' && res.count > 1 ? (res.pick ? fill(L.msg.multi_pick, { i: res.pick + 1, n: res.count }) : L.msg.multi) : '';
+        // 「← 上一個」：最近查過裡第一個不是目前設備的（查 A → 查 B → 一鍵回 A 對照）
+        const prev = this.recent().find((x) => x.k !== res.key && !(res.alias && x.a === res.alias));
         meta.innerHTML = `<div class="kv"><span class="k">${U.esc(L.labels.alias)}</span><span class="v strong">${U.esc(res.alias || '')}</span></div>
           <div class="kv"><span class="k">${U.esc(L.labels.count)}</span><span class="v" style="${countStyle}">${res.count == null ? '' : U.esc(U.fmt(res.count))}</span>
-          ${typeof res.count === 'number' && res.count > 1 ? `<span class="warn-text">${U.esc(L.msg.multi)}</span>` : ''}</div>`;
+          ${multiMsg ? `<span class="warn-text">${U.esc(multiMsg)}</span>` : ''}</div>
+          ${prev ? `<a class="chip-btn prev-chip" href="${U.esc('#/card/' + encodeURIComponent(prev.k) + (prev.q || ''))}" title="上一個查過的位號">${U.esc(L.msg.prev || '← 上一個')}：<span class="mono">${U.esc(prev.t || prev.k)}</span></a>` : ''}`;
       }
       const flagsEl = root.querySelector('.cq-flags');
       flagsEl.hidden = true; flagsEl.innerHTML = '';
-      // 其他對應設備
+      // 其他對應設備：chip 連到 #/card/<原鍵>?a=<alias>（第一台就是原鍵本身），位號在前、alias 在後；切換後 chips 仍在、分享連結保留原位號
       const alts = root.querySelector('.cq-alts');
       if (typeof res.count === 'number' && res.count > 1) {
-        const list = AMS.index.aliasesOf(res.key);
+        const list = res.alts || AMS.index.aliasesOf(res.key);
         alts.hidden = false;
         alts.innerHTML = `<span class="muted">此鍵對應的全部設備：</span>` + list.map((a, i) => {
           const i3 = AMS.devices.byAlias.get(a); const tag = i3 != null ? U.text(AMS.devices.sheet.rows[i3][0]) : '';
-          return `<a class="chip-btn${i === 0 ? ' on' : ''}" href="#/card/${encodeURIComponent(a)}" title="${U.esc(tag)}">${U.esc(a)}${tag ? ' · ' + U.esc(tag) : ''}${i === 0 ? '（顯示中）' : ''}</a>`;
+          const on = res.alias ? a === res.alias : i === 0;
+          const href = '#/card/' + encodeURIComponent(res.key) + (i === 0 ? '' : '?a=' + encodeURIComponent(a));
+          return `<a class="chip-btn${on ? ' on' : ''}" href="${U.esc(href)}" title="${U.esc(a)}"><span class="mono">${U.esc(tag || a)}</span>${tag ? `<span class="muted small"> ${U.esc(a)}</span>` : ''}${on ? '（顯示中）' : ''}</a>`;
         }).join('');
       } else { alts.hidden = true; alts.innerHTML = ''; }
       const body = root.querySelector('.cq-body');
@@ -437,6 +478,7 @@
       const v = U.h('div', { class: 'cf-v' + (blank ? ' blank' : '') + (o.num && !blank ? ' num' : '') + (o.warn ? ' warn' : '') + (o.soft ? ' soft' : '') });
       if (o.css) v.setAttribute('style', o.css);
       const shown = o.text != null ? o.text : o.val; // o.text：顯示文字與原值不同時（網址類的值顯示短標籤）
+      if (!blank) v.dataset.copy = String(o.val); // 摘要格點一下複製用的原值（網址類複製完整網址，不是短標籤）
       if (!blank && o.href) v.appendChild(U.h('a', { class: 'cf-t doclk', href: o.href, target: '_blank', rel: 'noopener noreferrer', title: o.hrefTitle || '在 Google 雲端硬碟開啟這份文件' }, U.visible(shown, true)));
       else v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(shown, true)));
       for (const fl of o.flags || []) v.appendChild(U.h('span', { class: 'cmp-flag ' + (fl.cls || '') }, fl.t));
@@ -576,8 +618,15 @@
       if (f.last_change_dcs) out.push(['bad', '⚠ 最後修改＝DCS·外部主機寫入']);
       else if (f.has_dcs_write) out.push(['warn', '曾有 DCS·外部主機寫入']);
       if (f.sync_unrecovered) out.push(['bad', '⚠ 同步失敗後未再成功']);
-      const bad = Object.entries(f.cmp || {}).filter(([k, v]) => v === 'mismatch' && !/_(lo|hi)$/.test(k)).map(([k]) => ({ ams: 'AMS 現值', dcdas: 'DCS 控制器組態', dcs_write: 'DCS 寫入事件', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' }[k] || k));
+      const cmpKinds = (st) => Object.entries(f.cmp || {}).filter(([k, v]) => v === st && !/_(lo|hi)$/.test(k) && k !== 'dcdas_multi').map(([k]) => CMP_KIND[k] || k);
+      const bad = cmpKinds('mismatch');
       if (bad.length) out.push(['bad', '⚠ 量程與 DCS 不符：' + bad.join('、')]);
+      const near = cmpKinds('near'); // 同單位、±0.5% span 內但不完全相同：黃色，不併入紅色 ⚠
+      if (near.length) out.push(['warn', '≈ 量程近似（請確認）：' + near.join('、')]);
+      if (f.cmp && f.cmp.dcdas_multi === 'warn') { // 同位號多個類比通道、各通道量程不一（build_card_aux）
+        const n = aux && aux.sec && aux.sec.dcdas && Array.isArray(aux.sec.dcdas.entries) ? aux.sec.dcdas.entries.length : 0;
+        out.push(['warn', '控制器多通道量程不一' + (n > 1 ? `（${n} 個通道）` : '')]);
+      }
       // 有摘要時旗標放在摘要標頭（.sum-flags），否則放卡片上方（.cq-flags）
       const target = this.root.querySelector('.sum-flags') || el;
       target.innerHTML = out.map(([c, t]) => `<span class="pill ${c}">${U.esc(t)}</span>`).join('');
@@ -589,7 +638,8 @@
       if (d) {
         out.push(['檔名', d.title]); out.push(['資料夾（工程文件庫根目錄下）', !d.folder || d.folder === '.' ? '（工程文件庫根目錄）' : d.folder]);
         if (d.why) out.push(['選版', d.why]);
-        if (d.url) out.push(['Google 雲端硬碟', U.h('a', { class: 'lk', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, '開啟檔案 ↗')]);
+        if (d.url && d.url_note) out.push(['Google 雲端硬碟（版次不同）', U.h('span', {}, d.url_note + ' → ', U.h('a', { class: 'lk', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, '開啟 ↗'))]); // 雲端只找到同編號別版次（build_card_aux url_note）
+        else if (d.url) out.push(['Google 雲端硬碟', U.h('a', { class: 'lk', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, '開啟檔案 ↗')]);
       }
       for (const x of extra || []) out.push(x);
       return out;
@@ -611,13 +661,13 @@
     }
     /** index.docs[key].url：文件在 Google 雲端硬碟的連結（build_card_aux --drive-map 補上；沒有就 null） */
     docHref(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.url ? d.url : null; }
-    docTitle(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.title ? '在 Google 雲端硬碟開啟：' + d.title : null; }
+    docTitle(ix, key) { const d = key && ix && ix.docs ? ix.docs[key] : null; return d && d.title ? '在 Google 雲端硬碟開啟：' + d.title + (d.url_note ? '（' + d.url_note + '）' : '') : null; }
     /** 欄位值本身是文件編號（P&ID、邏輯圖、Hook-up 圖、位置圖…）→ index.doc_no 對到「那份文件」：連結開圖本身，不是提到它的來源文件 */
     docNoLink(ix, val) {
       const m = /HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4}/.exec(String(val || ''));
       const key = m && ix && ix.doc_no ? ix.doc_no[m[0]] : null;
       const d = key && ix.docs ? ix.docs[key] : null;
-      return d && d.url ? { href: d.url, title: '開啟這份文件：' + d.title, key } : null;
+      return d && d.url ? { href: d.url, title: '開啟這份文件：' + d.title + (d.url_note ? '（' + d.url_note + '）' : ''), key } : null;
     }
     /** 值有文件連結時的 href／標題／來源明細：值指名的文件優先，否則是值所在的來源文件 */
     valueLink(ix, val, srcKey, detail) {
@@ -736,12 +786,16 @@
     }
 
     /* ---------- 查詢首頁（#/card/ 沒有字串）：說明、範例、最近查過 ---------- */
-    recent() { const r = U.store.get('card.recent', []); return Array.isArray(r) ? r.filter((x) => x && x.k) : []; }
+    /** 最近查過（localStorage ams.card.recent，最多 8 筆 {k 查詢鍵, t 位號, a alias}）；靜態方法給頂列搜尋的自動完成共用 */
+    static recent() { const r = U.store.get('card.recent', []); return Array.isArray(r) ? r.filter((x) => x && x.k) : []; }
+    static recentItems() { return CardView.recent().map((x) => ({ key: x.k, tag: x.t, alias: x.a, src: '最近查過' })); }
+    recent() { return CardView.recent(); }
     remember(res, row) {
       const k = res.key; if (!k) return;
       const tag = row ? U.text(row[this.spec.lookup.target_tag_col]) : '';
       const list = this.recent().filter((x) => x.k !== k && !(res.alias && x.a === res.alias));
-      list.unshift({ k, t: tag && tag !== k ? tag : '', a: res.alias || '' });
+      // q：同一鍵對到多台且不是第一台時記 ?a=，最近查過／上一個 chip 才回得到同一台
+      list.unshift({ k, t: tag && tag !== k ? tag : '', a: res.alias || '', q: res.pick ? '?a=' + encodeURIComponent(res.alias) : '' });
       U.store.set('card.recent', list.slice(0, 8));
     }
     renderLanding() {
@@ -753,7 +807,8 @@
       const chips = (title, list, clear) => {
         const box = U.h('div', { class: 'ld-chips' }, U.h('span', { class: 'ld-ct muted small' }, title));
         for (const it of list) {
-          box.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.k) }, U.h('span', { class: 'mono' }, it.k), it.t ? U.h('span', { class: 'small muted' }, ' ' + it.t) : null));
+          // 主文字位號優先（原查詢是舊位號／HostTag 時，工程師認的是目前位號）；查詢鍵不同時附在後面
+          box.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.k) + (it.q || '') }, U.h('span', { class: 'mono' }, it.t || it.k), it.t && it.t !== it.k ? U.h('span', { class: 'small muted' }, ' ' + it.k) : null));
         }
         if (clear) { const b = U.h('button', { type: 'button', class: 'btn xs' }, '清除'); b.addEventListener('click', () => { U.store.set('card.recent', []); box.remove(); }); box.appendChild(b); }
         return box;
@@ -773,11 +828,19 @@
       const tag = U.text(row[H.tag != null ? H.tag : L.target_tag_col]);
       const hero = U.h('div', { class: 'sum-hero' });
       const tagEl = U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, tag || res.alias || ''));
-      if (tag && navigator.clipboard && navigator.clipboard.writeText) {
+      if (tag) { // 複製鈕不再以 navigator.clipboard 存在為條件（copyText 有 execCommand 退路）
         const cb = U.h('button', { type: 'button', class: 'btn xs sum-copy', title: '複製位號' }, '複製');
-        cb.addEventListener('click', () => { navigator.clipboard.writeText(tag).then(() => { cb.textContent = '已複製'; setTimeout(() => { cb.textContent = '複製'; }, 1500); }).catch(() => {}); });
+        cb.addEventListener('click', () => { copyText(tag).then((ok) => { cb.textContent = ok ? '已複製' : '無法複製'; setTimeout(() => { cb.textContent = '複製'; }, 1500); }); });
         tagEl.appendChild(cb);
       }
+      // 分享：連結一律是位號式（#/card/<查詢鍵>；多台時加 ?a=<alias> 指定這一台）；navigator.share 沒有就複製連結
+      const sb = U.h('button', { type: 'button', class: 'btn xs sum-share', title: '分享此設備的連結' }, '分享');
+      sb.addEventListener('click', () => {
+        const url = this.shareUrl(res);
+        if (navigator.share) navigator.share({ title: document.title, url }).catch(() => {});
+        else copyText(url).then((ok) => U.toast(ok ? '已複製連結：' + url : '無法複製，請手動複製網址列'));
+      });
+      tagEl.appendChild(sb);
       hero.appendChild(tagEl);
       const t = (c) => (c == null ? '' : U.cardValue(row[c]));
       const parts = [[t(H.mfr), t(H.model)].filter(Boolean).join(' '), t(H.proto), t(H.unit)].filter(Boolean);
@@ -785,7 +848,21 @@
       const svc = U.h('div', { class: 'sum-svc', hidden: true });
       hero.appendChild(svc);
       hero.appendChild(U.h('div', { class: 'sum-flags', hidden: true }));
+      // 資料日期列：AMS 資料庫快照（manifest）｜控制器 checkout 區間｜文件索引日期（card/index.json 到達後補齊）
+      const asof = U.h('div', { class: 'sum-asof muted small' });
+      this.asofEl = asof; this.setAsof(this.auxIx || null);
+      hero.appendChild(asof);
       wrap.appendChild(hero);
+      // 摘要格的值點一下即複製（只在 .sumgrid：一格一值、字大；連結／按鈕／來源展開不攔、拖曳選字不攔）
+      wrap.addEventListener('click', (e) => {
+        if (e.target.closest('a, button, summary, .cf-src')) return;
+        const v = e.target.closest('.sumgrid .cf-v'); if (!v) return;
+        const sel = window.getSelection ? String(window.getSelection()) : '';
+        if (sel.trim()) return;
+        const txt = v.dataset.copy != null ? v.dataset.copy : (v.querySelector('.cf-t') || {}).textContent;
+        if (!txt || !String(txt).trim()) return;
+        copyText(txt).then((ok) => U.toast(ok ? '已複製：' + txt : '無法複製'));
+      });
       const groups = U.h('div', { class: 'sum-groups' });
       wrap.appendChild(groups);
       const pend = []; // {el,item} 待資料到達後取代；{grid,group} 整組後填
@@ -834,6 +911,34 @@
       this.fillSummary(row, res, pend, svc);
       return wrap;
     }
+    /** 分享用網址：#/card/<查詢鍵>，同一鍵對到多台時加 ?a=<alias>（對方打開就是這一台，chips 也還在） */
+    shareUrl(res) {
+      const u = new URL(location.href);
+      u.hash = '#/card/' + encodeURIComponent(res.key) + (typeof res.count === 'number' && res.count > 1 && res.alias ? '?a=' + encodeURIComponent(res.alias) : '');
+      return u.href;
+    }
+    /** 摘要標頭的資料日期列（D1）：不新增規格鍵，直接讀 manifest.workbook.source 的 yyyymmdd 與 card/index.json 的 source_stats／searched */
+    asofText(ix) {
+      const parts = [];
+      const wb = (D.manifest && D.manifest.workbook) || {};
+      const m = /(\d{4})(\d{2})(\d{2})/.exec(String(wb.source || ''));
+      let ams = m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+      const ss = ix && ix.source_stats;
+      if (ss && ss.ams && ss.ams.backup_date) ams = String(ss.ams.backup_date);
+      if (ams) parts.push('AMS 資料庫 ' + ams);
+      const first = (k) => (ix && ix.searched && Array.isArray(ix.searched[k]) && ix.searched[k][0]) || null;
+      const dc = first('dcdas');
+      if (dc) { // ref＝「控制器 checkout 2025-12-11～2026-09-18（signal-atlas 索引 …）」；沒有 ref 就從 rev（15 台控制器的 checkout 列表）取最早～最晚，不印整串
+        const dates = (String(dc.rev || '').match(/\d{4}-\d{2}-\d{2}/g) || []).sort();
+        const span = dates.length ? (dates[0] === dates[dates.length - 1] ? dates[0] : dates[0] + '～' + dates[dates.length - 1]) : '';
+        const ref = dc.ref ? String(dc.ref).replace(/[（(].*$/, '').trim() : '';
+        if (ref || span) parts.push(ref || '控制器 checkout ' + span);
+      }
+      const ds = first('docsearch');
+      if (ds && ds.rev) parts.push('文件索引 ' + ds.rev);
+      return parts.length ? '資料：' + parts.join('｜') : '';
+    }
+    setAsof(ix) { if (!this.asofEl) return; const t = this.asofText(ix); this.asofEl.textContent = t; this.asofEl.hidden = !t; }
     /** 備品對照用的型號碼：儀器清單「完整型號碼」、EOMR「出廠型號」（去掉 / 後的歧管碼）＋ AMS 型號（家族） */
     stockCtx(row, aux, tag) {
       const H = (this.spec.summary && this.spec.summary.hero) || {};
@@ -850,7 +955,7 @@
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
-    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索' }[kind] || kind; }
+    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索' }[kind] || kind; }
     async fillSummary(row, res, pend, svcEl) {
       const S = this.spec.summary; const alias = res.alias; const st = this.spec.stats;
       let r13 = null; let aux = null; let ix = null;
@@ -865,7 +970,7 @@
       if (this.spec.aux) jobs.push(D.loadAux(alias, this.spec.aux.index).then((o) => { ix = o.ix; aux = o.aux; }).catch(() => {}));
       await Promise.all(jobs);
       if (this.destroyed || this.res.alias !== alias) return;
-      if (ix) { this.auxIx = ix; this.aux = aux; }
+      if (ix) { this.auxIx = ix; this.aux = aux; this.setAsof(ix); }
       const mode = this.currentMode();
       const secOf = (kind) => (aux && aux.sec && aux.sec[kind]) || null;
       // 多筆文件列時取「主體」：儀器清單略過保護管／感測元件；EOMR 優先序號與 AMS 相符者
@@ -989,7 +1094,8 @@
           const sid = sm ? sm.id : sheetName.slice(0, 2);
           const dg = Number(U.raw(row[p.row_col])); const n = U.raw(row[p.count_col]);
           const r = isFinite(dg) ? dg - this.dataFirstRow(sid) : null;
-          cell.innerHTML = `<a class="lk" href="${sheetHref(sid, { r })}">${U.esc(fill(lk.fmt || '→ 參數 {n} 筆', { n: n == null ? '' : String(n) }))}</a>`;
+          const rn = r != null && Number(n) > 0 ? r + Number(n) - 1 : null; // 此設備的最後一列：分塊表只載需要的分塊（table.js）
+          cell.innerHTML = `<a class="lk" href="${sheetHref(sid, { r, rn })}">${U.esc(fill(lk.fmt || '→ 參數 {n} 筆', { n: n == null ? '' : String(n) }))}</a>`;
           continue;
         }
         if (!alias) { cell.textContent = ''; continue; }
@@ -1173,7 +1279,7 @@
           show = show.filter((i) => cols[i].label !== '型號').sort((a, b) => rank(a) - rank(b));
         }
         const head = `<div class="ptools"><input type="search" class="pq" placeholder="篩選參數（名稱、中文、值…）" aria-label="篩選參數"><span class="pcount muted"></span>
-          <a class="lk" href="${sheetHref(sid, { r: g0, f: { 1: '=' + alias } })}">在 ${U.esc(D.meta(sid) ? D.meta(sid).name : sid)} 開啟（篩選此設備）›</a></div>
+          <a class="lk" href="${sheetHref(sid, { r: g0, rn: g0 + n - 1, f: { 1: '=' + alias } })}">在 ${U.esc(D.meta(sid) ? D.meta(sid).name : sid)} 開啟（篩選此設備）›</a></div>
           ${ok ? '' : '<p class="warn-text">注意：參數起始列與設備別名不一致，資料可能不同步。</p>'}`;
         box.innerHTML = head + '<div class="tbl-scroll ptable"></div>';
         const tbl = box.querySelector('.ptable');

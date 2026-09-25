@@ -78,18 +78,26 @@
     async load() {
       const route = this.pendingRoute;
       const r = route && route.params.get('r');
+      const rn = route && route.params.get('rn'); // 目標區間的最後一列（查詢卡「在 15 開啟」帶 r=起列&rn=末列，一台設備的參數可能跨兩塊）
       try {
         if (this.chunked) {
           const ch = D.chunked(this.id);
           this.ch = ch;
-          let first = 0;
+          let first = 0; let last = null;
           if (r != null && r !== '') { const k = ch.partOf(Number(r)); if (k != null) first = k; }
+          if (rn != null && /^\s*\d+\s*$/.test(rn)) { const k = ch.partOf(Number(rn)); if (k != null && k > first) last = k; }
+          // 手機、或帶 r／f（只想看某一台／某個篩選）時只載需要的分塊：15_參數現值 14 塊 7.6 MB 密文、明文約 90 MB，
+          // 低階手機主執行緒解密＋JSON.parse 會凍結數秒；桌機無參數時維持自動全載
+          this.partial = U.isMobile() || (route != null && (route.params.has('r') || route.params.has('f')));
           this.showLoading('正在載入第 1 部分…');
           this.unsub = ch.on((ev) => this.onChunk(ev));
           await ch.ensurePart(first);
           if (this.destroyed) return;
           this.init(ch.asJSON());
-          this.loadRest(first);
+          if (this.partial) {
+            if (last != null) for (let k = first + 1; k <= last; k++) ch.ensurePart(k).catch((e) => { console.error(e); });
+            this.updateLoadUI();
+          } else this.loadRest(first);
         } else {
           this.showLoading('載入中…');
           const j = await D.loadSheet(this.id, (f) => this.setLoadFrac(f));
@@ -101,6 +109,7 @@
     /** 其餘分塊：某一塊失敗時其他塊照常載入；結束後若有失敗，載入列改為常駐警告＋重試（ROB-4） */
     loadRest(first) {
       this.loadFailed = false;
+      this.loadingAll = true; // 已開始（或使用者按了「載入全部」）→ 載入列不再顯示「載入全部」鈕
       this.updateLoadUI();
       this.ch.loadAll(first).catch((e) => {
         console.error(e);
@@ -379,7 +388,7 @@
         <div class="tv-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
           <input type="search" class="tv-q" placeholder="搜尋此表（所有欄位）" aria-label="搜尋此表" spellcheck="false"></div>
         <span class="tv-count" aria-live="polite"></span>
-        <span class="tv-load" hidden role="status"><span class="tv-load-txt"></span><span class="tv-load-bar"><i></i></span><button type="button" class="btn xs" data-act="retry" hidden>重試</button></span>
+        <span class="tv-load" hidden role="status"><span class="tv-load-txt"></span><span class="tv-load-bar"><i></i></span><button type="button" class="btn xs" data-act="retry" hidden>重試</button><button type="button" class="btn xs" data-act="loadall" hidden title="載入此表其餘的分塊（手機或帶篩選開啟時預設只載需要的部分）">載入全部</button></span>
         ${this.presets.length ? `<span class="tv-presets" role="group" aria-label="快速篩選">${this.presets.map((p, i) => `<button type="button" class="btn sm preset" data-act="preset" data-pi="${i}" aria-pressed="false" title="${U.esc(this.presetTip(p))}">${U.esc(p.label)}</button>`).join('')}</span>` : ''}
         <span class="tv-spacer"></span>
         <div class="tv-actions">
@@ -476,12 +485,17 @@
       el.hidden = done;
       const nLoaded = ch.parts.filter((p) => p.loaded).length;
       const failed = this.loadFailed ? ch.failedParts() : [];
+      const waiting = !this.loadingAll && !failed.length && !ch.parts.some((p) => p.promise && !p.loaded); // 部分載入模式且沒有在抓的分塊
       el.classList.toggle('bad', failed.length > 0);
       el.querySelector('.tv-load-txt').textContent = failed.length
         ? `第 ${failed.map((k) => k + 1).join('、')} 部分載入失敗 · 已載入 ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列（篩選、排序、CSV 只含已載入的列）`
-        : `載入 ${nLoaded}/${ch.n} 部分 · ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列`;
+        : waiting
+          ? `已載入 ${nLoaded}/${ch.n} 部分 · ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列（篩選、排序、CSV 只含已載入的列）`
+          : `載入 ${nLoaded}/${ch.n} 部分 · ${U.int(ch.loadedRows)} / ${U.int(this.total)} 列`;
       el.querySelector('.tv-load-bar > i').style.width = Math.round(ch.progress() * 100) + '%';
+      el.querySelector('.tv-load-bar').hidden = waiting;
       const rb = el.querySelector('[data-act="retry"]'); if (rb) rb.hidden = !failed.length;
+      const lb = el.querySelector('[data-act="loadall"]'); if (lb) lb.hidden = !waiting;
       if (done && !this._doneToast) { this._doneToast = true; if (this.data) U.toast(`${this.meta.name}：${U.int(this.total)} 列全部載入完成`); }
     }
 
@@ -1002,6 +1016,7 @@
       else if (act === 'csv') this.exportCSV(btn);
       else if (act === 'cols') this.openColumnChooser(btn);
       else if (act === 'retry' && this.ch) this.loadRest(null);
+      else if (act === 'loadall' && this.ch) this.loadRest(null);
     }
     onHeadClick(e) {
       if (e.target.closest('[data-fhelp]')) { U.toast(FILTER_HELP, 7000); return; } // title 在觸控裝置上看不到（M13）

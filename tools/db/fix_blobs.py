@@ -1,8 +1,14 @@
-import pyodbc, sqlite3, sys
-SA_PW=open('/root/.ams_sa_pw').read().strip()
-cn=pyodbc.connect('DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=AmsDb;UID=sa;PWD='+SA_PW+';TrustServerCertificate=yes')
+"""Runs inside WSL after export_to_sqlite.py (called by tools/db/restore.sh): re-dumps BlockData / NamedConfigData with ParamData as raw
+varbinary (pyodbc returns sql_variant-ish values otherwise) and adds the indexes the sheets_*.py modules rely on.
+Usage: python3 fix_blobs.py <AmsDb.sqlite>   (sa password: env MSSQL_SA_PASSWORD or /root/.ams_sa_pw; database: env AMS_MSSQL_DB)
+"""
+import os, pyodbc, sqlite3, sys
+SA_PW=os.environ.get('MSSQL_SA_PASSWORD') or open('/root/.ams_sa_pw').read().strip()
+DBNAME=os.environ.get('AMS_MSSQL_DB', 'AmsDb')
+SQLITE=sys.argv[1] if len(sys.argv) > 1 else '/root/AmsDb.sqlite'
+cn=pyodbc.connect('DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE='+DBNAME+';UID=sa;PWD='+SA_PW+';TrustServerCertificate=yes')
 cur=cn.cursor()
-lite=sqlite3.connect('/root/AmsDb.sqlite'); lite.execute('PRAGMA synchronous=OFF')
+lite=sqlite3.connect(SQLITE); lite.execute('PRAGMA synchronous=OFF')
 for tbl,keys in [('BlockData',['BlockKey','EventIdDay','EventIdFraction','ParamKind','ParamName']),('NamedConfigData',['ConfigKey','EventIdDay','EventIdFraction','ParamKind','ParamName'])]:
     cols=[r[0] for r in lite.execute(f'select column_name from _schema where table_name=? order by column_id',(tbl,))]
     lite.execute(f'drop table "{tbl}"')

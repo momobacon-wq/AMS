@@ -18,7 +18,7 @@ DOCS = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, 
 SECRET = b'mock-secret'
 LOG = os.path.join(HERE, 'mock_log.jsonl')
 import unicodedata
-FAIL_MODE = {'down': False, 'slow': 0}
+FAIL_MODE = {'down': False, 'slow': 0, 'cfgdown': False}
 
 
 def norm(s):
@@ -78,6 +78,8 @@ class H(SimpleHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split('?')[0]
         if p.endswith('auth-config.json'):
+            if FAIL_MODE.get('cfgdown'):  # 模擬 GitHub Pages 回 5xx：前端應改用 localStorage 的快取設定（auth.js ams.authcfg）
+                return self._json({'error': 'config unavailable'}, 503)
             return self._json({'endpoint': f'http://127.0.0.1:{PORT}/mock-auth', 'sessionHours': 12, 'title': '請先登入（測試端點）'})
         if p == '/mock-auth':
             return self._json({'ok': True, 'service': 'mock', 'users': len(USERS)})
@@ -93,7 +95,7 @@ class H(SimpleHTTPRequestHandler):
         p = self.path.split('?')[0]
         n = int(self.headers.get('Content-Length') or 0)
         raw = self.rfile.read(n) if n else b''
-        if p == '/mock-control':  # test hook: {"down": true} / {"slow": 20}
+        if p == '/mock-control':  # test hook: {"down": true} / {"slow": 20} / {"cfgdown": true}（auth-config.json 回 503）
             try: FAIL_MODE.update(json.loads(raw or b'{}'))
             except Exception: pass
             return self._json(FAIL_MODE)

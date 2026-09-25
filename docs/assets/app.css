@@ -747,6 +747,7 @@ button.src-chip { cursor: pointer; min-height: 32px; min-width: 32px; }
 .cmp-flag { display: inline-block; margin-left: 6px; font-size: 11.5px; font-weight: 700; padding: 0 6px; border-radius: 4px; white-space: nowrap; }
 .cmp-flag.bad { background: var(--cmp-bad-bg); color: var(--cmp-bad); border: 1px solid var(--cmp-bad); }
 .cmp-flag.soft { background: var(--label-bg); color: var(--muted); border: 1px dashed var(--border-strong); }
+.cmp-flag.warn { background: var(--cmp-warn-bg); color: var(--cmp-warn); border: 1px solid var(--cmp-warn); } /* near：同單位近似（請確認） */
 .cmp-flag.ok { background: var(--cmp-ok-bg); color: var(--cmp-ok); }
 .src-dot { display: none; align-items: center; justify-content: center; gap: 3px; min-width: 32px; min-height: 32px; margin: -6px -4px -6px 4px; padding: 0 6px; border: 0; background: transparent; color: var(--lv); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; vertical-align: middle; border-radius: 6px; }
 .src-dot .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lv); box-shadow: 0 0 0 2px var(--lv-bg); }
@@ -770,6 +771,7 @@ button.src-chip { cursor: pointer; min-height: 32px; min-width: 32px; }
 table.mini.cmp td { vertical-align: middle; }
 table.mini.cmp tr.base td { background: var(--src-doc-bg); font-weight: 700; }
 table.mini.cmp tr.st-bad td:first-child { box-shadow: inset 3px 0 0 var(--cmp-bad); }
+table.mini.cmp tr.st-warn td:first-child { box-shadow: inset 3px 0 0 var(--cmp-warn); }
 table.mini.cmp .c-src .src-text { color: var(--muted); font-size: 11.5px; font-weight: 400; }
 
 .cq-body.src-hide .src-dot, .cq-body.src-hide .cf-src, .cq-body.src-hide .c-src { display: none; }
@@ -858,7 +860,10 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-hero { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 10px; background: var(--accent-soft); border-bottom: 1px solid var(--border); }
 .sum-tag { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .sum-tagtext { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--accent-text); letter-spacing: 0.02em; line-height: 1.2; word-break: break-all; }
-.sum-copy { flex: none; }
+.sum-copy, .sum-share { flex: none; }
+.sum-asof { font-size: 12px; color: var(--muted); margin-top: 2px; } /* 資料日期列（AMS 資料庫｜控制器 checkout｜文件索引）；列印保留 */
+.cfields.sumgrid .cf-v:not(.blank) { cursor: copy; } /* 摘要格點一下即複製 */
+.cq-meta .prev-chip { align-self: center; }
 .sum-sub { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14.5px; font-weight: 700; }
 .sum-sub .sum-subi + .sum-subi::before { content: "·"; color: var(--faint); margin-right: 14px; font-weight: 400; }
 .sum-svc { font-size: 13.5px; color: var(--muted); }
@@ -951,10 +956,16 @@ tr.stk-row.incart td { background: var(--accent-soft); }
 .stk-acts { display: inline-flex; gap: 4px; }
 details.stk-fam { margin-top: 8px; }
 details.stk-fam > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--accent-text); padding: 4px 2px; }
+/* 側欄「備品庫存」徽章：低於安全存量的料號數（stock.js S.badge） */
+.sl-rows.sl-low { color: var(--cmp-warn); font-weight: 700; }
 /* 總表 */
 .stock-view .sv-head { padding-bottom: 6px; }
 .stk-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 20px 10px; }
 .stk-tools .stk-q { flex: 1 1 260px; max-width: 520px; height: 34px; }
+.stk-kks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 20px 8px; padding: 6px 10px; border: 1px solid var(--cmp-warn); border-radius: 8px; background: var(--cmp-warn-bg); font-size: 13px; } /* 本次領用位號橫幅（?kks=） */
+.stk-range { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.stk-date { height: 28px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--text); font: 12.5px var(--font); }
+.stk-line.out { border-color: var(--cmp-bad); } /* 領取視窗：後端回 stale 後現量為 0 的列 */
 .stk-filters { display: flex; flex-wrap: wrap; gap: 4px; }
 .stk-body { padding: 0 20px 90px; }
 table.mini.stk.full th.sortable { cursor: pointer; user-select: none; }
@@ -978,6 +989,7 @@ table.mini.stk.full th.sortable.desc::after { content: " ▼"; font-size: 10px; 
 .stk-devs .chip-btn { font-family: var(--mono); }
 @media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
   .stk-tools, .stk-body { padding-left: 12px; padding-right: 12px; }
+  .stk-kks { margin-left: 12px; margin-right: 12px; }
   .stk-cart { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
   table.mini.stk.full th:nth-child(3), table.mini.stk.full td:nth-child(3), table.mini.stk.full th:nth-child(8), table.mini.stk.full td:nth-child(8) { display: none; }
   table.mini.stk { width: max-content; min-width: 100%; } /* 窄螢幕：橫向捲動，型號碼不逐字換行 */

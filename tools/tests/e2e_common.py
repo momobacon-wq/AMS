@@ -40,7 +40,8 @@ def login(page, ctx, site='db'):
     page.wait_for_selector('#auth-id', timeout=15000)
     page.fill('#auth-id', ctx['uid']); page.click('#auth-submit')
     page.wait_for_selector('#key-pass', timeout=15000)
-    page.fill('#key-pass', ctx['pass']); page.click('#key-submit')
+    page.fill('#key-pass', ctx['pass']); page.check('#key-remember')  # 「記住此裝置」預設不勾；測試勾起來，換頁／換站才不用再輸密語
+    page.click('#key-submit')
     page.wait_for_selector('.cq-input' if site == 'db' else '.sheet-link', timeout=60000)
 
 

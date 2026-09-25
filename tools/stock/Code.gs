@@ -19,7 +19,7 @@
  *   list                          → {ok, rev, items:[{pn, model, brand, spec, loc, qty, proto, family, contract, cqty, min, note}]}
  *   logs  {pn?, kks?, limit?}     → {ok, rows:[{ts, id, name, action, pn, delta, bal, kks, note, wo, source, txn}]}
  *   txn   {txnId, items:[{pn, delta}], kks?, note?, wo?, source?} → {ok, results:[{pn, qty}], replay?}
- *   adjust {pn, qty, note?}       → {ok, results:[{pn, qty}]}      （盤點：設絕對數量，ChangeAmount＝差額）
+ *   （盤點 adjust 已移除：數量調整直接在試算表改 Quantity 並手動在 Logs 補一列 STOCKTAKE；Worker 版見 tools/stock/README.md）
  * 驗證失敗 → {ok:false, auth:true, error}；伺服器錯誤 → {ok:false, transient:true, error}
  * 一次性管理函式（編輯器手動執行）：setup()（補表頭 G–L 與格式）、migrateFromImport()（Import 分頁 → Inventory，先備份）
  *
@@ -51,7 +51,6 @@ function doPost(e) {
     if (action === 'list') return json_(list_());
     if (action === 'logs') return json_(logs_(body));
     if (action === 'txn') return json_(txn_(body, who));
-    if (action === 'adjust') return json_(adjust_(body, who));
     return json_({ ok: false, error: '未知的動作' });
   } catch (err) {
     console.error(err);
@@ -158,27 +157,6 @@ function txn_(body, who) {
     cache.put('txn:' + txnId, JSON.stringify(out), 21600);
     cache.remove('inventory');
     return out;
-  } finally { lock.releaseLock(); }
-}
-function adjust_(body, who) {
-  var pn = str_(body.pn), q = Math.trunc(Number(body.qty)), note = clip_(body.note, 200);
-  if (!pn) return { ok: false, error: '缺料號' };
-  if (!Number.isFinite(q) || q < 0 || q > 99999) return { ok: false, error: '數量必須是 0 以上的整數' };
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    var t = readInventory_();
-    var ri = -1;
-    for (var i = 0; i < t.rows.length; i++) if (str_(t.rows[i][t.col.PartNumber]) === pn) { ri = i; break; }
-    if (ri < 0) return { ok: false, error: '料號不存在：' + pn };
-    var cur = num_(t.rows[ri][t.col.Quantity]);
-    var logSh = logSheet_();
-    logSh.insertRowBefore(2);
-    logSh.getRange(2, 1, 1, LOG_HDR.length).setValues([[new Date(), cell_(who.id), 'STOCKTAKE', cell_(pn), q - cur, q, cell_(who.name), '', cell_(note), '', 'ams-stock', '']]);
-    t.sheet.getRange(ri + 2, t.col.Quantity + 1).setValue(q);
-    SpreadsheetApp.flush();
-    CacheService.getScriptCache().remove('inventory');
-    return { ok: true, results: [{ pn: pn, qty: q, delta: q - cur }] };
   } finally { lock.releaseLock(); }
 }
 function findTxnInLog_(txnId) {

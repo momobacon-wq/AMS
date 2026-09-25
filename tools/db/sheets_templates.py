@@ -21,12 +21,12 @@ import sqlite3
 import xml.etree.ElementTree as ET
 
 import numpy as np
+import sys
 import pandas as pd
 
-DB_PATH = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/AmsDb.sqlite"
-OUT_DIR = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/build/out"
-PREV_JSON = r"C:/Users/bacon/AppData/Local/Temp/claude/C--Users-bacon------------------AMS/2d1eb9a8-e320-409a-a821-ff8839ea87f9/scratchpad/build/prev_templates.json"
-PREV_XLSX = r"C:/Users/bacon/我的雲端硬碟/@@新機組資料備份/AMS/20260910_AMS解析.xlsx"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tools/db/paths.py：repo 外路徑的唯一來源
+from paths import AMS_SQLITE as DB_PATH, SHEETS_OUT as OUT_DIR, PREV_TEMPLATES_JSON as PREV_JSON, PREV_XLSX  # noqa: E402
+
 KEY = "templates"
 
 OLE_EPOCH = pd.Timestamp("1899-12-30")
