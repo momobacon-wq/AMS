@@ -24,7 +24,8 @@
  * 一次性管理函式（編輯器手動執行）：setup()（補表頭 G–L 與格式）、migrateFromImport()（Import 分頁 → Inventory，先備份）
  *
  * 部署：部署 → 新增部署作業 → 網頁應用程式 → 執行身分「我」、誰可以存取「所有人」→ 網址填 docs/db/stock-config.json 的 endpoint。
- * 已知限制：Transmitter 的綁定式腳本與本專案各自使用 LockService，兩邊「同一秒」同時出入庫時可能互相覆蓋數量；Logs 為附加式，
+ * 已知限制（歷史；Transmitter 已改接 Worker＋D1，舊綁定式腳本停用後不再適用）：若同一份試算表還掛著其他綁定式腳本，
+ *          彼此各自使用 LockService，兩邊「同一秒」同時出入庫時可能互相覆蓋數量；Logs 為附加式，
  *          可用 auditBalances() 由紀錄重算比對。
  */
 var INV_SHEET = 'Inventory';
