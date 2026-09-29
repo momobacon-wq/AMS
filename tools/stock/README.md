@@ -96,10 +96,10 @@ set AMS_STOCK_ENDPOINT=http://127.0.0.1:8787 && py tools/auth/mock_server.py 876
 
 ## 替代後端：試算表「物料管理系統」＋ Apps Script（`Code.gs`）
 
-同一套 API 格式；適合想讓同事直接在試算表看／改數量、且 Transmitter 網站共用同一份資料的情況。部署：新 Apps Script 專案貼 `Code.gs`，指令碼屬性 `INVENTORY_SS_ID`／`USERS_SS_ID`／`AUTH_SECRET`／`STOCK_TOKEN`，執行 `setup()`，`contracts_to_inventory.py --out` 的 CSV 貼到「Import」分頁後執行 `migrateFromImport()`，部署為網頁應用程式（執行身分「我」、存取「所有人」）。限制：與 Transmitter 的綁定式腳本沒有共同鎖，同一秒同時出入庫可能互相覆蓋（`auditBalances()` 可對帳）。
+同一套 API 格式；適合想讓同事直接在試算表看／改數量的情況（目前正式環境用的是 Worker＋D1，本節只是備援方案；Transmitter 網站已改接 Worker，不再共用試算表）。部署：新 Apps Script 專案貼 `Code.gs`，指令碼屬性 `INVENTORY_SS_ID`／`USERS_SS_ID`／`AUTH_SECRET`／`STOCK_TOKEN`，執行 `setup()`，`contracts_to_inventory.py --out` 的 CSV 貼到「Import」分頁後執行 `migrateFromImport()`，部署為網頁應用程式（執行身分「我」、存取「所有人」）。限制：若同一份試算表還掛著其他綁定式腳本（例如 Transmitter 舊版的 Apps Script 後端），彼此沒有共同鎖，同一秒同時出入庫可能互相覆蓋（`auditBalances()` 可對帳）。
 
 ## 已知限制
 
 - 對照只到「本體型號」（Rosemount 前 12 碼／E+H `+` 前段）；選項碼（防爆、顯示器、接頭…）不比對，同系列列表一律要人工確認量程、輸出與製程接口。
 - AMS 資料庫的型號只有家族名（3051、644…），沒有工程文件型號碼的設備只能列同系列。
-- Transmitter 網站仍指向試算表，與 D1 各自獨立；舊 Logs 歷史留在試算表（舊 12 碼料號對不回 CR 料號）。
+- Transmitter 網站（`#/inventory`）已改成本 Worker 的第二個前端：同一套 `list`／`logs`／`txn` API、同一套授權（AMS 登入閘門的 HMAC token ＋ 密語推得的 `stockToken`），不另開寬鬆的驗證路徑；出入庫寫 `source:'transmitter'`。兩站同源（`momobacon-wq.github.io`），共用 localStorage `ams.auth`（工作階段）與 `ams.key`（記住的密語金鑰），任一站登入／解鎖另一站即可用，任一站登出兩者一併清掉。Transmitter 的品項＝D1 的 CR 料號；Worker 沒有新增品項 API，Transmitter 也移除了「新增品項」。舊試算表（Inventory／Logs、Users 白名單）凍結為歷史，不遷移；舊 12 碼料號對不回 CR 料號，查舊紀錄請直接開試算表。
