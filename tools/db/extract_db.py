@@ -264,6 +264,7 @@ SRC_DEFS = {
     'doc': {'label': '文件', 'desc': '設計文件（DCS 端子表、儀器清單、P&ID、Hook-up…）：「應該是什麼」'},
     'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
     'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；索引日期見來源'},
+    'hmi': {'label': '圖控', 'desc': '圖控 HMI 畫面檔（GE CIMPLICITY／ActivePoint .cim，唯讀原檔）解析：這台儀器畫在哪一頁、畫面上哪個位置'},
 }
 SRC_PREFIX = {k: v['label'] for k, v in SRC_DEFS.items()}
 
@@ -333,6 +334,15 @@ def summary_spec(ci3, ci13):
             {'key': 'search', 'label': '文件全文檢索（hst-docsearch：位號／序號命中的文件與頁碼）', 'kind': 'docsearch', 'collapsed': True, 'after_stock': True,
              'note': '搜整個工程文件庫的全文索引（文字層＋OCR）；「文件-版次 p.N｜命中行」，數值可點開 Google 雲端硬碟的那份檔案。位號不採 OCR 命中；'
                      '「序號命中」「型號／廠牌／量程（文件）」是由命中行以規則抽出的推定值，僅供對照，不列入 DCS 比對。'},
+            # 圖控 HMI 畫面（card aux 的 sec.hmi）：摘要只列畫面名稱＋導覽路徑；縮圖與紅圈標記在「完整資料 › 圖控 HMI 畫面位置」
+            {'key': 'hmi', 'label': '圖控 HMI 畫面（這台儀器畫在哪一頁）', 'kind': 'hmi', 'collapsed': True, 'after_stock': True,
+             'note': '來源：圖控畫面檔（GE CIMPLICITY／ActivePoint 的 .cim，唯讀原檔未修改）——物件屬性包（device／caption／aliasSignal…）代入選單變數後切出位號，'
+                     '再以物件矩形換算成畫面上的位置。畫面縮圖與紅圈標記在下方「完整資料 › 圖控 HMI 畫面位置」。'
+                     '索引建在 Screens 根目錄的 248 個畫面（操作員能從選單導覽到的）；另 225 個在子目錄的元件面板與函式庫範本'
+                     '（customFaceplate／tpFpFaceplate／customLibrary…）不建索引——它們沒有選單列也沒有畫面變數，'
+                     '但字串已逐條掃過，命中的位號都已由根目錄畫面涵蓋，所以 248＋225＝473 個 .cim 都查過了。'
+                     '「以選單機組 X 開啟」指的是開啟這張畫面的那一列選單項，不是這台儀器所屬機組（同一張畫面會被兩列選單以兩組畫面變數開啟）。'
+                     '來源裡沒有中文畫面名（原廠語言檔只有西班牙／日／法文、473 個 .cim 的字串 0 個含中文），所以畫面名是英文。'},
         ],
     }
 
@@ -479,7 +489,7 @@ def card_spec(final, sheets_by_name, num_of, link_index, web_df):
     }
 
 
-CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器 I/O 組態（checkout 快照，signal-atlas 索引）。數值帶底線可點者＝在 Google 雲端硬碟開啟該份文件。'
+CARD_NOTE_SRC = '「來源：隱藏｜徽章｜完整」切換每個欄位的資料來源：原始（灰）＝DB 欄、解碼（藍）＝固定規則換算、推論（橙）＝經驗規則/對照表、文件（綠）＝設計文件、出廠（深綠）＝EOMR、控制器（紫）＝控制器 I/O 組態（checkout 快照，signal-atlas 索引）、圖控（青）＝圖控 HMI 畫面檔解析。數值帶底線可點者＝在 Google 雲端硬碟開啟該份文件。'
 # 02 查詢卡附加區段（card aux）的標題與順序；patch_site_spec.py 也直接用它套到已發布的 02.json
 SECTIONS_AUX = [
         {'key': 'sync', 'label': '維護狀態（AMS 同步）', 'empty': '（無同步紀錄）'},
@@ -496,6 +506,12 @@ SECTIONS_AUX = [
         {'key': 'docsearch', 'label': '文件全文檢索（hst-docsearch 索引）', 'kind': 'docsearch',
          'note': '以現行位號與 AMS 序號參數搜整個工程文件庫的全文索引（頁級；文字層＋PyMuPDF＋OCR），每類別最多 2 份、同編號取最高版次；'
                  '位號不採 OCR 命中（英數易誤讀），序號的 OCR 命中標「需開原圖確認」。推定值列（序號命中／出廠型號／型號／廠牌／量程）由命中行以規則抽出，僅供對照。'},
+        {'key': 'hmi', 'label': '圖控 HMI 畫面位置（畫面縮圖與標記）', 'kind': 'hmi',
+         'note': '縮圖是 .cim 內含的「設計時」畫面（ThumbNail／EMF），不是執行時截圖：數值顯示成 ###、部分文字是 CAPTION 佔位、左側導覽抽屜是所有選單項疊影，都是正常的。'
+                 '紅圈是這支位號的物件在畫面上的位置（以百分比疊在影像上，沒有畫進影像裡）；點縮圖可放大（Esc 或點背景關閉）。'
+                 '同一張畫面有多處時圖上會標 ①②③，「所在位置」那列描述的永遠是 ①；兩處位置常常幾乎重疊（相差只有幾個像素），要看編號才分得出來。'
+                 '「對應方式」裡結尾像「\\012\\013」的是圖控的多點簡寫（一個物件同時掛好幾支同群組量測，例如三取二壓力變送器），各支位號都另有自己的索引。'
+                 '23 個引用到 AMS 位號的畫面檔沒有內含影像（量最大的是 HPOT_HP_OT_Temp_UX、HRSG_Hot_Reheat_UX、HRSG_LP_Group_UX），只能顯示畫面名稱與導覽路徑。'},
         {'key': 'ident', 'label': '位號歷程補充（刪除重建／方法執行）', 'empty': '（無刪除重建或方法執行紀錄）'},
         {'key': 'alarm', 'label': '類比輸出警報與飽和電流', 'empty': '（無警報／飽和電流參數）'},
         {'key': 'device', 'label': '設備補充（銘牌序號／版次）', 'empty': '（無參數紀錄）'},
@@ -503,10 +519,15 @@ SECTIONS_AUX = [
 
 
 def data_build(outdir, manifest):
-    """資料建置雜湊：sheets/*.json＋card/*.json＋不含 build 的 manifest（決定性）。無 card/ 時與舊算法相同。"""
+    """資料建置雜湊：sheets/*.json＋card/**/*.json（含 card/hmi/ 的畫面影像）＋不含 build 的 manifest（決定性）。
+    card 的順序一律以「相對路徑（posix）」排序——不是作業系統路徑，Windows 的 \\ 與 posix 的 / 排序不同，
+    tools/verify_encrypted.py 以 posix 相對路徑重算同一個雜湊，兩邊必須一致。"""
     h = hashlib.sha256()
-    for p in sorted(glob.glob(os.path.join(outdir, 'sheets', '*.json'))) + sorted(glob.glob(os.path.join(outdir, 'card', '*.json'))):
-        rel = os.path.relpath(p, outdir).replace('\\', '/')
+    def rels(sub, pat):
+        out = [os.path.relpath(p, outdir).replace('\\', '/') for p in glob.glob(os.path.join(outdir, sub, pat), recursive=True)]
+        return sorted(out)
+    for rel in rels('sheets', '*.json') + rels('card', os.path.join('**', '*.json')):
+        p = os.path.join(outdir, rel)
         name = os.path.basename(p) if rel.startswith('sheets/') else rel
         h.update(name.encode('utf-8') + b'\0'); h.update(open(p, 'rb').read())
     man = {k: v for k, v in manifest.items() if k != 'build'}

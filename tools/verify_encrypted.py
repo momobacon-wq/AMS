@@ -5,7 +5,8 @@
 
 Written without importing encrypt_data's crypto (only its key-file reader): re-derives the key from the passphrase, opens
 meta.check, decrypts EVERY .bin with AAD = its relative path, gunzips, parses JSON; asserts no plaintext *.json besides
-meta.json; every file listed in manifest (sheets[].files, aux.card.index and its files) exists as .bin and vice versa;
+meta.json; every file listed in manifest (sheets[].files, aux.card.index and its files, plus card/index.json's hmi.files
+= the HMI screen images) exists as .bin and vice versa;
 recomputes build from the plaintext the way the generators do (sheets/*.json by basename, then card/*.json by rel path,
 plus manifest without build) and requires meta.build == manifest.build == version.json.build == index.html's
 <meta name="ams-build"> == the meta.json preload ?v=; total size < 900 MB; no local absolute paths.  Exit 0 only with 0 errors.
@@ -23,7 +24,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from encrypt_data import passphrase_and_salt  # noqa: E402  (key file convention only)
 
 # 建置機器的本機路徑絕不能外流；AMS 資料本身含伺服器路徑（C:\ProgramData\… 之類）是資料內容，只計數提醒
-LOCAL_RE = re.compile(r'Users[\\/]bacon|/c/Users/|我的雲端硬碟|@@新機組資料備份')
+# 注意 `[\\/]{1,2}`：這些檔是 JSON，路徑分隔符在 JSON 文字裡是**兩個**反斜線（`Users\\bacon`）。
+# 原本寫成 `Users[\\/]bacon` 只抓得到單一分隔符 → 整支守門程式對 JSON 內的 Windows 路徑是假陰性（2026-10-03 修）。
+# `@@新機組` 不加「資料備份」：使用者另有 G:\其他電腦\…\@@新機組\… 這個資料夾也是本機路徑。
+# 「其他電腦」刻意**不**列入：AMS 資料庫自己的工作站標籤就叫「本廠其他電腦 (2024 以後)」（sheets 19/24/28），不是路徑。
+LOCAL_RE = re.compile(r'Users[\\/]{1,2}bacon|/c/Users/|我的雲端硬碟|@@新機組')
 ABS_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:(?:\\|/)')
 CHECK_TEXT = b"ams-ok"
 ERRORS = []
@@ -99,6 +104,9 @@ def verify_site(docs, pw):
         if aux["index"] in texts:
             ix = json.loads(texts[aux["index"]].decode("utf-8"))
             for f in ix.get("files") or []:
+                refs.add(f)
+            # card/index.json 的 hmi.files = 圖控畫面影像（card/hmi/<slug>.json；CONTRACT.md「圖控 HMI 畫面位置」）
+            for f in ((ix.get("hmi") or {}).get("files")) or []:
                 refs.add(f)
     missing = sorted(r for r in refs if r not in texts)
     orphan = sorted(r for r in texts if r != "manifest.json" and r not in refs)

@@ -62,7 +62,9 @@ def run(ctx):
             ck('card: 氣動閥 group has fields', v['n'] >= 10, v)
             ck('card: fields carry sources', v['src'] >= 5, v)
             ck('card: link to list row', v['row'], v)
-            ck('card: docsearch group still last', page.evaluate("(s => !s || s === s.parentElement.lastElementChild)(document.querySelector('.sum-search'))"))
+            ck('card: after_stock 兩組仍在最後（文件全文檢索 → 圖控 HMI）',
+               page.evaluate("(s => !s || s.nextElementSibling === document.querySelector('.sum-hmi'))(document.querySelector('.sum-search'))")
+               and page.evaluate("(h => !h || h === h.parentElement.lastElementChild)(document.querySelector('.sum-hmi'))"))
             shot(page, ctx, 'pneu_card')
         # ---- 非氣動閥設備：沒有氣動閥組
         load_card(page, ctx, 'G12HAP70BT001')

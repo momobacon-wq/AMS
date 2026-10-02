@@ -832,6 +832,7 @@
       const mode = this.currentMode();
       const empty = (txt) => { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, txt)); };
       if (sa.key === 'compare') { this.fillCompare(aux, grid); return; }
+      if (sa.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }
       if (sa.kind) { // 工程文件
         if (!sec) {
           const used = this.searchedList(ix, sa.kind);
@@ -1085,7 +1086,7 @@
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
-    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索' }[kind] || kind; }
+    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索', hmi: '圖控 HMI 畫面' }[kind] || kind; }
     async fillSummary(row, res, pend, svcEl) {
       const S = this.spec.summary; const alias = res.alias; const st = this.spec.stats;
       let r13 = null; let aux = null; let ix = null;
@@ -1171,6 +1172,7 @@
       grid.innerHTML = '';
       const sec = (aux && aux.sec && aux.sec[g.kind]) || null;
       const used = ix ? this.searchedList(ix, g.kind) : [];
+      if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, false); return; }
       if (g.kind === 'docindex' || g.kind === 'docsearch') {
         if (!sec || !(sec.rows || []).length) {
           grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
@@ -1198,6 +1200,153 @@
         sig.appendChild(sg);
         grid.appendChild(sig);
       });
+    }
+
+    /** 圖控 HMI 畫面位置（card aux `sec.hmi`，CONTRACT.md「圖控 HMI 畫面位置」）：
+     *  rows 每（畫面, 選單機組）一組 4 列（圖控畫面／導覽路徑／所在位置／對應方式），以 extra.g 分組，
+     *  第一列的 extra 帶 nav／img／marks。withImages=true（完整資料區段）才載縮圖並把紅圈以百分比疊上去
+     *  （標記不燒進影像，同一張圖可給多個位號共用）；摘要組只列名稱與路徑。 */
+    fillHmi(sec, ix, grid, mode, withImages) {
+      grid.innerHTML = '';
+      grid.classList.remove('cfields', 'sumgrid');   // 每個畫面一塊（內含自己的 .cfields），不是一格一欄
+      grid.classList.add('hmi-body');
+      const hx = (ix && ix.hmi) || {};
+      const rows = (sec && sec.rows) || [];
+      if (!rows.length) {
+        const ff = !!(this.aux && this.aux.flags && this.aux.flags.ff);
+        const st = (hx.stats) || {};
+        const n = st.screens_total || 0;
+        // 掃描範圍要一次講完，不然同一張卡會出現「已掃 248」與來源說明的「473 個 .cim」兩個數字（CONTRACT v5）
+        const scope = n ? `已掃 ${n} 個操作員畫面` + (st.excluded
+          ? `，另 ${st.excluded} 個子目錄元件面板／函式庫${st.excluded_scanned ? '也掃過字串' : '未列入索引'}（共 ${st.screens_all || (n + st.excluded)} 個 .cim）` : '') : '';
+        grid.appendChild(U.h('p', { class: 'muted cl-empty' }, ff
+          ? `查無（FF 訊號不在控制器 I/O 索引，位號字串也不出現在任何圖控畫面檔${scope ? '；' + scope : ''}）`
+          : `查無（${scope ? scope + '：' : ''}這些畫面都沒有引用此位號）`));
+        return;
+      }
+      const list = U.h('div', { class: 'hmi-list' + (withImages ? ' shots' : '') });
+      const groups = [];
+      for (const r of rows) {
+        const ex = (r.length > 4 && r[4]) || {};
+        const g = groups.length && groups[groups.length - 1].g === ex.g ? groups[groups.length - 1] : null;
+        if (g) g.rows.push(r);
+        else groups.push({ g: ex.g, head: ex, rows: [r] });
+      }
+      for (const grp of groups) {
+        const ex = grp.head;
+        const title = U.cardValue(grp.rows[0][1]);
+        const meta = (hx.screens && hx.screens[ex.s]) || {};
+        const navTxt = (ex.nav || []).map((p) => p.filter(Boolean).join(' › ')).join('；');
+        const block = U.h('div', { class: 'hmi-screen' });
+        // ex.unit 是「開啟這張畫面的那一列選單項的機組欄」，不是儀器所屬機組（同一張畫面會被兩列選單以兩組畫面變數開啟）；
+        // ex.nav_all=1 代表選單列與這台儀器對不起來，列出的是該畫面全部選單列（審查意見 8／10a）
+        const head = U.h('div', { class: 'hmi-head' },
+          U.h('span', { class: 'hmi-t' }, title),
+          navTxt ? U.h('span', { class: 'hmi-nav' }, navTxt) : null,
+          ex.nav_all ? U.h('span', { class: 'hmi-allnav', title: '這張畫面的全部選單列（無法判定這台儀器是從哪一列開啟）' }, '（此畫面全部選單列）') : null,
+          ex.unit ? U.h('span', { class: 'hmi-unit', title: '開啟這張畫面的選單項所屬機組，不是這台儀器所屬機組' }, '以選單機組 ' + ex.unit + ' 開啟') : null,
+          U.h('span', { class: 'hmi-file mono' }, ex.s));
+        block.appendChild(head);
+        if (withImages) {
+          if (ex.img && meta.file) block.appendChild(this.hmiShot(meta, ex, title));
+          else block.appendChild(U.h('p', { class: 'muted small hmi-noimg' }, '此畫面檔未內含設計時影像（.cim 沒有 ThumbNail 串流），只能顯示畫面名稱與導覽路徑。'));
+        }
+        const fields = U.h('div', { class: 'cfields hmi-f' });
+        for (const r of grp.rows) {
+          fields.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: r[0] === '導覽路徑' || r[0] === '對應方式' ? 2 : undefined,
+            src: r[3] ? { lvl: r[2], text: r[3] } : null }, mode));
+        }
+        block.appendChild(fields);
+        list.appendChild(block);
+      }
+      grid.appendChild(list);
+      const noimg = withImages ? groups.filter((g) => !g.head.img).length : 0;
+      if (noimg && groups.length > noimg) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, `其中 ${noimg} 個畫面檔未內含設計時影像。`));
+    }
+    /** 一張畫面縮圖＋標記（按鈕：點開燈箱放大）。影像 JSON 解密後轉 blob URL（core.js D.loadHmiImage）。 */
+    hmiShot(meta, ex, title) {
+      const btn = U.h('button', { type: 'button', class: 'hmi-shot', 'aria-label': '放大畫面：' + title, title: '點擊放大' });
+      const frame = this.hmiFrame(meta, ex);
+      btn.appendChild(frame);
+      btn.appendChild(U.h('span', { class: 'hmi-zoom', 'aria-hidden': 'true' }, '⤢ 放大'));
+      D.loadHmiImage(meta.file).then((o) => {
+        if (this.destroyed) return;
+        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面縮圖（設計時影像）', loading: 'lazy', decoding: 'async', width: o.w || null, height: o.h || null });
+        frame.insertBefore(img, frame.firstChild);
+        frame.classList.remove('loading');
+      }).catch((e) => { if (!this.destroyed) { frame.classList.remove('loading'); frame.appendChild(U.h('span', { class: 'muted small hmi-err' }, '無法載入畫面影像：' + ((e && e.message) || e))); } });
+      btn.addEventListener('click', () => this.openHmiLightbox(meta, ex, title));
+      return btn;
+    }
+    /** 影像容器：標記以百分比絕對定位（放大時自動同步縮放）；框寬／高為 0 的（直線、文字錨點）只標點不畫框。
+     *  多處時每個標記旁邊掛編號 ①②③（marks[0]＝「所在位置」那列描述的那處，見 index.hmi.note）：
+     *  同一位號的兩處常常只差幾個像素，沒有編號使用者看不出有兩個圈，也對不上「另有 N 處」。 */
+    hmiFrame(meta, ex) {
+      const frame = U.h('span', { class: 'hmi-frame loading' });
+      const w = Number(meta.w) || 1280; const h = Number(meta.h) || 720;
+      frame.style.aspectRatio = w + ' / ' + h;
+      const marks = ex.marks || [];
+      const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫';
+      marks.forEach((m, i) => {
+        const cx = (Number(m[0]) * 100).toFixed(3); const cy = (Number(m[1]) * 100).toFixed(3);
+        const mw = Number(m[2]) || 0; const mh = Number(m[3]) || 0;
+        const pri = i === 0 ? ' pri' : '';
+        if (mw > 0 && mh > 0) {
+          frame.appendChild(U.h('span', { class: 'hmi-box' + pri, 'aria-hidden': 'true',
+            style: `left:${((Number(m[0]) - mw / 2) * 100).toFixed(3)}%;top:${((Number(m[1]) - mh / 2) * 100).toFixed(3)}%;width:${(mw * 100).toFixed(3)}%;height:${(mh * 100).toFixed(3)}%` }));
+        }
+        frame.appendChild(U.h('span', { class: 'hmi-mk' + pri, 'aria-hidden': 'true', style: `left:${cx}%;top:${cy}%` }));
+        if (marks.length > 1) {
+          // 編號擺在圈「旁邊」，而且逐個錯開（第 1 個右上、第 2 個右下…）：兩個圈幾乎重疊時編號才不會也疊在一起
+          frame.appendChild(U.h('span', { class: 'hmi-no' + pri, 'aria-hidden': 'true',
+            style: `left:${cx}%;top:${cy}%;transform:translate(10px,${(i % 2 ? 1 : -1) * (130 + Math.floor(i / 2) * 115)}%)` },
+            CIRCLED[i] || String(i + 1)));
+        }
+      });
+      if (marks.length > 1) frame.appendChild(U.h('span', { class: 'sr-only' }, `此位號在這張畫面有 ${marks.length} 處標記，標記 ① 是「所在位置」那列描述的那處。`));
+      return frame;
+    }
+    /** 放大：全螢幕疊層（Esc／點背景／✕ 關閉、手機返回鍵也關；標記同步縮放，因為是百分比定位）。 */
+    openHmiLightbox(meta, ex, title) {
+      const ov = U.h('div', { class: 'modal hmi-lb', role: 'dialog', 'aria-modal': 'true', 'aria-label': '畫面放大：' + title });
+      const panel = U.h('div', { class: 'hmi-lb-panel' });
+      const close = U.h('button', { class: 'icon-btn modal-x', type: 'button', 'aria-label': '關閉放大檢視' }, '✕');
+      const cap = U.h('div', { class: 'hmi-lb-cap' }, U.h('span', { class: 'hmi-t' }, title),
+        U.h('span', { class: 'hmi-file mono' }, ex.s),
+        U.h('span', { class: 'muted small' }, '設計時影像（值顯示為 ###）；紅圈＝此位號的物件位置'
+          + ((ex.marks || []).length > 1 ? `，共 ${ex.marks.length} 處，① 是「所在位置」那列描述的那處` : '')));
+      const frame = this.hmiFrame(meta, ex);
+      frame.classList.add('big');
+      const ar = (Number(meta.w) || 1280) / (Number(meta.h) || 720);
+      frame.style.maxWidth = `min(100%, calc((100dvh - 152px) * ${ar.toFixed(4)}))`;   // 108px 說明列 ＋ ✕ 自己那一列
+      panel.append(close, frame, cap);
+      ov.appendChild(panel);
+      document.body.appendChild(ov);
+      document.body.classList.add('modal-open');
+      D.loadHmiImage(meta.file).then((o) => {
+        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面（設計時影像）' });
+        frame.insertBefore(img, frame.firstChild);
+        frame.classList.remove('loading');
+      }).catch(() => { frame.classList.remove('loading'); });
+      let closed = false; let tok = null;
+      const done = (fromHistory) => {
+        if (closed) return;
+        closed = true;
+        ov.remove();
+        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('hashchange', onHash);
+        if (!document.querySelector('.modal')) document.body.classList.remove('modal-open');
+        if (!fromHistory) AMS.overlay.done(tok);
+      };
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(false); } };
+      const onHash = () => done(false);
+      close.addEventListener('click', () => done(false));
+      ov.addEventListener('pointerdown', (e) => { if (e.target === ov || e.target === panel) done(false); });
+      ov.addEventListener('ams-close', () => done(false));
+      document.addEventListener('keydown', onKey, true);
+      window.addEventListener('hashchange', onHash);
+      tok = AMS.overlay.open('modal', () => done(true), true);   // force：平板／桌機按返回鍵也只關燈箱，不離開這張卡
+      close.focus();
     }
 
     /* ---------- 快速連結 ---------- */
@@ -1442,6 +1591,8 @@
     onTheme() { if (this.spec) this.run(this.lastQuery); }
     destroy() {
       this.destroyed = true;
+      U.$$('.hmi-lb').forEach((m) => m.dispatchEvent(new CustomEvent('ams-close')));
+      if (D.revokeHmiImages) D.revokeHmiImages();   // 圖控縮圖的 blob URL 與影像 JSON 快取
       if (this.ro) { this.ro.disconnect(); this.ro = null; }
       window.removeEventListener('beforeprint', this._bp);
       window.removeEventListener('afterprint', this._ap);

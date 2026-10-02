@@ -11,6 +11,8 @@
   AMS_BUILD_DIR     sheets_*.py 的 csv 傾印（out/）、sheets_cache.pkl、sheets_final.pkl、prev_templates.json  預設 %LOCALAPPDATA%\\AMS\\build
   AMS_DCDAS_INDEX   signal-atlas 控制器索引（build_card_aux --dcdas）                     預設 %LOCALAPPDATA%\\dcdas\\index.sqlite
   AMS_DRIVE_MAP     drive_map.py 的輸出                                                 預設 %LOCALAPPDATA%\\AMS\\drive_map.json
+  AMS_HMI_SCREENS   圖控 HMI（GE CIMPLICITY／ActivePoint）畫面檔目錄（*.cim 與 navigation/ 設定；hmi_shots.py／hmi_nav.py 的輸入，唯讀不可修改）
+                    預設 <LIBRARY_ROOT>\\AMS\\Screens
   AMS_PNEUVALVE_XLSX  全廠氣動閥清單 xlsx（試算表「興達全廠氣動閥LIST_v2.6」匯出；pneuvalve_site.py 的輸入）
                     預設 ~\\.claude\\skills\\notebooklm-batch5-Research\\data\\興達全廠氣動閥LIST_v2.6.xlsx
 
@@ -71,6 +73,7 @@ DRIVE_MAP = _env('AMS_DRIVE_MAP', os.path.join(AMS_LOCAL, 'drive_map.json'))
 FTS_DB = _env('AMS_FTS_DB', _fts_default())
 PNEUVALVE_XLSX = _env('AMS_PNEUVALVE_XLSX', os.path.join(os.path.expanduser('~'), '.claude', 'skills', 'notebooklm-batch5-Research', 'data',
                                                         '興達全廠氣動閥LIST_v2.6.xlsx'))
+HMI_SCREENS = _env('AMS_HMI_SCREENS', os.path.join(LIBRARY_ROOT, 'AMS', 'Screens'))  # 圖控 HMI 畫面檔（GE CIMPLICITY／ActivePoint .cim，唯讀）
 
 # 衍生路徑（由上面推得，不另設環境變數）
 SHEETS_OUT = os.path.join(BUILD_DIR, 'out')                       # sheets_*.py 直接執行時的 csv 傾印
@@ -78,11 +81,13 @@ SHEETS_CACHE = os.path.join(BUILD_DIR, 'sheets_cache.pkl')         # build_workb
 SHEETS_FINAL = os.path.join(BUILD_DIR, 'sheets_final.pkl')         # build_workbook 的後處理結果＝extract_db 的輸入
 PREV_TEMPLATES_JSON = os.path.join(BUILD_DIR, 'prev_templates.json')  # sheets_templates：前簿 26_附錄_範本 的 JSON 快取
 DOCSEARCH_JSON = os.path.join(CARDWORK, 'docsearch.json')          # docmap_docsearch 的輸出（build_card_aux --docsearch）
+HMI_JSON = os.path.join(CARDWORK, 'hmi.json')                      # tools/db/hmi_index.py 的輸出（畫面／位號→座標索引）
+HMI_SHOTS = os.path.join(CARDWORK, 'hmi_shots')                    # 畫面縮圖（ThumbNail EMF → png/webp）＋ index.json
 
 ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFTXT_CACHE), ('LIBRARY_ROOT', LIBRARY_ROOT),
        ('PREV_XLSX', PREV_XLSX), ('BUILD_DIR', BUILD_DIR), ('SHEETS_CACHE', SHEETS_CACHE), ('SHEETS_FINAL', SHEETS_FINAL),
        ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB),
-       ('PNEUVALVE_XLSX', PNEUVALVE_XLSX)]
+       ('PNEUVALVE_XLSX', PNEUVALVE_XLSX), ('HMI_SCREENS', HMI_SCREENS), ('HMI_JSON', HMI_JSON), ('HMI_SHOTS', HMI_SHOTS)]
 
 
 def report():

@@ -18,6 +18,9 @@ import sys
 import time
 import urllib.request
 
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')   # Windows 主控台預設 cp950，測試訊息有 › ⚠ ✕ 這些字會丟 UnicodeEncodeError
+sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 PORT = 8771

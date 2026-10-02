@@ -38,11 +38,12 @@
 | 4. 各產生器 → cardwork | `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py`（引數見各檔檔頭） | `AmsDb.sqlite`、明文 `sheets/`、工程文件庫（`LIBRARY_ROOT`）、pdftotext 快取（`PDFTXT_CACHE`） | `CARDWORK/ams.json`、`terminal.json`、`instlist.json`、`eomr.json`、`docindex.json` | 15 分（首次 pdftotext 更久） |
 | 5. 全文檢索 | `py tools/db/docmap_docsearch.py --data docs/db/data` | hst-docsearch 的 FTS 索引、`drive_map.json` | `CARDWORK/docsearch.json` | 4 分 |
 | 6. 查詢卡附加資料 | `py tools/db/build_card_aux.py <CARDWORK> docs/db/data` | cardwork 五份＋docsearch、`%LOCALAPPDATA%\dcdas\index.sqlite`、`drive_map.json` | `docs/db/data/card/*.json` → 加密＋戳記 | 3 分 |
+| 6b. 圖控 HMI 畫面位置 | `py tools/db/hmi_shots.py` → `py tools/db/hmi_nav.py` → `py tools/db/hmi_index.py`（順序固定；`rebuild.py` 在第 6 步之前自動跑，`--skip-hmi` 略過） | `AMS_HMI_SCREENS`（圖控 `.cim` 畫面檔目錄，唯讀）、`AmsDb.sqlite`、dcdas 索引 | `CARDWORK/hmi_shots/`（155 張 webp）、`hmi_nav.json`、`hmi.json` → 第 6 步併成 `sec.hmi` 與 `card/hmi/*.json` | 2 分 |
 | 7. 戳記＋驗證 | `py tools/db/rebuild.py --only-stamp` | — | 兩站 `index.html`／`version.json`；`verify_encrypted` 0 錯誤 | 1 分 |
 | 7b. 氣動閥清單 | `py tools/db/pneuvalve_site.py docs/db/data`（`rebuild.py` 兩條路徑結尾自動跑；`--only-pneuvalve` 單跑） | `PNEUVALVE_XLSX`、`<CARDWORK>/pneuvalve_xwalk.json`、`drive_map.json` | `sheets/57～61.json`、02.json `valve`、00 目錄、manifest | 1 分 |
 | 8. push 前 | `py tools/db/rebuild.py --only-stamp --e2e` | — | 端對端測試全綠 | 3 分 |
 
-只改資料來源（docsearch／Drive 連結／比對規則）而沒有新備份時仍用 `py tools/db/rebuild.py`（`--recompare`，見下）；`rebuild.py --sqlite` 也接受 `--skip-workbook`（沿用 `sheets_final.pkl`）、`--skip-docsearch`、`--skip-drive-map`。
+只改資料來源（docsearch／Drive 連結／比對規則）而沒有新備份時仍用 `py tools/db/rebuild.py`（`--recompare`，見下）；`rebuild.py --sqlite` 也接受 `--skip-workbook`（沿用 `sheets_final.pkl`）、`--skip-docsearch`、`--skip-drive-map`、`--skip-hmi`（沿用 cardwork 裡上次的 `hmi.json`／`hmi_shots`）。
 
 ## 資料加密（兩站；push 前必做）
 
@@ -79,12 +80,15 @@ py tools/db/rebuild.py            # 一鍵：下面五步按順序跑，任一�
 py tools/db/drive_map.py                                   # Google 雲端硬碟桌面版中繼資料 → %LOCALAPPDATA%\AMS\drive_map.json（文件庫相對路徑 → 檔案 ID）
 py tools/encrypt_data.py docs/db/data --decrypt
 py tools/db/docmap_docsearch.py --data docs/db/data         # hst-docsearch 的 FTS 索引（~/.claude/skills/hst-docsearch/config.json）以位號＋AMS 序號搜全庫 → %LOCALAPPDATA%\AMS\cardwork\docsearch.json（約 4 分鐘）
+py tools/db/hmi_shots.py && py tools/db/hmi_nav.py && py tools/db/hmi_index.py   # 圖控 HMI：畫面縮圖 → 選單路徑 → 位號座標索引（順序固定，約 2 分鐘；--skip-hmi 時略過）
 py tools/db/patch_site_spec.py docs/db/data                 # 02.json 摘要／區段規格（只在 extract_db 規格有改時）
-py tools/db/build_card_aux.py --recompare docs/db/data      # 併入 sec.docsearch、index.docs 補 url、重算比對、加密、戳記
+py tools/db/build_card_aux.py --recompare docs/db/data      # 併入 sec.docsearch、sec.hmi＋card/hmi/*.json、index.docs 補 url、重算比對、加密、戳記
 py tools/stamp_assets.py docs && py tools/verify_encrypted.py
 ```
 
 摘要空白的欄位（設計廠牌／型號、出廠型號／序號、設計量程、P&ID／邏輯圖／Hook-up／位置圖）會依序改用文件索引、全文檢索命中的推定值；所有文件來源的數值都可點開雲端硬碟的那份檔案（需有該資料夾的 Drive 權限）。
+
+查詢卡的「圖控 HMI 畫面位置」（2026-10-03 起）：摘要有「圖控 HMI 畫面（這台儀器畫在哪一頁）」收合組（畫面名稱＋導覽路徑），「完整資料」裡的「圖控 HMI 畫面位置」另有畫面縮圖與紅圈標記（同一張畫面多處時標 ①②③，「所在位置」描述的永遠是 ①；點縮圖可放大）。覆蓋 870/1,679 台（51.8%）。索引建在 Screens **根目錄的 248 個操作員畫面**；另 225 個子目錄的元件面板／函式庫範本不建索引，但字串已逐條掃過（命中的 12 支位號都已由根目錄畫面涵蓋、FF 0 命中）＝遞迴全部 473 個 `.cim` 都查過。FF 設備（351 台）定讞無法對應，23 個畫面檔沒有內含設計時影像只能顯示名稱。細節與座標基準見 [CONTRACT.md](CONTRACT.md)「v5（docs/db 站：圖控 HMI 畫面位置）」。
 `extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
 
 ### push 前關卡
@@ -176,7 +180,7 @@ tools/auth/Code.gs              登入閘門 Apps Script（Users／AMS_Log 分�
 tools/auth/README.md            登入閘門部署、本機測試、離職／停權 SOP
 tools/auth/mock_server.py       本機靜態＋mock 登入＋mock 備品伺服器（E2E 用）
 tools/auth/mock_users.csv       測試用員工代號
-tools/db/paths.py               repo 外路徑的唯一來源（AmsDb.sqlite、cardwork、pdftotext 快取、文件庫、前簿 xlsx、build 目錄）
+tools/db/paths.py               repo 外路徑的唯一來源（AmsDb.sqlite、cardwork、pdftotext 快取、文件庫、前簿 xlsx、build 目錄、圖控 Screens）
 tools/db/install.sh             一次：WSL 裝 SQL Server 2025 Express＋sqlcmd＋pyodbc（sa 密碼寫 /root/.ams_sa_pw）
 tools/db/restore.sh             每份備份：.ams_bckup → RESTORE → export_to_sqlite.py ＋ fix_blobs.py → AmsDb.sqlite
 tools/db/export_to_sqlite.py    WSL 內：SQL Server 全表 → SQLite（含 _schema／_tables／_modules）
@@ -193,7 +197,10 @@ tools/db/docmap_eomr.py         cardwork/eomr.json：出廠證書 EOMR（pdftote
 tools/db/docmap_docindex.py     cardwork/docindex.json：文件索引（PDF 前幾頁提位號）
 tools/db/docmap_docsearch.py    cardwork/docsearch.json：hst-docsearch FTS 全文檢索命中與推定值
 tools/db/drive_map.py           %LOCALAPPDATA%\AMS\drive_map.json：文件庫相對路徑 → Google 雲端硬碟檔案 ID
-tools/db/build_card_aux.py      docs/db/data/card/*.json：五份 cardwork＋dcdas 索引＋docsearch＋drive_map → 查詢卡附加資料、DCS 比對（--recompare 只重算）
+tools/db/hmi_shots.py           cardwork/hmi_shots/：圖控 .cim 的 ThumbNail（設計時 EMF）→ 1280 寬 webp＋index.json
+tools/db/hmi_nav.py             cardwork/hmi_nav.json：圖控畫面的選單路徑、標題、畫面變數（逐列對齊）
+tools/db/hmi_index.py           cardwork/hmi.json：位號 → 圖控畫面＋畫面上的 0~1 座標（物件參照／畫面變數／點位索引／控制器 display_screen）
+tools/db/build_card_aux.py      docs/db/data/card/*.json：五份 cardwork＋dcdas 索引＋docsearch＋drive_map＋hmi → 查詢卡附加資料、DCS 比對、圖控畫面位置與縮圖（--recompare 只重算）
 tools/db/patch_site_spec.py     把 extract_db 的 02／13 規格改動套到已發布資料
 tools/db/rebuild.py             一鍵：--recompare 流程、--only-stamp、--e2e、--sqlite 一條龍、--only-pneuvalve
 tools/db/pneuvalve_site.py      氣動閥清單（試算表 xlsx）→ 57～61 分頁、02.json valve、00 目錄（自行解密／加密）
@@ -222,6 +229,7 @@ tools/tests/test_auth.py  test_card.py  test_stock.py  test_sw.py  test_main.py 
 | `%LOCALAPPDATA%\AMS\cardwork\pneuvalve_xwalk.json` | 2026-10-02 對照驗證（副本在 fill26/pneuvalve_ams_xwalk.json） | 氣動閥 ↔ AMS 對照覆寫（剔除／補對／備註） | 只剩自動規則：少 2 組 GE 90LT 對照、查詢卡少驗證備註 | 從 fill26 副本複製回來 |
 | `%LOCALAPPDATA%\AMS\build\sheets_cache.pkl`、`sheets_final.pkl` | `build_workbook.py` | 模組結果快取；`sheets_final.pkl`＝extract_db 的輸入 | 只能 `--recompare`／`patch_site_spec` 繞，資料層退化 | 重跑 `build_workbook.py`（10 分鐘） |
 | `%LOCALAPPDATA%\AMS\cardwork\*.json` | 五個產生器＋docmap_docsearch | build_card_aux 完整建置的輸入 | 只能 `--recompare`：儀器清單／EOMR 量程不再列入比對 | `rebuild.py --sqlite`（需文件庫） |
+| `%LOCALAPPDATA%\AMS\cardwork\hmi.json`、`hmi_nav.json`、`hmi_shots\` | `hmi_index.py`／`hmi_nav.py`／`hmi_shots.py`（讀 `AMS_HMI_SCREENS` 的 .cim，唯讀不修改） | 查詢卡「圖控 HMI 畫面位置」與畫面縮圖 | 查詢卡少掉圖控畫面區段（build_card_aux 會以非 0 中止提醒，除非給 `--no-hmi`） | `py tools/db/hmi_shots.py && py tools/db/hmi_nav.py && py tools/db/hmi_index.py`（需圖控 Screens 目錄） |
 | `%LOCALAPPDATA%\AMS\pdftxt\` | docmap_eomr／docmap_docindex | pdftotext 純文字快取 | 重抽一次（數小時） | 自動 |
 | `%LOCALAPPDATA%\AMS\drive_map.json` | `drive_map.py`（讀 Google 雲端硬碟桌面版中繼資料庫） | 文件 → Drive 檔案 ID | 查詢卡所有 Drive 連結消失（build_card_aux 會以非 0 中止提醒） | `py tools/db/drive_map.py`（需已登入的 Drive 桌面版） |
 | `%LOCALAPPDATA%\dcdas\index.sqlite` | signal-atlas repo `py tools\dcdas.py build` | 控制器 I/O 組態（DCS 比對基準第一順位） | 「控制器組態」區段與基準消失（build_card_aux 以非 0 中止提醒） | 在 signal-atlas 重建（需 ToolboxST checkout 匯出） |

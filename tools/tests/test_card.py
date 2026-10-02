@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""查詢卡：文件全文檢索收合組與雲端硬碟連結、DCS 不符旗標、查無位號、上一頁同步查詢框、帶前後綴／分隔符的輸入、換位號捲回頂端、完整資料延後載入、
+"""查詢卡：文件全文檢索收合組與雲端硬碟連結、圖控 HMI 畫面縮圖與標記、DCS 不符旗標、查無位號、上一頁同步查詢框、帶前後綴／分隔符的輸入、換位號捲回頂端、完整資料延後載入、
 資料日期列、分享鈕與點值即複製、最近查過進自動完成與「← 上一個」、多台設備 ?a= 切換、參數連結帶 rn、載入進度回呼、手機版面、Service Worker、console 零錯誤。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
@@ -7,6 +7,11 @@ DOC_TAG = 'C10LAB22BP001'      # 有文件全文檢索與雲端硬碟連結
 FLAG_TAG = 'G12HAP70BT001'     # 量程與 DCS 不符（端子表／寫入事件），控制器量程相符
 NEAR = 'LAB22'                 # 部分字串 → 相近建議
 MULTI = '10BT001'              # HostTag 對到 3 台（G12HAD／HAG／LBA10BT001）→ ?a= 切換
+HMI_TAG = 'C10LAB22BF001'      # 圖控：BOP_Feed_Water.cim，有設計時縮圖與 2 個標記（兩處只差 1.6% 畫面高 → 要靠 ①② 分辨）
+HMI_NOIMG = 'G12HAP70BT001'    # 圖控：HRSG_Blowdown_UX.cim 沒有 ThumbNail（只顯示名稱與路徑）
+HMI_FF = 'G11_90LT-1'          # FF：圖控畫面檔完全查無
+HMI_TMPL = '1-LI-CW101-1'      # 曾顯示未代入樣板 aliasSignal={device}（74 列）→ 現在必須是 device=1-LI-CW101-1_XQ01
+HMI_MULTI = 'C10LAB40BP001'    # 多點簡寫 caption=…LAB40BP001\002 → 卡片要有白話說明
 
 
 def run(ctx):
@@ -16,12 +21,15 @@ def run(ctx):
         # ---- 文件全文檢索：details、預設收合、排在備品庫存之後、內容已載好、Drive 連結
         load_card(page, ctx, DOC_TAG)
         info = page.evaluate("""() => { const s = document.querySelector('.sum-search'); if (!s) return null; const kids = [...s.parentElement.children];
-          return { tag: s.tagName, open: s.hasAttribute('open'), idx: kids.indexOf(s), stockIdx: kids.findIndex(e => e.classList.contains('sum-stock')), n: kids.length,
+          return { tag: s.tagName, open: s.hasAttribute('open'), idx: kids.indexOf(s), stockIdx: kids.findIndex(e => e.classList.contains('sum-stock')),
+                   hmiIdx: kids.findIndex(e => e.classList.contains('sum-hmi')), n: kids.length,
                    cf: s.querySelectorAll('.cf').length, links: [...s.querySelectorAll('a.doclk')].map(a => [a.getAttribute('href'), a.getAttribute('target'), a.getAttribute('rel')]) }; }""")
         ck('docsearch group exists', bool(info))
         if info:
             ck('docsearch is <details>, closed', info['tag'] == 'DETAILS' and not info['open'])
-            ck('docsearch after stock and last', info['stockIdx'] >= 0 and info['idx'] > info['stockIdx'] and info['idx'] == info['n'] - 1, (info['idx'], info['stockIdx'], info['n']))
+            # after_stock 的組依 summary_spec 順序排在備品庫存之後：…→ 文件全文檢索 → 圖控 HMI 畫面（最後一組）
+            ck('docsearch after stock, 圖控 HMI last', info['stockIdx'] >= 0 and info['idx'] > info['stockIdx'] and info['hmiIdx'] == info['idx'] + 1 and info['hmiIdx'] == info['n'] - 1,
+               (info['idx'], info['stockIdx'], info['hmiIdx'], info['n']))
             ck('docsearch filled while closed', info['cf'] > 0 and len(info['links']) > 0)
             ck('drive links well-formed', all(h.startswith('https://drive.google.com/open?id=') and t == '_blank' and 'noopener' in (r or '') for h, t, r in info['links']))
         page.locator('.sum-search > summary').click(); page.wait_for_timeout(200)
@@ -56,6 +64,63 @@ def run(ctx):
         # ---- 參數現值連結帶 rn=（分塊表只載 r..rn 所在的分塊）
         ck('param quick link carries rn=', page.locator('.cq-more .clinks a[href*="rn="]').count() >= 1)
         page.locator('.cq-more > summary').click(); page.wait_for_timeout(200)
+        # ---- 圖控 HMI 畫面位置（CONTRACT.md v5）：摘要只有名稱＋路徑；完整資料裡有縮圖、標記、燈箱
+        load_card(page, ctx, HMI_TAG)
+        page.evaluate("document.querySelector('details.sum-hmi').open = true")
+        page.wait_for_timeout(400)
+        sum_hmi = page.inner_text('.sum-hmi')
+        ck('摘要圖控組：畫面名稱＋導覽路徑', 'BOP_Feed_Water.cim' in sum_hmi and '›' in sum_hmi, sum_hmi[:80])
+        ck('摘要圖控組不載影像', page.locator('.sum-hmi .hmi-img').count() == 0)
+        page.evaluate("document.querySelector('details.cq-more').open = true")
+        page.wait_for_function("document.querySelectorAll('.aux-hmi .hmi-img').length > 0", timeout=30000)
+        page.evaluate("document.querySelector('.aux-hmi .hmi-img').scrollIntoView({block:'center'})")
+        page.wait_for_function("(() => { const i = document.querySelector('.aux-hmi .hmi-img'); return i && i.complete && i.naturalWidth > 0; })()", timeout=30000)
+        img = page.evaluate("(() => { const i = document.querySelector('.aux-hmi .hmi-img'); return {src: i.src.slice(0,5), nw: i.naturalWidth, nh: i.naturalHeight}; })()")
+        ck('縮圖以 blob URL 解密載入（CSP img-src 要含 blob:）', img['src'] == 'blob:' and img['nw'] == 1280 and img['nh'] == 720, img)
+        marks = page.evaluate("[...document.querySelectorAll('.aux-hmi .hmi-mk')].map(m => m.getAttribute('style'))")
+        ck('標記以百分比疊在影像上（沒有燒進影像）', len(marks) == 2 and all('%' in m for m in marks), marks)
+        # 多處標記要編號，而且「所在位置」描述的那處＝①（marks[0]，CONTRACT v5）
+        nos = page.evaluate("[...document.querySelectorAll('.aux-hmi .hmi-no')].map(e => [e.textContent, e.classList.contains('pri'), e.getAttribute('style')])")
+        ck('多處標記有編號 ①②，第一個是 .pri', [n[0] for n in nos] == ['①', '②'] and nos[0][1] and not nos[1][1], nos)
+        ck('編號逐個錯開（inline transform 不同）', nos[0][2] != nos[1][2] and 'translate' in nos[0][2], [n[2] for n in nos])
+        pos = page.evaluate("""(() => { const cf = [...document.querySelectorAll('.aux-hmi .cf')].find(c => c.querySelector('.cf-k').textContent.includes('所在位置'));
+          return cf ? cf.querySelector('.cf-v').textContent : ''; })()""")
+        ck('「所在位置」指名圖上標記 ①、並說另有幾處', '圖上標記 ①' in pos and '另有 1 處' in pos and '②' in pos, pos[:120])
+        navtxt = page.evaluate("""(() => { const cf = [...document.querySelectorAll('.aux-hmi .cf')].find(c => c.querySelector('.cf-k').textContent.includes('導覽路徑'));
+          return cf ? cf.querySelector('.cf-v').textContent : ''; })()""")
+        ck('機組寫成「以選單機組 X 開啟」（不是儀器所屬機組）', '以選單機組' in navtxt and '開啟' in navtxt, navtxt[:120])
+        ck('畫面標頭也用同樣用詞', '以選單機組' in page.inner_text('.aux-hmi .hmi-head'), page.inner_text('.aux-hmi .hmi-head')[:120])
+        page.locator('.aux-hmi .hmi-shot').first.click(); page.wait_for_timeout(500)
+        ck('點縮圖開燈箱，標記同步', page.locator('.hmi-lb').count() == 1 and page.locator('.hmi-lb .hmi-mk').count() == 2)
+        ck('燈箱 ✕ 不疊在影像上（自己一列）', page.evaluate("getComputedStyle(document.querySelector('.hmi-lb .modal-x')).position") == 'static')
+        shot(page, ctx, 'card_hmi_lightbox')
+        # 返回鍵：桌機寬度也只關燈箱、留在同一張卡（AMS.overlay.open 的 force）
+        h0 = page.evaluate('location.hash')
+        page.go_back(); page.wait_for_timeout(600)
+        ck('燈箱：返回鍵只關燈箱、留在同一張卡（桌機寬度也要成立）',
+           page.locator('.hmi-lb').count() == 0 and page.evaluate('location.hash') == h0,
+           (page.evaluate('location.hash'), h0))
+        page.locator('.aux-hmi .hmi-shot').first.click(); page.wait_for_timeout(400)
+        page.keyboard.press('Escape'); page.wait_for_timeout(300)
+        ck('Esc 關燈箱且不留 modal-open', page.locator('.hmi-lb').count() == 0 and not page.evaluate("document.body.classList.contains('modal-open')"))
+        # 對應方式：未代入樣板（aliasSignal={device}）必須已被真正的位號取代；多點簡寫要有白話說明
+        load_card(page, ctx, HMI_TMPL)
+        page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1500)
+        ref = page.inner_text('.aux-hmi')
+        ck('對應方式不是未代入樣板', '={device}' not in ref and 'device=1-LI-CW101-1' in ref, ref[:200])
+        load_card(page, ctx, HMI_MULTI)
+        page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1500)
+        ck('多點簡寫有白話說明（不是看起來像亂碼）', '多點簡寫' in page.inner_text('.aux-hmi'), page.inner_text('.aux-hmi')[:260])
+        load_card(page, ctx, HMI_FF)
+        page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1200)
+        ff_txt = page.inner_text('.aux-hmi')
+        ck('FF 設備：圖控查無並說明原因', 'FF' in ff_txt, ff_txt[:90])
+        # 掃描範圍一次講完（不會同一張卡出現 248 與 473 兩個數字卻沒解釋）
+        ck('查無文案講清楚掃了哪些、排除了哪些', '248' in ff_txt and '225' in ff_txt and '473' in ff_txt, ff_txt[:220])
+        load_card(page, ctx, DOC_TAG)     # 還原「最近查過」的順序（下面的「← 上一個」chip 預期上一台是 DOC_TAG）
+        load_card(page, ctx, HMI_NOIMG)   # ＝FLAG_TAG：順便把卡片還原成下一段（摘要標頭）預期的那一台
+        page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1200)
+        ck('無 ThumbNail 的畫面：只顯示名稱並註明', page.locator('.aux-hmi .hmi-noimg').count() == 1 and page.locator('.aux-hmi .hmi-img').count() == 0)
         # ---- 摘要標頭：資料日期列（不印 15 台控制器整串）、分享鈕、複製鈕、點值即複製、標籤去「現值／現行」
         asof = page.locator('.sum-asof').inner_text() if page.locator('.sum-asof').count() else ''
         ck('asof line lists AMS / controller checkout / docsearch dates', 'AMS 資料庫 20' in asof and '控制器 checkout' in asof and '文件索引' in asof, asof[:120])

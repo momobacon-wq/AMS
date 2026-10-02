@@ -14,6 +14,14 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
   docindex.json  ← tools/db/docmap_docindex.py     （PDF 文件索引：P&ID、Hook-up、規格表…的頁碼）
   docsearch.json ← tools/db/docmap_docsearch.py    （文件全文檢索：hst-docsearch FTS 索引以位號／序號命中的文件與頁碼；
                                                     預設讀 %LOCALAPPDATA%\\AMS\\cardwork\\docsearch.json，`--docsearch` 可指定、`--no-docsearch` 略過；兩種模式都收）
+  hmi.json       ← tools/db/hmi_index.py           （圖控 HMI 畫面位置：位號 → 畫面檔＋畫面上的 0~1 座標；`--hmi`／`--no-hmi`）
+  hmi_shots/     ← tools/db/hmi_shots.py           （畫面縮圖 webp＋index.json；`--hmi-shots`，缺席時只有畫面名稱沒有影像）
+  hmi_nav.json   ← tools/db/hmi_nav.py             （逐列選單路徑／畫面標題；`--hmi-nav`，用來挑「以這台的機組開啟」的那一列導覽路徑）
+圖控 HMI（CONTRACT.md「圖控 HMI 畫面位置」）：每台產生 `sec.hmi = {rows: [[欄位, 值, lvl='hmi', 來源字串, extra]]}`，每個（畫面, 選單機組）一組 4 列
+（圖控畫面／導覽路徑／所在位置／對應方式），第一列的 extra 帶 nav、img、marks（[中心 x, 中心 y, 框寬, 框高]，0~1 比例、左上為原點）；
+有設備對應到又有設計時 ThumbNail 的畫面，縮圖包成 `card/hmi/<畫面名>.json`＝`{w,h,mime,b64}`（**走既有 *.json 加密路徑，不另造加密**），
+清單與畫面中繼資料放 `card/index.json` 的 `hmi`（含 `files`，verify_encrypted 以它認得這些密文不是孤兒）。
+
 另讀 docs/db/data/sheets/03.json（alias 列序、位號）與 13.json（AMS 量程現值，DCS 基準比對用），
 以及 signal-atlas 的控制器索引 %LOCALAPPDATA%\\dcdas\\index.sqlite（ToolboxST checkout 的 I/O 組態；不進 repo；`--dcdas` 可指定，沒有就略過此來源），
 與 tools/db/drive_map.py 的 路徑→Google 雲端硬碟檔案 ID 對照 %LOCALAPPDATA%\\AMS\\drive_map.json（`--drive-map`；有就替 index.docs 每份文件補 url，前端把數值變成連結）。
@@ -39,7 +47,7 @@ EOMR 證書「序號與 AMS 相符」＝否（非本台）者不比較，只在 
 決定性輸出（無時間戳）；不寫入任何本機絕對路徑（最後以 regex 自檢）。
 
 --recompare：cardwork（ams/terminal/instlist/eomr/docindex.json）已不在手邊時，讀已發布的 card/*.json，保留各文件區段，只重算
-sec.dcdas、sec.docsearch（有給時）、compare 與 flags.cmp，並補 Drive url。限制：舊資料沒有 compare 的設備（既無 DCS 寫入也無端子表），儀器清單／EOMR 的量程數值已不可得，
+sec.dcdas、sec.docsearch（有給時）、sec.hmi 與畫面影像（有給時；`--no-hmi` 保留上次發布的）、compare 與 flags.cmp，並補 Drive url。限制：舊資料沒有 compare 的設備（既無 DCS 寫入也無端子表），儀器清單／EOMR 的量程數值已不可得，
 只比 AMS 現值與控制器組態；要完整比對請重跑各產生器後用一般模式。
 """
 import os, sys, json, re, math, glob, argparse
@@ -56,10 +64,14 @@ SRC_DEFS = {
     'doc': {'label': '文件', 'desc': '設計文件（DCS 端子表、儀器清單、P&ID、Hook-up…）：「應該是什麼」'},
     'factory': {'label': '出廠', 'desc': '製造商出廠紀錄（EOMR 校正證書）：「出廠時是什麼」'},
     'ctrl': {'label': '控制器', 'desc': '控制器組態 checkout 快照（ToolboxST I/O 組態，經 signal-atlas 索引）：「控制器現在設定是什麼」；各控制器 checkout 日期見來源'},
+    'hmi': {'label': '圖控', 'desc': '圖控 HMI 畫面檔（GE CIMPLICITY／ActivePoint .cim，唯讀原檔）解析：這台儀器畫在哪一頁、畫面上哪個位置'},
 }
-KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引', 'docsearch': '文件全文檢索'}
+KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引', 'docsearch': '文件全文檢索', 'hmi': '圖控 HMI 畫面'}
 DOCSEARCH_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'docsearch.json')
 DRIVE_MAP_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'drive_map.json')
+HMI_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'hmi.json')
+HMI_SHOTS_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'hmi_shots')
+HMI_NAV_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'hmi_nav.json')
 DOC_CAT_ORDER = ['P&ID', 'Hook-up', '規格表', '就地錶規格', '接線圖', '電纜表', '保護箱', '位置圖', '邏輯圖', 'GT I/O 清單']
 ABS_PATH_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:[\\/]|\\Users\\|/Users/|我的雲端硬碟')  # 磁碟機路徑（https:// 不算）
 
@@ -389,6 +401,308 @@ def docsearch_index(ds, searched, docs, src_stats):
         src_stats['docsearch'] = {k: st.get(k) for k in ('aliases_matched', 'rows', 'docs', 'with_url', 'per_category', 'extracted', 'notes') if k in st}
         src_stats['docsearch']['index'] = ds.get('index')
     return searched, docs, src_stats
+
+
+# ------------------------------------------------------------------ 圖控 HMI 畫面位置（hmi）
+HMI_ROUTE = {'obj': '物件參照', 'var': '畫面字串', 'pointdb': '點位索引', 'dcdas': '控制器 display_screen'}
+HMI_ROUTE_WHY = {
+    'obj': '畫面檔物件的屬性包（device／caption／aliasSignal…）代入畫面變數後切出位號，並帶該物件的矩形座標',
+    'var': '畫面檔字串裡沒被物件模型收進去的點位字串（補漏，無座標）',
+    'pointdb': 'navigation/tp_actPt_navPointSearchDbStd.csv 的「點位,機組,畫面檔」（無座標）',
+    'dcdas': '控制器索引的 variable.display_screen（無座標）',
+}
+HMI_ROUTE_SRC = {'obj': '.cim 物件屬性包＋選單變數代入', 'var': '.cim 字串補漏', 'pointdb': 'navPointSearchDbStd.csv',
+                 'dcdas': '控制器 variable.display_screen'}   # 逐列的短來源字串（完整說明在 index.searched.hmi[0].why）
+HMI_SLUG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$')
+HMI_MULTI_RE = re.compile(r'([A-Za-z0-9_\-]*[A-Za-z0-9])((?:\\\d+)+)')   # 多點簡寫 BASE\NNN\NNN（與 hmi_index.MULTI_RE 同）
+HMI_CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫'   # 同一張畫面上多個標記的編號（card.js 的 .hmi-mk 用同一組字）
+
+
+def load_hmi(path, shots_dir, nav_path):
+    """tools/db/hmi_index.py 的輸出（位號→畫面與座標）＋ tools/db/hmi_shots.py 的縮圖目錄＋ hmi_nav.py 的逐列選單路徑。
+    沒有 hmi.json 就回 None（此來源整段略過）。縮圖目錄缺席時只有畫面名稱與路徑、沒有影像。"""
+    if not path or not os.path.exists(path):
+        return None
+    j = load(path)
+    if 'by_tag' not in j or 'screens' not in j:
+        raise SystemExit('hmi.json 格式不對（缺 by_tag／screens）：' + path)
+    j['_shots_dir'] = shots_dir if shots_dir and os.path.isdir(shots_dir) else None
+    j['_shots'] = {}
+    if j['_shots_dir']:
+        ip = os.path.join(j['_shots_dir'], 'index.json')
+        if os.path.exists(ip):
+            j['_shots'] = {k.lower(): v for k, v in load(ip).items()}
+    # hmi_nav.json 的 nav／units 是「逐列對齊」的（hmi.json 的 screens[].units 已去重排序，不能逐列對應）
+    j['_nav'] = {k.lower(): v for k, v in load(nav_path).items()} if nav_path and os.path.exists(nav_path) else {}
+    return j
+
+
+def hmi_slug(screen_key):
+    """畫面檔名 → card/hmi/<slug>.json 的檔名（去掉 .cim；只允許安全字元，否則以 sha1 代替）。"""
+    base = re.sub(r'\.cim$', '', screen_key, flags=re.I).replace('/', '__')
+    if not HMI_SLUG_RE.match(base):
+        import hashlib
+        base = 'x' + hashlib.sha1(screen_key.encode('utf-8')).hexdigest()[:12]
+    return base
+
+
+def hmi_nav_rows(hm, key, unit):
+    """該畫面的選單路徑：優先取「以這一列選單（機組 unit）開啟」的那一列，否則全部列。
+    回傳 ([路徑陣列…], exact)；exact=False 代表不是這台儀器那一列（只能列出全部）。"""
+    nv = hm['_nav'].get(key.lower()) or hm['screens'].get(key) or {}
+    nav = nv.get('nav') or []
+    units = nv.get('units') or []
+    if unit and len(units) == len(nav):
+        hit = [nav[i] for i in range(len(nav)) if units[i] == unit]
+        if hit:
+            return hit, True
+    return nav, False
+
+
+def hmi_screen_name(hm, key):
+    """畫面名稱（中文標題優先，附英文）與畫面上標題。來源裡沒有中文（hmi_nav.py 已查證：
+    languageTranslation 只有西／日／法文，473 個 .cim 的字串 0 個含中文），所以 zh 目前一律 None。"""
+    sc = hm['screens'].get(key) or {}
+    nv = hm['_nav'].get(key.lower()) or {}
+    zh = sc.get('title_zh') or nv.get('title_zh')
+    en = nv.get('label') or sc.get('title_en') or nv.get('title_en') or re.sub(r'\.cim$', '', key, flags=re.I)
+    cap = nv.get('caption_en')
+    name = ('%s（%s）' % (zh, en)) if zh and en and zh != en else (zh or en)
+    if cap and cap.lower() != str(en).lower():
+        name += '（畫面上標題「%s」）' % cap
+    return name, zh, en, cap
+
+
+def hmi_marks(ents):
+    """同一畫面上這支位號的所有標記 → [[中心 x, 中心 y, 框寬, 框高]]（0~1 比例、左上為原點）。
+    框寬／高為 0＝只標點不畫框（直線、文字錨點；hmi_index 的 w／h 有 60 筆為 0，其中 2 筆橫跨畫面三成以上）。
+    同一畫面同時有「有框」與「線狀」標記時只留有框的。"""
+    boxed, lines = [], []
+    for e in ents:
+        x, y = e.get('x'), e.get('y')
+        if x is None or y is None:
+            continue
+        w = float(e.get('w') or 0.0)
+        h = float(e.get('h') or 0.0)
+        c = [round(float(x) + w / 2.0, 5), round(float(y) + h / 2.0, 5)]
+        if w > 0 and h > 0:
+            boxed.append(c + [round(w, 5), round(h, 5)])
+        else:
+            lines.append(c + [0, 0])       # 直線／文字錨點（hmi_index 的 w／h 有 60 筆為 0）：只標中點
+    use = sorted({tuple(m) for m in (boxed or lines)})
+    # **第一筆＝「所在位置」文字描述的那處**（面積最大者）：前端照陣列順序編號，文字與圖上的 ① 才對得起來
+    use.sort(key=lambda m: (-(m[2] * m[3]), m[1], m[0]))
+    return [list(t) for t in use]
+
+
+def hmi_pos_text(marks):
+    """標記 → 人看得懂的位置：「畫面左 54%／上 44%（約佔畫面寬 7%、高 4%）」。沒有座標時空字串。
+    marks[0] 是 hmi_marks 排好的主標記，前端在圖上把它編成 ①，所以多處時要把編號講清楚（審查意見 3）。"""
+    if not marks:
+        return ''
+    primary = marks[0]
+    t = '畫面左 %d%%／上 %d%%' % (round(primary[0] * 100), round(primary[1] * 100))
+    if primary[2] > 0 and primary[3] > 0:
+        t += '（約佔畫面寬 %d%%、高 %d%%）' % (max(1, round(primary[2] * 100)), max(1, round(primary[3] * 100)))
+    if len(marks) > 1:
+        t += ('＝圖上標記 ①；這支位號在同一張畫面另有 %d 處（圖上 %s），位置可能幾乎重疊'
+              % (len(marks) - 1, '、'.join('%s' % HMI_CIRCLED[i] for i in range(1, min(len(marks), len(HMI_CIRCLED))))))
+    return t
+
+
+HMI_VAR_RE = re.compile(r'\{[A-Za-z_][A-Za-z0-9_]*\}')
+
+
+def hmi_ref_is_template(ref):
+    """`aliasSignal={device}` 這種「`=` 右邊整個是 {變數}」的參照：對操作員零資訊，挑 ref 時排到最後。"""
+    v = (ref or '').split('=', 1)[-1]
+    return 0 if re.search(r'[A-Za-z0-9]', HMI_VAR_RE.sub('', v)) else 1
+
+
+def hmi_ref_text(ref):
+    """「對應方式」顯示用的參照字串：CIMPLICITY 多點簡寫 `\\NNN` 原封不動看起來像亂碼，補一句白話
+    （hmi_index 已把手足位號各自展開進索引，這裡只是說明，不影響資料）。"""
+    if not ref:
+        return ''
+    m = HMI_MULTI_RE.search(ref)
+    if not m:
+        return ref
+    base, tail = m.group(1), m.group(2)
+    sibs = [base]
+    for seg in tail.split('\\')[1:]:
+        if 0 < len(seg) < len(base):
+            sibs.append(base[:-len(seg)] + seg)
+    if len(sibs) < 2:
+        return ref
+    return '%s　（結尾的「%s」是圖控的多點簡寫＝同一個物件掛 %s 共 %d 支，每一支都另有自己的索引）' % (
+        ref, tail, '、'.join(s.split('}')[-1] for s in sibs), len(sibs))
+
+
+def hmi_rows(hm, tag):
+    """一台設備的 sec.hmi.rows：每個（畫面, 選單機組）一組 4 列（畫面／導覽路徑／所在位置／對應方式）。
+    第一列的 extra 帶整組顯示需要的東西（nav、img、marks…），其餘列只帶 {s, g} 供前端分組。"""
+    ents = (hm['by_tag'].get(tag) or []) if tag else []
+    if not ents:
+        return []
+    groups = {}
+    for e in ents:
+        groups.setdefault((e['screen'], e.get('unit') or ''), []).append(e)
+    rows = []
+    for gi, (gk, ge) in enumerate(sorted(groups.items())):
+        key, unit = gk
+        sc = hm['screens'].get(key) or {}
+        name, zh, en, cap = hmi_screen_name(hm, key)
+        nav, exact = hmi_nav_rows(hm, key, unit)
+        marks = hmi_marks(ge)
+        routes = sorted({e['route'] for e in ge})
+        # 挑「對應方式」要顯示的參照字串：物件參照優先，再排掉只剩 {變數} 的樣板（hmi_index 已先一步避開，這裡是第二道）
+        ref = next((e.get('ref') for e in sorted(
+            ge, key=lambda x: (x['route'] != 'obj', hmi_ref_is_template(x.get('ref')),
+                               x['route'], x.get('ref') or '')) if e.get('ref')), None)
+        img = bool(sc.get('img'))
+        pre = src_prefix('hmi')
+        src = '%s · 畫面檔 %s' % (pre, key)
+        base = {'s': key, 'g': gi}
+        first = dict(base, nav=nav, img=img, marks=marks, routes=routes)
+        if unit:
+            first['unit'] = unit
+        if not exact and len(nav) > 1:
+            first['nav_all'] = 1   # 選單列與這台儀器的機組對不起來：nav 是該畫面全部選單列
+        if ref:
+            first['ref'] = ref
+        rows.append(['圖控畫面', name, 'hmi', src, first])
+        navtxt = '；'.join(' › '.join(x for x in r if x) for r in nav) or '（不在操作員導覽選單上）'
+        # unit＝「開啟這張畫面的那一列選單項的機組欄」，**不是**這台儀器所屬機組（同一張畫面會被兩列選單以兩組
+        # 畫面變數開啟，69 台因此在同一張畫面出現兩次、紅框完全相同）。用詞必須寫成「以…選單開啟」。
+        rows.append(['導覽路徑', navtxt + (('　·　以選單機組 %s 開啟' % unit) if unit else ''), 'hmi',
+                     '%s · 選單樹 CIMNavigationMenuItemsStd.csv%s' % (pre, '' if exact else '（此畫面全部選單列）'), dict(base)])
+        pos = hmi_pos_text(marks)
+        rows.append(['所在位置', pos or '（此對應方式沒有畫面座標）', 'hmi',
+                     ('%s · 物件矩形（設計座標 %s×%s twips，y 軸向上，已換成左上原點 0~1 比例）'
+                      % (pre, hm['stats'].get('design_w'), hm['stats'].get('design_h'))) if pos
+                     else '%s · 此對應方式只知道「在這張畫面」，沒有座標' % pre, dict(base)])
+        rows.append(['對應方式', '／'.join(HMI_ROUTE.get(r, r) for r in routes) + (('：%s' % hmi_ref_text(ref)) if ref else ''), 'hmi',
+                     '%s · %s' % (pre, '／'.join(HMI_ROUTE_SRC.get(r, r) for r in routes)), dict(base)])
+    return rows
+
+
+def hmi_apply(sec, hm, tag):
+    rows = hmi_rows(hm, tag) if hm else []
+    if rows:
+        sec['hmi'] = {'rows': rows}
+
+
+def hmi_write_images(outdir, out, hm, stats):
+    """收集 out 裡 sec.hmi 真的用到的畫面 → 寫 card/hmi/<slug>.json（{w,h,mime,b64}，走既有 *.json 加密路徑），
+    回傳 index.hmi（畫面中繼資料＋檔案清單）。先整個清掉 card/hmi/ 才寫，避免掉出覆蓋範圍的畫面留下孤兒密文。"""
+    import base64
+    import shutil
+    hdir = os.path.join(outdir, 'card', 'hmi')
+    if os.path.isdir(hdir):
+        shutil.rmtree(hdir)
+    if hm is None:
+        return None
+    used, ndev = {}, 0
+    for al, o in out.items():
+        rs = ((o.get('sec') or {}).get('hmi') or {}).get('rows') or []
+        if rs:
+            ndev += 1
+        for r in rs:
+            ex = r[4] if len(r) > 4 else None
+            if isinstance(ex, dict) and ex.get('s'):
+                used.setdefault(ex['s'], 0)
+                used[ex['s']] += 1
+    screens, files, total = {}, [], 0
+    if used:
+        os.makedirs(hdir, exist_ok=True)
+    for key in sorted(used):
+        sc = hm['screens'].get(key) or {}
+        name, zh, en, cap = hmi_screen_name(hm, key)
+        nv = hm['_nav'].get(key.lower()) or {}
+        meta = {'title': name, 'en': en, 'nav': nv.get('nav') or sc.get('nav') or [], 'img': False, 'rows': used[key]}
+        if zh:
+            meta['zh'] = zh
+        if cap:
+            meta['caption'] = cap
+        shot = hm['_shots'].get(key.lower()) or {}
+        fn = sc.get('img') or shot.get('file')
+        src = os.path.join(hm['_shots_dir'], fn) if (fn and hm['_shots_dir']) else None
+        if src and os.path.exists(src):
+            b = open(src, 'rb').read()
+            w = sc.get('img_w') or shot.get('w')
+            h = sc.get('img_h') or shot.get('h')
+            rel = 'card/hmi/%s.json' % hmi_slug(key)
+            data = dumps({'w': w, 'h': h, 'mime': 'image/webp' if fn.lower().endswith('.webp') else 'image/png',
+                          'b64': base64.b64encode(b).decode('ascii')}).encode('utf-8')
+            open(os.path.join(outdir, rel), 'wb').write(data)
+            meta.update({'img': True, 'file': rel, 'w': w, 'h': h, 'bytes': len(data)})
+            files.append(rel)
+            total += len(data)
+        screens[key] = meta
+    hs = hm['stats']
+    ix = {'screens': screens, 'files': sorted(files), 'bytes': total,
+          'design': [hs.get('design_w'), hs.get('design_h')], 'canvas': [1920, 1080],
+          'note': ('x／y 是 0~1 的畫面比例、左上為原點，可直接乘縮圖寬高；marks 每筆＝[中心 x, 中心 y, 框寬, 框高]，'
+                   '框寬／高為 0 時只標點不畫框，**marks[0] 就是「所在位置」文字描述的那處**（前端照陣列順序編 ①②③）。'
+                   '縮圖是 .cim 內含的設計時 ThumbNail（EMF），不是執行時截圖，'
+                   '所以數值顯示成 ### 、部分標題是 CAPTION 佔位、左側導覽抽屜是所有選單項疊影。'
+                   'stats.screens_total＝建索引的根目錄畫面數；screens_all＝Screens 遞迴全部 .cim；'
+                   'excluded＝子目錄的元件面板／函式庫（不建索引，但字串掃過，見 searched.hmi[0].why）。'),
+          'stats': {'devices': ndev, 'screens': len(screens), 'screens_with_img': len(files),
+                    'covered': hs.get('covered'), 'covered_pct': hs.get('covered_pct'),
+                    'ams_tags_base': hs.get('ams_tags_base'), 'covered_ff': hs.get('covered_ff'), 'ff_total': hs.get('ff_total'),
+                    'entries': hs.get('entries'), 'entries_with_xy': hs.get('entries_with_xy'),
+                    'screens_total': hs.get('screens_total'), 'screens_with_tags': hs.get('screens_with_tags'),
+                    # 卡片「查無」那句要講清楚掃了幾個、排除了幾個，不然同一張卡會出現 248 與 473 兩個數字
+                    'screens_all': hs.get('screens_all') or ((hs.get('screens_total') or 0) + (hs.get('screens_subdir_skipped') or 0)),
+                    'excluded': hs.get('screens_subdir_skipped') or 0,
+                    'excluded_scanned': 1 if (hs.get('excluded_scan') or {}) else 0,
+                    'excluded_tag_hits': (hs.get('excluded_scan') or {}).get('tag_hits'),
+                    'excluded_ff_hits': (hs.get('excluded_scan') or {}).get('ff_hits')}}
+    stats['hmi'] = dict(ix['stats'], bytes=total)
+    print('hmi: %d 台設備有畫面對應，%d 個畫面（%d 個有設計時影像，共 %d KB；%d 個畫面檔沒有 ThumbNail 只能顯示名稱）'
+          % (ndev, len(screens), len(files), total // 1024, len(screens) - len(files)))
+    return ix
+
+
+def hmi_excluded_text(hm):
+    """「子目錄那些 .cim 怎麼辦」的一句話，數字一律取自 hmi_index 的 stats.excluded_scan（不是口頭聲明）。
+    沒跑掃描（--no-excluded-scan）時就只說排除、不聲稱 0 命中。"""
+    hs = hm['stats']
+    ex = hs.get('excluded_scan') or {}
+    sub = hs.get('screens_subdir_skipped') or 0
+    if not sub:
+        return ''
+    if not ex:
+        return '另 %d 個在子目錄（元件面板與函式庫範本，沒有選單列也沒有畫面變數）不列入索引；' % sub
+    dirs = '／'.join('%s %d' % (k, v) for k, v in sorted((ex.get('dirs') or {}).items(), key=lambda kv: -kv[1])[:3])
+    tags = ex.get('tags') or []
+    extra = [t for t in tags if t not in hm['by_tag']]
+    if not tags:
+        found = 'AMS 位號 0 命中'
+    elif not extra:
+        found = 'AMS 位號 %d 支命中，但這 %d 支都已經由根目錄畫面涵蓋（沒有因此漏掉任何一台）' % (len(tags), len(tags))
+    else:
+        found = 'AMS 位號 %d 支命中，其中 %d 支只出現在這些元件面板裡（%s）' % (len(tags), len(extra), '、'.join(extra[:5]))
+    return ('另 %d 個在子目錄（%s）＝元件面板與函式庫範本，沒有選單列也沒有畫面變數，不列入索引，但字串已逐條掃過：'
+            '%s、FF 位號 %d 命中（共 %d 個 .cim 都查過）；'
+            % (sub, dirs, found, ex.get('ff_hits') or 0, ex.get('screens_all') or (sub + (hs.get('screens_total') or 0))))
+
+
+def hmi_doc(hm):
+    """index.searched['hmi'] 的一筆：把圖控畫面檔目錄當一份「文件」描述（不含本機絕對路徑、沒有 Drive 連結）。"""
+    hs = hm['stats']
+    why = ('GE CIMPLICITY／ActivePoint 的 .cim 畫面檔（唯讀原檔，未修改）：物件屬性包＋選單變數解析出位號，'
+           '物件矩形換算成畫面比例；縮圖取自 .cim 內含的設計時 ThumbNail（EMF）。'
+           '索引建在 Screens 根目錄的 %s 個畫面（操作員能從選單導覽到的）；%s'
+           '覆蓋 %s/%s 台（%s%%）；FF 設備 %s/%s。畫面 %s 個（其中 %s 個畫面引用到 AMS 位號）。'
+           % (hs.get('screens_total'), hmi_excluded_text(hm),
+              hs.get('covered'), hs.get('ams_tags_base'), hs.get('covered_pct'), hs.get('covered_ff'),
+              hs.get('ff_total'), hs.get('screens_total'), hs.get('screens_with_tags')))
+    return {'doc_id': 'hmi-screens', 'rev': '%s 個畫面檔' % hs.get('screens_total'),
+            'ref': '圖控畫面檔（CIMPLICITY／ActivePoint .cim，根目錄 %s 個）' % hs.get('screens_total'),
+            'title': '圖控 HMI 畫面檔（GE CIMPLICITY／ActivePoint）', 'folder': 'AMS/Screens（圖控畫面檔目錄，唯讀）',
+            'used': True, 'why': why}
 
 
 def load_drive_map(path):
@@ -757,8 +1071,20 @@ def main():
     ap.add_argument('--no-docsearch', action='store_true', help='不收文件全文檢索（--recompare 時保留舊的 sec.docsearch）')
     ap.add_argument('--drive-map', default=DRIVE_MAP_DEFAULT, help='drive_map.py 的輸出（預設 %%LOCALAPPDATA%%\\AMS\\drive_map.json；不存在就不補 url）')
     ap.add_argument('--no-drive-map', action='store_true')
+    ap.add_argument('--hmi', default=HMI_DEFAULT, help='hmi_index.py 的輸出（預設 %%LOCALAPPDATA%%\\AMS\\cardwork\\hmi.json）')
+    ap.add_argument('--hmi-shots', default=HMI_SHOTS_DEFAULT, help='hmi_shots.py 的畫面縮圖目錄（預設 …\\cardwork\\hmi_shots；缺席時只有畫面名稱沒有影像）')
+    ap.add_argument('--hmi-nav', default=HMI_NAV_DEFAULT, help='hmi_nav.py 的輸出（逐列選單路徑；預設 …\\cardwork\\hmi_nav.json）')
+    ap.add_argument('--no-hmi', action='store_true', help='不收圖控 HMI 畫面位置（--recompare 時保留舊的 sec.hmi 與影像）')
     a = ap.parse_args()
     dc = None if a.no_dcdas else load_dcdas(a.dcdas)
+    hm = None if a.no_hmi else load_hmi(a.hmi, a.hmi_shots, a.hmi_nav)
+    if a.no_hmi:
+        print('hmi: 略過')
+    elif hm is None:
+        print('hmi: 沒有 %s（此來源略過）' % a.hmi)
+    else:
+        print('hmi: %s，%d 個畫面、%d 支位號有對應；縮圖 %s'
+              % (a.hmi, hm['stats'].get('screens_total', 0), len(hm['by_tag']), hm['_shots_dir'] or '（無，只顯示畫面名稱）'))
     ds = None if a.no_docsearch else load_docsearch(a.docsearch)
     if a.no_docsearch:
         print('docsearch: 略過')
@@ -779,6 +1105,8 @@ def main():
         missing.append(('dcdas', a.dcdas, '--no-dcdas'))
     if ds is None and not a.no_docsearch:
         missing.append(('docsearch', a.docsearch, '--no-docsearch'))
+    if hm is None and not a.no_hmi:
+        missing.append(('hmi', a.hmi, '--no-hmi'))
     if drive is None and not a.no_drive_map:
         missing.append(('drive_map', a.drive_map, '--no-drive-map'))
     if missing:
@@ -788,7 +1116,7 @@ def main():
     if a.recompare:
         if len(a.paths) != 1:
             ap.error('--recompare 只給 <outdir>')
-        recompare(a.paths[0], dc, ds, drive, a.chunk_kb, a.no_stamp)
+        recompare(a.paths[0], dc, ds, drive, hm, a.no_hmi, a.chunk_kb, a.no_stamp)
         return
     if len(a.paths) != 2:
         ap.error('需要 <cardwork_dir> <outdir>')
@@ -939,6 +1267,8 @@ def main():
 
         # ---- docsearch（文件全文檢索）
         docsearch_apply(sec, ds, al)
+        # ---- hmi（圖控畫面位置；以現行 AMS 位號對照，不是 alias）
+        hmi_apply(sec, hm, tag_of.get(al, ''))
 
         # ---- dcdas（控制器 I/O 組態）
         dc_entries, dc_primary = dcdas_entries(tag_of.get(al, ''), dc)
@@ -965,11 +1295,12 @@ def main():
     src_stats = {k: {kk: vv for kk, vv in (j.get('stats') or {}).items() if kk in ('aliases_matched', 'rows', 'notes', 'per_category_aliases')} for k, j in kinds.items()}
     src_stats['ams'] = {'notes': (ams.get('stats') or {}).get('notes', []), 'backup_date': ams.get('backup_date')}
     searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, a.chunk_kb, a.no_stamp)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, a.chunk_kb, a.no_stamp)
 
 
-def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
-    """讀已發布的 card/*.json：保留各文件區段，重算 sec.dcdas、compare、flags.cmp；有給 docsearch 就換掉 sec.docsearch（限制見檔頭）。"""
+def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp):
+    """讀已發布的 card/*.json：保留各文件區段，重算 sec.dcdas、compare、flags.cmp；有給 docsearch 就換掉 sec.docsearch、
+    有給 hmi 就換掉 sec.hmi 並重寫 card/hmi/*.json（--no-hmi 保留舊的；限制見檔頭）。"""
     open_outdir(outdir)
     card_dir = os.path.join(outdir, 'card')
     index = load(os.path.join(card_dir, 'index.json'))
@@ -989,6 +1320,9 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
         if ds is not None:
             sec.pop('docsearch', None)
             docsearch_apply(sec, ds, al)
+        if hm is not None:
+            sec.pop('hmi', None)
+            hmi_apply(sec, hm, tag_of.get(al, ''))
         for kk in ('terminal', 'instlist', 'eomr'):  # 去掉舊的比對狀態
             for ent in (sec.get(kk) or {}).get('entries', []):
                 for row in ent['rows']:
@@ -1072,6 +1406,10 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
     searched = {k: v for k, v in (index.get('searched') or {}).items() if k != 'dcdas'}
     docs = {k: v for k, v in dict(old_docs, **(index.get('docs') or {})).items() if not k.startswith('dcdas|')}
     src_stats = {k: v for k, v in (index.get('source_stats') or {}).items() if k != 'dcdas'}
+    if hm is None and no_hmi:   # 保留上次發布的 hmi（sec.hmi 已在 old 裡；影像與 index.hmi 原地留著）
+        old_hmi = index.get('hmi')
+    else:
+        old_hmi = None
     if ds is not None:
         searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
     if drive is not None:
@@ -1082,7 +1420,7 @@ def recompare(outdir, dc, ds, drive, chunk_kb, no_stamp):
             if k.split('|')[0] in ('terminal', 'instlist', 'eomr', 'docindex'):
                 v.pop('url', None)
                 v.pop('url_note', None)
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, chunk_kb, no_stamp)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=old_hmi)
 
 
 def doc_keys_used(o, acc):
@@ -1112,13 +1450,25 @@ def chunk_docs(p, docs, doc_no):
     return {k: docs[k] for k in sorted(keys) if k in docs}, sub_no
 
 
-def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, chunk_kb, no_stamp):
+def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=None):
     """分塊寫 card/aux-NN.json 與 index.json → manifest.build → 加密 → stamp。
     index.json 只留全廠 alias map 與 searched／stats 等小東西；docs（title／folder／why／Drive url）與 doc_no 隨各分塊攜帶該塊用到的子集
     （P3：docs 每筆含 33 字元 Drive ID 不可壓縮，原本全放 index 佔第一張卡下載量近半；前端 D.loadAux 把分塊的 docs／doc_no 併回 ix）。"""
     import extract_db, encrypt_data
     card_dir = os.path.join(outdir, 'card')
     os.makedirs(card_dir, exist_ok=True)
+    # ---- 圖控畫面影像（card/hmi/<slug>.json，走既有 *.json 加密路徑）；--no-hmi 的 --recompare 保留上次發布的
+    if hm is not None:
+        hmi_ix = hmi_write_images(outdir, out, hm, stats)
+        hs = hmi_doc(hm)
+        searched = dict(searched, hmi=[hs])
+        src_stats = dict(src_stats, hmi=dict(stats.get('hmi') or {}, notes=hs['why']))
+    else:
+        hmi_ix = keep_hmi
+        if keep_hmi is None:   # 這次沒有 hmi 來源也沒有舊資料可留：清掉 card/hmi/，不要留下沒人引用的密文
+            hmi_write_images(outdir, out, None, stats)
+            searched = {k: v for k, v in searched.items() if k != 'hmi'}
+            src_stats = {k: v for k, v in src_stats.items() if k != 'hmi'}
     # ---- index.docs：Drive url 與欄位值的文件編號要先算好，分塊才帶得到
     if dc is not None:
         s, d = dcdas_doc(dc)
@@ -1166,6 +1516,8 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     index = {'version': 2, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
              'alias': alias_map, 'src_defs': SRC_DEFS, 'kind_label': KIND_LABEL, 'doc_cat_order': DOC_CAT_ORDER,
              'searched': searched, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
+    if hmi_ix is not None:
+        index['hmi'] = hmi_ix
     idata = dumps(index)
     if ABS_PATH_RE.search(idata):
         raise SystemExit('absolute local path found in index.json')

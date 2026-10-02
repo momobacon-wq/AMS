@@ -131,7 +131,7 @@
     if (opt.serial && /^0+(\.0+)?$/.test(s.trim())) return '未寫入';
     return opt.fmt && opt.fmt !== 'General' ? U.fmt(s, opt.fmt) : s;
   };
-  U.SRC_LVLS = ['raw', 'decoded', 'inferred', 'doc', 'factory', 'ctrl'];
+  U.SRC_LVLS = ['raw', 'decoded', 'inferred', 'doc', 'factory', 'ctrl', 'hmi'];
   U.SRC_LABEL = { raw: '原始', decoded: '解碼', inferred: '推論', doc: '文件', factory: '出廠', ctrl: '控制器' };
 
   /* ------------------------------------------------------------------ Excel 數字格式子集 */
@@ -574,6 +574,30 @@
     return { ix: ixm, aux: (j.by_alias && j.by_alias[alias]) || null };
   };
 
+  /* 圖控 HMI 畫面縮圖（card/hmi/<畫面>.json ＝ {w,h,mime,b64}；CONTRACT.md「圖控 HMI 畫面位置」）：
+   * 走與其他資料檔同一條解密路徑（D.fetchJSON → AES-GCM → gunzip），再把 base64 轉成 blob URL
+   * （index.html 的 CSP img-src 要含 blob:）。同一張圖多處共用一個 URL；離開查詢卡時 revokeHmiImages() 收掉，
+   * 連 D.cache 裡的影像 JSON（單張可達 150 KB base64）一起丟，不留在記憶體。 */
+  const hmiImgs = new Map();   // path → Promise<{url, w, h}>
+  D.loadHmiImage = function (path) {
+    if (hmiImgs.has(path)) return hmiImgs.get(path);
+    const p = (async () => {
+      const j = await D.fetchJSON(path);
+      const bin = atob(String(j.b64 || ''));
+      const u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return { url: URL.createObjectURL(new Blob([u8], { type: j.mime || 'image/webp' })), w: j.w, h: j.h };
+    })();
+    hmiImgs.set(path, p);
+    p.catch(() => hmiImgs.delete(path));
+    return p;
+  };
+  D.revokeHmiImages = function () {
+    for (const p of hmiImgs.values()) p.then((o) => { try { URL.revokeObjectURL(o.url); } catch (e) { /* ignore */ } }, () => {});
+    hmiImgs.clear();
+    for (const k of Array.from(D.cache.keys())) if (k.indexOf('card/hmi/') === 0) D.cache.delete(k);
+  };
+
   /* ------------------------------------------------------------------ 密語 → 金鑰（PBKDF2-HMAC-SHA-256 → AES-256-GCM） */
   async function verifyKey(key) {
     try {
@@ -889,8 +913,11 @@
    * 手機上全螢幕的列詳情、抽屜、區塊表格看起來像另一頁：開啟時推入一筆同網址的歷史，
    * 按 Android 返回鍵（popstate）就關閉覆蓋層，而不是離開這張工作表。桌機不改變歷史。 */
   const OV = (AMS.overlay = { stack: [], skip: 0, pending: 0 });
-  OV.open = function (name, close) {
-    if (!U.isMobile()) return null;
+  /** force=true：不論寬度都接手返回鍵。全螢幕的模態（圖控畫面燈箱）在平板／桌機上也該用返回鍵關掉，
+   *  不然 768px 觸控平板（有觸控、沒有實體 Esc、習慣用手勢返回）按返回會整張查詢卡跳掉。
+   *  popstate 處理器本身不看寬度，所以 force 推進去的歷史一樣會被正確吃掉。 */
+  OV.open = function (name, close, force) {
+    if (!force && !U.isMobile()) return null;
     const tok = { name, close, live: true };
     try { history.pushState({ amsOv: name }, '', location.href); } catch (e) { return null; }
     OV.stack.push(tok);

@@ -4,6 +4,7 @@
   py tools/db/rebuild.py                    # drive_map → 解密 → docsearch → build_card_aux --recompare → 戳記 → verify_encrypted
   py tools/db/rebuild.py --spec             # 多跑 patch_site_spec（extract_db 的 02／13 規格有改時）
   py tools/db/rebuild.py --skip-docsearch   # 不重跑 hst-docsearch（約 4 分鐘；沿用上次的 docsearch.json）
+  py tools/db/rebuild.py --skip-hmi        # 不重跑圖控 HMI 三步（hmi_shots／hmi_nav／hmi_index）；沿用 cardwork 裡上次的 hmi.json／hmi_shots
   py tools/db/rebuild.py --skip-drive-map   # 不重讀 Google 雲端硬碟中繼資料
   py tools/db/rebuild.py --cardwork DIR     # 有各產生器輸出時做完整建置（build_card_aux DIR），而不是 --recompare
   py tools/db/rebuild.py --only-stamp       # 只改了前端程式：兩站重新戳記＋驗證
@@ -13,7 +14,8 @@
   py tools/db/rebuild.py --sqlite <AmsDb.sqlite> [--backup-date 2026-09-12]
                                             # 一條龍（拿到新的 .ams_bckup、tools/db/restore.sh 倒出 SQLite 之後）：
                                             #   build_workbook（Excel＋sheets_final.pkl）→ extract_db（明文）→ card_ams_extra／docmap_terminal／
-                                            #   docmap_instlist／docmap_eomr／docmap_docindex（寫到 cardwork）→ docmap_docsearch → build_card_aux 完整
+                                            #   docmap_instlist／docmap_eomr／docmap_docindex（寫到 cardwork）→ docmap_docsearch
+                                            #   → 圖控 HMI 三步（hmi_shots 縮圖 → hmi_nav 選單路徑 → hmi_index 位號座標）→ build_card_aux 完整
                                             #   （加密＋戳記）→ 兩站戳記 → verify_encrypted；路徑一律取自 tools/db/paths.py（環境變數可覆寫），開頭先印出來
 
 任何一步失敗：若資料仍是明文，先原地加密回去（不留明文在 docs/ 底下），再以非 0 結束；結尾一定跑 verify_encrypted（加 --e2e 再跑 run_e2e），0 錯誤才可 push。
@@ -35,7 +37,9 @@ import paths  # noqa: E402  （tools/db/paths.py：repo 外路徑的唯一來源
 def run(label, *cmd):
     t0 = time.time()
     print('\n==> %s\n    %s' % (label, ' '.join(cmd)), flush=True)
-    r = subprocess.run(cmd, cwd=ROOT)
+    # 子程序一律以 UTF-8 輸出：Windows 主控台預設 cp950，產生器的中文訊息（例 pneuvalve_site 的 '↔'）會在 print 時
+    # 丟 UnicodeEncodeError，而那是在加密之後、戳記之前，會留下 index.html 與資料 build 不一致
+    r = subprocess.run(cmd, cwd=ROOT, env=dict(os.environ, PYTHONIOENCODING='utf-8'))
     print('    (%.0f s, exit %d)' % (time.time() - t0, r.returncode), flush=True)
     if r.returncode != 0:
         raise SystemExit('rebuild 中止於「%s」（exit %d）' % (label, r.returncode))
@@ -60,6 +64,27 @@ def verify_and_finish(a, t0, label):
 
 
 PNEU = '氣動閥清單（pneuvalve_site：%s → 57～61 分頁、查詢卡「氣動閥」組；自行解密／加密）'
+
+def hmi_flags(a):
+    """build_card_aux 的圖控旗標：cardwork 有 hmi.json 就明指路徑與縮圖目錄；連 hmi.json 都沒有才 --no-hmi
+    （缺檔又不給 --no-hmi 時 build_card_aux 會以非 0 結束，rebuild 跟著中止並走加密回滾）。"""
+    if os.path.exists(paths.HMI_JSON):
+        return ['--hmi', paths.HMI_JSON, '--hmi-shots', paths.HMI_SHOTS]
+    print('    （cardwork 沒有 hmi.json → build_card_aux 走 --no-hmi：查詢卡不會有「圖控 HMI 畫面位置」）', flush=True)
+    return ['--no-hmi']
+
+
+def run_hmi(a):
+    """圖控 HMI 三步，順序固定：縮圖（hmi_shots）→ 選單路徑／標題（hmi_nav）→ 位號座標索引（hmi_index 會讀前兩者的輸出）。
+    輸入是唯讀的 .cim 畫面檔目錄 paths.HMI_SCREENS（不修改），輸出全在 cardwork；必須在 build_card_aux 之前跑完。"""
+    if a.skip_hmi:
+        print('\n== 略過圖控 HMI（--skip-hmi）：沿用 cardwork 裡上次的 hmi.json／hmi_shots ==', flush=True); return
+    if not os.path.isdir(paths.HMI_SCREENS):
+        raise SystemExit('沒有圖控畫面檔目錄 %s（設 AMS_HMI_SCREENS，或用 --skip-hmi）' % paths.HMI_SCREENS)
+    db = os.path.join('tools', 'db')
+    run('圖控畫面縮圖（hmi_shots：.cim 的 ThumbNail EMF → %s，約 30 秒）' % paths.HMI_SHOTS, PY, os.path.join(db, 'hmi_shots.py'))
+    run('圖控畫面選單路徑與標題（hmi_nav → cardwork/hmi_nav.json）', PY, os.path.join(db, 'hmi_nav.py'))
+    run('圖控位號定位索引（hmi_index → %s）' % paths.HMI_JSON, PY, os.path.join(db, 'hmi_index.py'))
 
 
 def run_pneuvalve(a):
@@ -104,8 +129,9 @@ def rebuild_from_sqlite(a, t0):
         if not a.skip_docsearch:
             run('文件全文檢索（docmap_docsearch → %s，約 4 分鐘）' % paths.DOCSEARCH_JSON, PY, os.path.join(db, 'docmap_docsearch.py'), '--data', DATA, '--out', paths.DOCSEARCH_JSON,
                 '--library', lib, '--drive-map', paths.DRIVE_MAP)
+        run_hmi(a)
         run('查詢卡附加資料（build_card_aux 完整：%s → card/*.json，加密、戳記）' % cardwork, PY, os.path.join(db, 'build_card_aux.py'), cardwork, DATA,
-            '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP)
+            '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP, *hmi_flags(a))
         run_pneuvalve(a)
     except BaseException:
         if is_plaintext():
@@ -122,6 +148,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--spec', action='store_true', help='套用 extract_db 的 02／13 規格（patch_site_spec）')
     ap.add_argument('--skip-docsearch', action='store_true')
+    ap.add_argument('--skip-hmi', action='store_true', help='略過圖控 HMI 三步（hmi_shots／hmi_nav／hmi_index）；沿用 cardwork 裡上次的 hmi.json／hmi_shots')
     ap.add_argument('--skip-drive-map', action='store_true')
     ap.add_argument('--cardwork', metavar='DIR', help='各產生器輸出目錄：做完整 build_card_aux 而非 --recompare')
     ap.add_argument('--only-stamp', action='store_true', help='只重新戳記兩站並驗證（前端程式有改、資料沒改）')
@@ -156,10 +183,13 @@ def main():
             run('文件全文檢索（docmap_docsearch，約 4 分鐘）', PY, os.path.join('tools', 'db', 'docmap_docsearch.py'), '--data', DATA)
         if a.spec:
             run('套用站台規格（patch_site_spec）', PY, os.path.join('tools', 'db', 'patch_site_spec.py'), DATA)
+        run_hmi(a)
+        hmi = hmi_flags(a)
         if a.cardwork:
-            run('查詢卡附加資料（build_card_aux 完整）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), a.cardwork, DATA)
+            run('查詢卡附加資料（build_card_aux 完整）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), a.cardwork, DATA, *hmi)
         else:
-            run('查詢卡附加資料（build_card_aux --recompare：併入 docsearch、Drive 連結、重算比對、加密、戳記）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), '--recompare', DATA)
+            run('查詢卡附加資料（build_card_aux --recompare：併入 docsearch、圖控畫面位置、Drive 連結、重算比對、加密、戳記）',
+                PY, os.path.join('tools', 'db', 'build_card_aux.py'), '--recompare', DATA, *hmi)
         run_pneuvalve(a)
     except BaseException:
         if is_plaintext():

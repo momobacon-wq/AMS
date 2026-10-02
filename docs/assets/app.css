@@ -694,6 +694,7 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
   --src-doc: #276e2b; --src-doc-bg: #e2f2e2;
   --src-factory: #0f4a2a; --src-factory-bg: #cfe6d8;
   --src-ctrl: #5b3a9e; --src-ctrl-bg: #ece5f8;
+  --src-hmi: #0a5f6e; --src-hmi-bg: #d7eff3;
   --cmp-bad: #a8001c; --cmp-bad-bg: #fde3e3;
   --cmp-warn: #8a4700; --cmp-warn-bg: #fff0d6;
   --cmp-ok: #276e2b; --cmp-ok-bg: #e2f2e2;
@@ -705,6 +706,7 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
   --src-doc: #94de97; --src-doc-bg: #173320;
   --src-factory: #5fd5a0; --src-factory-bg: #0d3324;
   --src-ctrl: #c9b3f5; --src-ctrl-bg: #2b2044;
+  --src-hmi: #76d8e6; --src-hmi-bg: #0e2e35;
   --cmp-bad: #ff9a9a; --cmp-bad-bg: #401a1e;
   --cmp-warn: #ffc670; --cmp-warn-bg: #3a2a10;
   --cmp-ok: #94de97; --cmp-ok-bg: #173320;
@@ -715,6 +717,7 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
 .lvl-doc { --lv: var(--src-doc); --lv-bg: var(--src-doc-bg); }
 .lvl-factory { --lv: var(--src-factory); --lv-bg: var(--src-factory-bg); }
 .lvl-ctrl { --lv: var(--src-ctrl); --lv-bg: var(--src-ctrl-bg); }
+.lvl-hmi { --lv: var(--src-hmi); --lv-bg: var(--src-hmi-bg); }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .cq-srcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 2px 20px 4px; font-size: 13px; }
@@ -838,6 +841,7 @@ table.mini.cmp .nocmp { font-weight: 400; }
     --src-raw: #555d69; --src-raw-bg: #eceef1; --src-decoded: #1c5aa0; --src-decoded-bg: #e2edfa;
     --src-inferred: #9a4d00; --src-inferred-bg: #fcecd9; --src-doc: #276e2b; --src-doc-bg: #e2f2e2;
     --src-factory: #0f4a2a; --src-factory-bg: #cfe6d8; --src-ctrl: #5b3a9e; --src-ctrl-bg: #ece5f8;
+    --src-hmi: #0a5f6e; --src-hmi-bg: #d7eff3;
     --cmp-bad: #a8001c; --cmp-bad-bg: #fde3e3; --cmp-warn: #8a4700; --cmp-warn-bg: #fff0d6; --cmp-ok: #276e2b; --cmp-ok-bg: #e2f2e2;
     color-scheme: light;
   }
@@ -1002,3 +1006,67 @@ table.mini.stk.full th.sortable.desc::after { content: " ▼"; font-size: 10px; 
 /* 可點目標的命中範圍：卡片內的行內連結上下各加 4px（行內元素的垂直 padding 不影響行高，只放大可點區；↗ 連結原本只有 16–20px 高） */
 .card-view a.lk, .cf-v a.doclk, .sidebar-foot a.lk, .src-more dd a { padding-top: 4px; padding-bottom: 4px; }
 .ac a.lk, td.ac a.lk { padding-left: 6px; padding-right: 6px; }
+
+/* ---------------- 圖控 HMI 畫面位置（card.js fillHmi／openHmiLightbox；CONTRACT.md「圖控 HMI 畫面位置」） ----------------
+   標記不燒進影像：紅圈與外框是以百分比絕對定位疊在 <img> 上的空元素，所以同一張圖可給多個位號共用，放大時自動同步縮放。 */
+.hmi-body { display: block; grid-column: 1 / -1; }
+.hmi-list { display: grid; gap: 10px; padding: 4px 0 2px; }
+.sum-hmi .hmi-list, .aux-hmi .hmi-list { padding: 4px 0 6px; }
+.hmi-screen { border: 1px solid var(--grid); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.hmi-screen + .hmi-screen { margin-top: 2px; }
+.hmi-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 12px; background: var(--label-bg); border-bottom: 1px solid var(--grid); font-size: 13px; }
+.hmi-head .hmi-t { font-weight: 700; font-size: 14px; }
+.hmi-head .hmi-nav { color: var(--src-hmi); }
+.hmi-head .hmi-unit, .hmi-head .hmi-file { color: var(--muted); font-size: 12px; }
+.hmi-file { font-family: var(--mono); }
+.hmi-noimg { padding: 6px 12px; margin: 0; }
+.hmi-f { padding-bottom: 4px; }
+/* 縮圖按鈕 */
+.hmi-shot { display: block; width: 100%; margin: 0; padding: 8px 12px 4px; border: 0; background: none; cursor: zoom-in; text-align: left; position: relative; color: inherit; font: inherit; }
+.hmi-shot:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.hmi-zoom { position: absolute; right: 18px; top: 14px; padding: 2px 7px; border-radius: 5px; font-size: 12px; background: rgba(20, 28, 40, 0.72); color: #fff; pointer-events: none; }
+.hmi-frame { position: relative; display: block; width: 100%; max-width: 920px; background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+.hmi-frame.loading { min-height: 120px; }
+.hmi-frame.loading::after { content: '載入畫面影像…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 12.5px; }
+.hmi-img { display: block; width: 100%; height: auto; }
+.hmi-err { position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; text-align: center; }
+/* 標記：紅圈（中心點）＋可選的外框（物件矩形） */
+.hmi-mk { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border: 3px solid #e02020; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), inset 0 0 0 2px rgba(255, 255, 255, 0.85); pointer-events: none; }
+.hmi-box { position: absolute; border: 2px solid #e02020; border-radius: 3px; background: rgba(224, 32, 32, 0.12); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8); pointer-events: none; }
+/* 同一位號在同一張畫面有多處時：編號 ①②③（card.js 以 inline transform 逐個錯開，兩處幾乎重疊時才分得出來）。
+   ①＝「所在位置」那列描述的那處（實線粗框），其餘為虛線框。 */
+.hmi-no { position: absolute; z-index: 2; min-width: 16px; padding: 0 2px; border-radius: 4px; background: rgba(224, 32, 32, 0.94); color: #fff; font-family: var(--mono); font-size: 11.5px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9); pointer-events: none; }
+.hmi-no.pri { background: #b00d0d; }
+.hmi-mk.pri { border-width: 4px; }
+.hmi-box:not(.pri) { border-style: dashed; background: rgba(224, 32, 32, 0.06); }
+.hmi-head .hmi-allnav { color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .hmi-mk { animation: hmi-pulse 1.8s ease-in-out 3; }
+  @keyframes hmi-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.22); } }
+}
+/* 放大燈箱 */
+.hmi-lb { cursor: zoom-out; }
+.hmi-lb-panel { position: relative; width: min(1600px, 100%); max-height: calc(100dvh - 24px); display: flex; flex-direction: column; gap: 6px; cursor: default; }
+.hmi-lb .hmi-frame { width: 100%; margin: 0 auto; background: #fff; }   /* max-width 由 card.js 依影像長寬比換算（高度塞得進視窗） */
+.hmi-lb-cap { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 10px; border-radius: 8px; background: var(--surface); font-size: 13px; }
+.hmi-lb-cap .hmi-t { font-weight: 700; }
+/* ✕ 不疊在影像上：排成影像上方自己的一列（原本壓在右上角，會遮住畫面的 UNACKNOWLEDGED／告警列） */
+.hmi-lb .modal-x { position: static; align-self: flex-end; flex: none; }
+/* 手機（容器 < 640px）：標記縮小、畫面滿寬、放大鈕不擋標題；位號字串縮一級以免在 token 中間硬斷 */
+.cq-body.narrow .hmi-shot { padding: 6px 6px 2px; }
+.cq-body.narrow .hmi-zoom { right: 12px; top: 10px; }
+.cq-body.narrow .hmi-mk { width: 20px; height: 20px; margin: -10px 0 0 -10px; border-width: 2px; }
+.cq-body.narrow .hmi-mk.pri { border-width: 3px; }
+.cq-body.narrow .hmi-head { padding: 5px 8px; }
+.hmi-f .cf-v { word-break: normal; overflow-wrap: break-word; }   /* 位號只在整行放不下時才斷，不是一律 anywhere */
+.cq-body.narrow .hmi-f .cf-v { font-size: 12px; letter-spacing: -0.01em; }
+@media (max-width: 720px) { .hmi-lb-panel { width: 100%; } }
+@media print {
+  /* 列印：影像縮到頁寬內、不跨頁切半；放大燈箱本身已由 .modal 的列印規則隱藏 */
+  .hmi-screen { break-inside: avoid; }
+  .hmi-shot { padding: 4px 0; }
+  .hmi-zoom { display: none; }
+  .hmi-frame { max-width: 100%; border-color: #c3cad5; }
+  .hmi-img { max-width: 100%; }
+  .hmi-mk, .hmi-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; animation: none !important; }
+}

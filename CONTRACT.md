@@ -179,12 +179,13 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 - `manifest.aux.card = {index, desc, parts, bytes}`。`manifest.build` 雜湊涵蓋 `sheets/*.json`＋`card/*.json`＋manifest（不含 build）；前端所有資料請求加 `?v=<build>`。
 - `card/index.json`（v2，只留全廠共用的小東西；密文約 27 KB）：`{version:2, parts, part_width, files:["card/aux-00.json",…], alias:{alias: 塊號}, src_defs, kind_label, doc_cat_order, searched:{dcdas|terminal|instlist|eomr|docindex|docsearch: [{doc_id, rev, ref?, title, folder, used, why, category?}]}, source_stats, stats, compare_rule}`（`dcdas` 那筆＝signal-atlas 索引本身：doc_id `signal-atlas`、rev＝各控制器 checkout 日（`controller.last_mod`）列表、ref 含 checkout 區間與索引建立日；`docsearch` 那筆＝hst-docsearch 索引本身：doc_id `hst-docsearch`、rev＝索引日期）。`stats` 另含 `near`、`dcdas_multi`、`ams_vs_dcdas:{ok,near,mismatch,not_compared}`、`docs_with_url`、`docs_with_url_altrev`、`doc_no_resolved`。
 - 文件中繼資料 `docs` 與 `doc_no` **隨各分塊攜帶**（v1 全放 index，每筆含 33 字元 Drive ID 不可壓縮、占第一張卡下載量近半）：`card/aux-NN.json = {part, by_alias:{alias: {sec, compare, flags}}, docs:{"kind|doc_id|rev": {title, folder, why?, category?, url?, url_note?}}, doc_no:{文件編號: "file|編號|版次"}}`，`docs`／`doc_no` 只含該塊 by_alias 引用到的子集（所有鍵名 `d` 指到的文件＋塊內文字出現的文件編號）；前端 `D.loadAux` 把分塊的 `docs`／`doc_no` 併回 `ix` 再交給卡片，卡片端仍讀 `ix.docs`／`ix.doc_no`（舊版 index 也相容）。`docs[].url`＝`https://drive.google.com/open?id=<Drive 檔案 ID>`（有 drive_map 時；前端把該文件來源的數值變成連結，來源展開列「Google 雲端硬碟」）；`url_note`＝退路只對到同編號、別版次（或檔名版次不明）的檔時的說明「雲端只找到 <檔名>（版次 X，與本站資料來源的版次 Y 不同）」——連結仍給（同編號別版次仍有參考價值），前端列「Google 雲端硬碟（版次不同：檔名）」並併入滑鼠提示，工程師才不會把別版次的值拿去改現場。無編號的檔 key 為 `docsearch|<sha1(路徑)前 12 碼>|`。`doc_no`＝欄位值本身寫的文件編號（P&ID、邏輯圖、Hook-up 圖、位置圖、EOMR 亦見於…）對到文件庫裡那份檔（檔名以編號開頭；值有寫版次取該版，否則最高版次；PDF 優先、排除副本夾；指定版次不在雲端時 why 寫「指定版次 X 不在雲端，改開最高版次 Y」），docs 同 key 給 title/folder/url；前端讓這種值直接開那份圖（來源展開多一列「欄位所指文件」），不是開提到它的來源文件。`folder` 一律是相對工程文件庫根目錄的資料夾名；**任何 JSON 不得含本機絕對路徑**（產生器以 regex 自檢，命中即中止）。
-- `card/aux-NN.json`（依 03 列序分塊，每塊 ≤ 約 300 KB＋該塊的 docs 子集）：`{part, by_alias:{alias: {sec, compare, flags}}, docs, doc_no}`。
+- `card/aux-NN.json`（依 03 列序分塊，每塊明文 ≤ 約 350 KB／密文 ≤ 約 45 KB，含該塊的 docs 子集）：`{part, by_alias:{alias: {sec, compare, flags}}, docs, doc_no}`。
   - `sec.sync|change|ident|device|alarm|ff = {rows: [[欄位, 值, lvl, 來源字串]]}`（AMS DB 補充）。
   - `sec.dcdas|terminal|instlist|eomr = {entries: [{h, lvl, src, rule, d?, note?, rows: [[欄位, 值, 狀態?]]}]}`：一筆 entry＝一份文件的一列/一頁（dcdas：控制器的一個類比輸入通道，lvl `ctrl`，rows＝控制器、I/O 模組、通道、訊號名、裝置位號 (DeviceTag)、輸入型式、HART 通道、`DCS AI 量程 (Low/High Value)`、訊號說明、signal-atlas 深連結；`rule`＝位號對照方式）；entry 內各欄共用 `src`；`d` 指向 docs（分塊自帶）；狀態 `near|mismatch|unit_mismatch|unit_unknown`（量程欄與 DCS 基準比對）或 `warn`（EOMR 序號與 AMS 不符；dcdas：同位號另一通道的量程與基準通道不同）。
   - 文件參照字串：產生器可給 `ref`（完整顯示字串），否則 `doc_id-rev`。DCS 端子表 xlsx 本身沒有版次字母（CoverSheet「Revision」欄未隨 IO Rev 更新）：字母取自同 IO Rev 的 PDF 檔名時寫 `HT1-1-IMI01-A0001-H（推定）`；找不到對應 PDF 時寫 `HT3-1-IMI01-A0001（IO Rev3，版次字母不明）`。同 IO Rev 多份 xlsx 取修改時間最新者。
   - 儀器清單 HRSG xls 的 RANGE 若為數值儲存格（原文無單位，「0~」與單位只來自整欄數字格式）：`設計量程（原文）` 寫原數值並說明格式，另加 `量程單位來源＝儲存格數字格式（推定）`；比對一律 `unit_unknown`。
   - `sec.docindex = {rows: [[類別, "文件-版次 · p.頁", lvl, 來源字串, {rule, d?}]]}`。
+  - `sec.hmi = {rows: [[欄位, 值, "hmi", 來源字串, extra]]}`＝圖控 HMI 畫面位置（每組畫面 4 列；見下方「v5（docs/db 站：圖控 HMI 畫面位置）」）。
   - `sec.docsearch = {rows: [[類別 | 推定值名, 值, lvl, 來源字串, {rule, d, hit?, pages?, term?, alt?:[{ref, d, p, why}]}]]}`（`docmap_docsearch.py`）：同家族（HT0/HT1/HT2 同編號、EOMR 的 AQA01-T####／AQP01-Q#### 兩本、noKKS_ 原件副本）只列代表，其餘放 `alt`（前端來源明細列「其他版本／副本」各自可點開）；同類別第 2 個家族的標籤寫「類別（另：編號 標題）」；根目錄 `all instrument list` 個人彙整檔排除。類別列（儀器清單、出廠證書／EOMR、規格表、DCS 端子表、P&ID、Hook-up、位置圖、邏輯圖、接線圖／迴路圖、電纜表、操作說明、手冊、Open Item／查修、教材、其他）的值＝`"文件-版次 p.N｜命中行"`（Office 檔無頁碼），每類別最多 2 份、同編號取最高版次、副本夾與本站匯出排除；推定值列（`序號命中（文件）`、`出廠型號（文件）`、`型號（文件）`、`廠牌（文件）`、`量程（文件）`、`量程（邏輯圖）`）由命中行／命中頁以規則抽出（rule `FTS-…`），lvl `factory`（出廠證書類）或 `doc`；位號不採 OCR 命中，序號的 OCR 命中在來源字串標「需開原圖確認」。不列入 compare。
   - `compare = [{item:"量程", baseline:{kind:"dcs_write"|"dcdas"|"terminal", label, lvl, src, lo, hi, unit, note, bounds:["hi"]|["lo"]|["hi","lo"]}, others:[{kind:"dcdas"|"dcdas_ch"|"terminal"|"ams"|"instlist"|"eomr", label, lvl, src, lo, hi, unit, status:"ok"|"near"|"mismatch"|"unit_mismatch"|"unit_unknown"|"ref_only", note}]}]`。`kind:"dcdas_ch"`＝同位號其餘量程不同的控制器通道（label「控制器組態 · <控制器> <訊號名>」，note 前綴「同位號另一通道；」），各自與基準比對但不寫 `flags.cmp.dcdas`。
     - 基準（以 DCS 為主）依序：(1) 控制器現行 I/O 組態（`sec.dcdas` 有 Low/High 的通道中，優先取控制器與位號機組前綴一致者（同一 DeviceTag 可能接在 G11／G12／S1 多個控制器），其次單位有寫的，否則索引排序第一個；標「DCS 控制器組態 (AI Low/High Value)」；各通道量程不一時 baseline.note 註明、其餘通道列成 others `dcdas_ch`、`flags.cmp.dcdas_multi="warn"`（前端黃色 pill「控制器多通道量程不一」；多點溫度元件多量程可能是正常設計，不當故障））→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat 28 外部主機寫入（`dcs_writes` URV/LRV，標「DCS 寫入 (AMS 事件)」；只有寫入日期晚於該控制器的 checkout 日期（dcdas `controller.last_mod`；索引建立日只是備援）、或沒有控制器資料時才當基準，否則列為 others 且只比它寫入的那一端，`others[].bounds` 註明）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。非基準的 DCS 來源也列入 others 比對。（2026-09-24：G12HAP70BT001 的 DCS 寫入 160 已被人工改回 200 且控制器為 200，寫入事件是歷史，不能讓一致的來源被標 ⚠。）DCS 只寫入一端時 `bounds` 只含該端：另一端顯示端子表（或 AMS 現值）僅供參考，不比較（前端標「（不比較）」）。DCS 寫入基準的單位＝AMS 單位（UNIT 寫入 > AMS 現值單位）；AMS 單位空白時留空（不借端子表單位），note 註明未翻譯的 AMS 單位碼。2026-09-26 全廠比對（有控制器基準且 AMS 有現值的 1,240 台）：AMS 現值與控制器組態完全相同 1,128（91%）、近似 22（2%）、不符 53（4%）、未比較 37；端子表 37% 與控制器不同，所以端子表排第 3。
@@ -216,6 +217,98 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 - 查詢：`lookup()` 在位號索引只有模糊對應（`contain`／`suggest`／`none`）時先查 `valve.index`：輸入帶機組且該機組恰有一台 AMS 設備 → 顯示那台（狀態列「是氣動閥清單位號，對應 AMS 設備 …」）；否則 `res.valve` → `renderValveOnly`（閥卡＋同一閥在 AMS 的設備 chips；狀態列不標紅）。`go()` 與頂列搜尋 `onEnter` 同樣不讓模糊對應蓋掉清單位號。
 - 端對端：`tools/tests/test_pneuvalve.py`（測試位號從 02.json `valve` 挑，不寫死）。
 
+## v5（docs/db 站：圖控 HMI 畫面位置；`tools/db/hmi_shots.py`／`hmi_nav.py`／`hmi_index.py`）
+
+查詢卡除了「這台儀器是什麼」，再回答「它畫在圖控的哪一頁、畫面上哪個位置」。來源是 GE CIMPLICITY／ActivePoint 的畫面檔目錄
+`paths.HMI_SCREENS`（`AMS_HMI_SCREENS`，預設 `<LIBRARY_ROOT>\AMS\Screens`；遞迴 473 個 `.cim`／223 MB，**唯讀、不修改**），不是 AMS 資料庫。
+
+**掃描範圍（寫報告、寫卡片文案一律用這組數字，不要再寫成「掃了 473 個 .cim」）**：索引只建**根目錄的 248 個**＝操作員能從選單導覽到的畫面。
+其餘 **225 個在子目錄**（`customFaceplate` 157／`tpFpFaceplate` 47／`customLibrary` 17／`navigation` 2／`utilities` 1／`help` 1）＝元件面板與函式庫範本，
+沒有選單列也沒有畫面變數，座標沒有「畫面上哪裡」可言，**不建索引**。但 `hmi_index.scan_excluded()` 仍會把這 225 個檔的字串逐條用同一套 `extract_tags` 掃過，
+結果寫進 `stats.excluded_scan`（`{files, dirs, strings, tag_hits, tags, ff_hits, ff_tags, screens_root, screens_all}`）：
+實測 **AMS 位號 12 支命中、而這 12 支都已由根目錄畫面涵蓋**（沒有因此漏掉任何一台）、**FF 位號 0 命中**。
+卡片的「查無」文案、`index.hmi.stats`、`index.searched.hmi[0].why` 的數字全部取自這裡，不是口頭聲明；`--no-excluded-scan` 可略過（省約 20 秒，但 `excluded_scan` 會是 `null`，文案就只說排除、不聲稱 0 命中）。
+三個產生器照這個順序跑，輸出全在 cardwork（不進 repo）：
+
+| 步驟 | 程式 | 輸出 | 內容 |
+|---|---|---|---|
+| 1 | `tools/db/hmi_shots.py` | `CARDWORK/hmi_shots/`（155 個 `.webp` ＋ `index.json`，9.2 MB） | `.cim` 的 `ThumbNail` 串流＝設計時全畫面 EMF → PowerShell GDI+ `System.Drawing.Imaging.Metafile` 渲染成 1920×1080 → 寬 1280 WebP。**全畫面一律以裝置矩形 (0,0,1920,1080) 當畫布**（不可用 EMF 的 `szlDevice`：156 張裡有 3 張不是 1920×1080），所以影像像素 × 1.5 ＝ 畫面裝置像素。PIL 直接開 `.emf` 不可用（走 GDI `PlayEnhMetaFile`，不懂 EMF+ 記錄，畫出來近乎空白）。 |
+| 2 | `tools/db/hmi_nav.py` | `CARDWORK/hmi_nav.json`（248 筆） | 每個根目錄畫面的**逐列對齊**選單路徑：`nav`／`units`／`variables`／`nav_src` 四個陣列同序（`navigation/CIMNavigationMenuItemsStd.csv` 的原始列序，不去重），另有 `title_en`／`label`／`caption_en`／`title_src`／`title_conf`／`captions`／`alt_names`／`file_aliases`＋`alias_tier`（`case`＝定讞／`norm`＝很可能／`loose`＝推論）。`title_zh` 全部 `null`：原廠語言檔只宣告西班牙／日／法文，473 個 `.cim` 的字串 0 個含中文（LanguageMapper.clm 裡像中文的漢字是日文）。 |
+| 3 | `tools/db/hmi_index.py` | `CARDWORK/hmi.json`（354 KB） | `{by_tag:{位號:[{screen, unit, route, ref, x, y, w, h}]}, screens:{檔名:{title_en, title_zh, nav, units, img, img_w, img_h, img_canvas, w, h}}, stats}`。讀 1＋2 的輸出與 `paths.AMS_SQLITE`（現行 AMS 位號集合）、`paths.DCDAS_INDEX`。 |
+
+**座標基準：28800 × 16200 twips**（＝1920×1080 裝置像素 × 15，16:9）。先前推測的 25600×14400 是讀偏一個位元組的旗標對造成的錯覺，**已作廢**。
+`.cim` 的矩形四元組是 `(left, top, right, bottom)` 且 **y 軸向上**（top > bottom），而且貼在**下一個**物件名之前，所以屬於前一個物件
+（綁錯會讓全部物件整體錯位一個物件，在鏡像面板畫面上表現為 G11／G12 左右互換）。`hmi.json` 的 `x/y/w/h` 已換算成 **0~1 比例、左上為原點**，
+可直接乘上縮圖寬高。`w` 或 `h` 可能為 0（直線、文字錨點），面積 > 25% 畫面者判定為背景面板不採用（`x/y` 為 `null`）。
+
+四條對應來源（`entry.route`）：`obj`（物件屬性包＋選單變數代入，**有座標**）、`var`（`.cim` 字串補漏）、`pointdb`（`navigation/tp_actPt_navPointSearchDbStd.csv`）、
+`dcdas`（控制器索引的 `variable.display_screen`，`hmi_point.unit_prefix` 當 `unit` 帶出來，格式與選單列的 Unit 欄一致＝`BOPM1B.`）。
+覆蓋 **870 / 1,679 台（51.8%；母數已扣掉 249 台 JK MUX 模組）**，其中 HART 870/1,328（65.5%）、
+**FF 0/351**：351 支 FF 位號在**根目錄 248 個畫面 0 命中**（索引本體），在**子目錄 225 個元件面板也 0 命中**（`stats.excluded_scan.ff_hits`），
+兩段加起來＝遞迴全部 473 個 `.cim` 都查過，定讞查無。
+
+`route=obj` 的 `ref`（卡片「對應方式」顯示的那一串）挑選順序：**值不是純 `{變數}` 樣板** → 值自帶位號字樣（`LITERAL_RE`） → 鍵在 `REF_KEYS` → 值較短。
+第一個條件是後補的：`aliasSignal={device}` 比 `device=1-LI-CW101-1_XQ01` 短，舊版因此在 74 列顯示未代入的樣板（對操作員零資訊）。
+真的只剩樣板可挑時（該物件沒有任何自帶位號字樣的屬性）會補上 `（代入後 …）`。
+
+### card aux 的 `sec.hmi`、`card/hmi/*.json` 與 `index.hmi`
+
+`build_card_aux.py` 的 `--hmi`（預設 `%LOCALAPPDATA%\AMS\cardwork\hmi.json`）／`--hmi-shots`（預設 `…\cardwork\hmi_shots`）／`--hmi-nav`（預設 `…\cardwork\hmi_nav.json`）／`--no-hmi`，
+`--recompare` 同樣吃（沒給 `--no-hmi` 又缺 `hmi.json` 時以非 0 結束，與 dcdas／docsearch 一致）。以**現行 AMS 位號**（不是 alias）對照 `hmi.json.by_tag`。
+
+- `sec.hmi = {rows: [[欄位, 值, "hmi", 來源字串, extra]]}`：每一組（畫面, 選單機組）**4 列**——`圖控畫面`（畫面名稱，中文優先、目前一律英文，附畫面上標題）、
+  `導覽路徑`（`Block1 › BOP › HP/IP Feed Water › Feed Water　·　以選單機組 BOPM1A. 開啟`；取 `hmi_nav.json` 裡 `units[i] == entry.unit` 的那一列，對不起來才列全部並在 extra 標 `nav_all`。
+  **用詞必須是「以選單機組 X 開啟」**——`unit` 是開啟這張畫面的那一列選單項的機組欄，不是儀器所屬機組，寫成「機組 X」會讓 69 台看起來像「同時存在兩個機組」）、
+  `所在位置`（`畫面左 58%／上 46%（約佔畫面寬 7%、高 4%）＝圖上標記 ①；這支位號在同一張畫面另有 1 處（圖上 ②），位置可能幾乎重疊`）、
+  `對應方式`（`物件參照：device=C{UNIT1_NO}LAB22BF001_XQ01`；結尾帶 `\012\013` 的多點簡寫會補一句白話「同一個物件掛 …BP001、…BP002、…BP003 共 3 支，每一支都另有自己的索引」，
+  否則使用者會以為是亂碼——涵蓋 572 列）。
+  每列 `extra` 都帶 `{s: 畫面檔名, g: 組序}` 供前端分組；**第一列**另帶 `nav`／`img`（該畫面有沒有設計時影像）／`marks`／`routes`／`unit`／`ref`。
+- `marks: [[中心 x, 中心 y, 框寬, 框高]]`（0~1 比例、左上原點、已去重）：框寬／高為 **0 時只標點不畫框**（直線、文字錨點）；
+  同一畫面同時有「有框」與「線狀」標記時只留有框的。**`marks[0]` 就是「所在位置」那列文字描述的那處**（面積最大者排前面），
+  前端照陣列順序標 ①②③——同一位號的兩處常常只差 1~2% 畫面高（放大圖上約 11 px），沒有編號使用者看不出有兩個圈、也對不上「另有 N 處」。
+- **影像**：有設備對應到、而且 `.cim` 內含 ThumbNail 的畫面，縮圖包成 `docs/db/data/card/hmi/<畫面名去掉 .cim>.json ＝ {w, h, mime:"image/webp", b64}`，
+  **走既有 `*.json` 加密路徑**（`encrypt_data.py` 的 `rglob("*.json")`），沒有第二套加密。寫之前先整個清掉 `card/hmi/`，掉出覆蓋範圍的畫面不會留下孤兒密文。
+- `card/index.json` 新增 `hmi = {screens:{檔名:{title, en, zh?, caption?, nav, img, file?, w?, h?, bytes?, rows}}, files:[…], bytes, design:[28800,16200], canvas:[1920,1080], note, stats}`。
+  `stats` 除了覆蓋率，另有 `screens_total`（建索引的根目錄畫面數 248）／`screens_all`（遞迴全部 473）／`excluded`（225）／`excluded_scanned`／`excluded_tag_hits`／`excluded_ff_hits`
+  ——卡片「查無」那句要一次講完掃描範圍，不然同一張卡會同時出現 248 與 473 兩個數字、看起來自相矛盾。
+  `files` 是 `card/hmi/*.json` 的清單——`tools/verify_encrypted.py` 以它認得這些密文不是孤兒；`extract_db.data_build` 的雜湊也涵蓋 `card/**/*.json`
+  （兩邊都以 **posix 相對路徑**排序，Windows 的 `\` 與 posix 的 `/` 排序不同，否則 build 會對不起來）。
+- `index.searched.hmi[0]`＝把畫面檔目錄當一份「文件」描述（`doc_id: hmi-screens`、`folder: AMS/Screens（圖控畫面檔目錄，唯讀）`、`why` 含覆蓋率）；沒有 Drive 連結、不進 `index.docs`。
+- 來源分級新增 **`lvl: "hmi"`（標籤「圖控」，青色 `--src-hmi`）**：`extract_db.SRC_DEFS`／`build_card_aux.SRC_DEFS`／`U.SRC_LVLS`／`.lvl-hmi` 四處要一致，缺一個前端會靜默退回 `raw`。
+
+### 前端（card.js `fillHmi`／`hmiShot`／`hmiFrame`／`openHmiLightbox`；core.js `D.loadHmiImage`；app.css）
+
+- 摘要組 `{"key":"hmi","kind":"hmi","collapsed":true,"after_stock":true}`（排在「文件全文檢索」之後）**只列畫面名稱＋導覽路徑**，不載影像；
+  附加區段 `{"key":"hmi","kind":"hmi"}`（排在 `docsearch` 之後）才有縮圖與標記。兩者都走 `fillHmi()`，`withImages` 決定載不載圖。
+- 影像：`D.loadHmiImage(path)` → `D.fetchJSON`（AES-GCM → gunzip）→ base64 → `Blob` → `URL.createObjectURL`；同一張圖多處共用，
+  `CardView.destroy()` 呼叫 `D.revokeHmiImages()` 一次 revoke 並把 `card/hmi/*` 從 `D.cache` 丟掉。**`docs/db/index.html` 的 CSP `img-src` 必須含 `blob:`。**
+- 標記**不燒進影像**：`.hmi-mk`（紅圈）／`.hmi-box`（物件矩形）是以百分比絕對定位疊在 `<img>` 上的空元素，所以同一張圖可給多個位號共用，放大時自動同步縮放。
+  多處時另加 `.hmi-no`＝編號 ①②③（`card.js` 以 inline `transform` 逐個往右上／右下錯開，兩圈幾乎重疊時編號才分得出來）；
+  `marks[0]` 拿 `.pri`（實線粗框、深紅編號），其餘 `.hmi-box` 改虛線；另有一句 `.sr-only` 供螢幕閱讀器。
+- 放大：`.hmi-lb`（沿用 `.modal`）全螢幕疊層，✕／Esc／點背景關閉，**`AMS.overlay.open('modal', …, true)`（第三個參數 `force`）**
+  ——全螢幕模態在平板／桌機也要用返回鍵關掉，不然 768px 觸控平板（有觸控、沒有實體 Esc、習慣手勢返回）按返回會整張查詢卡跳掉；
+  `OV.open` 的 `popstate` 處理器本身不看寬度，所以 `force` 推進去的歷史一樣會被正確吃掉。
+  ✕ 以 `.hmi-lb .modal-x { position: static; align-self: flex-end }` 排成影像**上方自己的一列**（原本絕對定位壓在影像右上角，會遮住畫面的 UNACKNOWLEDGED／告警列）；
+  影像寬度上限由 `card.js` 依該圖長寬比換算成 `min(100%, calc((100dvh - 152px) * <ar>))`（108px 說明列＋✕ 那一列），高度一定塞得進視窗。
+- 無影像的畫面只顯示名稱與路徑，並註明「此畫面檔未內含設計時影像（.cim 沒有 ThumbNail 串流）」。
+- 查無：一次講完掃描範圍（取 `index.hmi.stats`）——FF 設備（`flags.ff`）寫「查無（FF 訊號不在控制器 I/O 索引，位號字串也不出現在任何圖控畫面檔；已掃 248 個操作員畫面，另 225 個子目錄元件面板／函式庫也掃過字串（共 473 個 .cim））」，
+  其餘寫「查無（已掃 248 個操作員畫面，…（共 473 個 .cim）：這些畫面都沒有引用此位號）」。
+- `nav_all`：前端以 `.hmi-allnav`「（此畫面全部選單列）」顯示在導覽路徑旁（不只寫在來源字串裡）。`dcdas` 路線帶出 `unit` 之後目前實測為 0 組，前端仍保留這條分支。
+- 手機（`.cq-body.narrow`）標記縮成 20px、縮圖滿寬、`.hmi-f .cf-v` 縮一級字；`.hmi-f .cf-v` 另設 `word-break: normal; overflow-wrap: break-word`
+  （`.cf-v` 預設的 `word-break: break-word` 等於 `overflow-wrap: anywhere`，會把位號在 token 中間切成 `…LAB22BF001_X` / `Q01`）。
+  列印時 `.hmi-screen` 不跨頁、標記以 `print-color-adjust: exact` 印出、放大層由 `.modal` 的列印規則隱藏。
+
+### 已知限制（誠實標註）
+
+- **FF 設備（351 台）完全無法對應**：FF 位號不出現在任何 `.cim` 字串裡（根目錄 248 個與子目錄 225 個都掃過，見上面「掃描範圍」）；這不是解析漏抓。
+- **23 個引用到 AMS 位號的畫面檔沒有 ThumbNail**（量最大的是 `HPOT_HP_OT_Temp_UX.cim` 158 筆、`HRSG_Hot_Reheat_UX.cim` 123、`HRSG_LP_Group_UX.cim` 94、`HRSG_LP_Common_UX.cim` 78），只能顯示畫面名稱與導覽路徑。
+- **來源裡沒有中文畫面名**，`title_zh` 一律 `null`；要中文只能另建人工對照表。
+- `sec.hmi` 的 `ref` 取自該組排序後第一個命中物件，**不保證屬於某一個座標**（同組多個矩形共用一個 `ref`），不要當成「這個位置的物件屬性」。
+  `ref` 裡仍可能留著 `{UNIT1_NO}`、`{Unit_NO}` 這類**未代入的畫面變數**——那是 `.cim` 裡的原文參照字串（設計行為，不是壞資料）。
+- `unit` 欄＝「用哪一列選單開這張畫面」，不是儀器所屬機組（`BOP_Blowdown_Recovery_System.cim`、`Plant_Overview_UX.cim` 本來就同時畫兩部機）；
+  69 台因此在同一張畫面列兩組、紅框完全相同，卡片以「以選單機組 X 開啟」表達這件事。
+- 「所在位置」只描述 `marks[0]` 一處；其餘處只能靠圖上的 ②③ 對照，文字不會逐處列座標。
+
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
 GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只有 `data/meta.json` 是明文；瀏覽器在員工代號登入後再輸入**密語**解密（與 momobacon-wq/signal-atlas 同一套作法）。
@@ -230,6 +323,11 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
   - `py tools/encrypt_data.py docs/data`、`py tools/encrypt_data.py docs/db/data`（明文 → 密文，原地，刪明文）；`--decrypt`（原地還原）；`--decrypt-to DIR`（另存明文副本）；`--dry-run`。
   - 產生器 `extract.py`／`extract_db.py` 結尾自動加密（`--no-encrypt` 只供本機測試，**不可 push**）；`extract_db.py`／`build_card_aux.py` 遇到已加密的輸出目錄會先原地解密。
   - `py tools/verify_encrypted.py`：重新以密語解開全部 `.bin`、確認沒有明文 `.json`、manifest 引用與檔案一一對應、以明文重算 build 並比對 meta／manifest／version.json／index.html、掃建置機器本機路徑、robots／noindex。**每次 push 前必須 exit 0**。
+    本機路徑規則 `LOCAL_RE = Users[\\/]{1,2}bacon|/c/Users/|我的雲端硬碟|@@新機組`：**`{1,2}` 不可拿掉**——掃的是 JSON 文字，Windows 分隔符在裡面是兩個反斜線，
+    舊版寫成 `Users[\\/]bacon` 對 JSON 內的 Windows 路徑整支失效（假陰性，`sheets/61.json` 就這樣帶著建置機家目錄出貨）。
+    「其他電腦」刻意**不**列入：AMS 資料庫自己的工作站標籤叫「本廠其他電腦 (2024 以後)」（sheets 19／24／28），不是路徑。
+    供料端同一份規則在 `tools/db/pneuvalve_site.py`：`scrub_local()`＝文件庫根 → 相對、家目錄 → `~`、其餘還帶本機痕跡的多層路徑 → **只剩檔名**，
+    而且在 `read_xlsx()` 就剝（`cell_sources()` 讀的是未經 `clean()` 的原始列，只在 `clean()` 剝會漏）。注意 Python 字元集要寫 `[\\/]`，`[\/]` 只等於 `[/]`。
 - `.gitignore` 擋掉 `docs/*/data/**/*.json`（meta.json 除外），明文永遠 commit 不進去；`docs/robots.txt` Disallow 全站、index.html `noindex, nofollow`。
 - 誠實的限制：同一組密語所有同事共用，沒有個人撤銷；勾「記住此裝置」時 raw key 明文存在該瀏覽器 localStorage（嚴格 CSP、無行內 script 是它的防線）；員工代號閘門只是稽核紀錄，密語才是真正的保護。
 

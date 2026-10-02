@@ -60,10 +60,28 @@ PAIRED_SRC = {'SOV 電磁閥(型號/電壓/位號)': 'SOV文件來源', 'Positio
               'Limit Switch/位置回授': 'LS文件來源', 'Fail Action (FO/FC/FL)': '失效動作文件來源'}
 LEVEL_LVL = {'推導': 'inferred', '翻譯': 'inferred'}
 FACTORY_RE = re.compile(r'AQ[ABP]01-[QT]\d{4}|EOMR|FAT|出廠', re.I)
-# 本機路徑一律剝成「文件庫相對」：verify_encrypted.LOCAL_RE／build_card_aux.ABS_PATH_RE 會擋
-LOCAL_PREFIX_RE = re.compile(r'(?:[A-Za-z]:[\/]|/[a-z]/)?(?:Users[\/]bacon[\/])?(?:我的雲端硬碟[\/])?@@新機組資料備份[\/]?|我的雲端硬碟[\/]?')
-HOME_RE = re.compile(r'(?:[A-Za-z]:|/[a-z])?[\/]Users[\/]bacon(?=[\/\s,;，；)）]|$)')  # 家目錄 → ~（signal-atlas 等 repo 外工具路徑）
-LOCAL_RE = re.compile(r'Users[\\/]bacon|/c/Users/|我的雲端硬碟|@@新機組資料備份')
+# 本機路徑一律剝掉：verify_encrypted.LOCAL_RE／build_card_aux.ABS_PATH_RE 會擋
+# **字元集必須寫 [\\/]**：`[\/]` 在 Python 正則裡只等於 `[/]`（反斜線被當轉義吃掉），所以舊版對 Windows 的
+# `C:\Users\bacon\…` 完全無效，試算表「來源」欄的建置機路徑就這樣跟著出貨（2026-10-03 修）。
+LOCAL_PREFIX_RE = re.compile(r'(?:[A-Za-z]:[\\/]|/[a-z]/)?(?:Users[\\/]bacon[\\/])?(?:我的雲端硬碟[\\/])?@@新機組資料備份[\\/]?|我的雲端硬碟[\\/]?')
+HOME_RE = re.compile(r'(?:[A-Za-z]:|/[a-z])?[\\/]Users[\\/]bacon(?=[\\/\s,;，；)）]|$)')  # 家目錄 → ~（signal-atlas 等 repo 外工具路徑）
+# 最後一道：任何**還帶著本機痕跡**的絕對／多層路徑剝到只剩檔名（試算表的「來源」欄常整段貼
+# `C:\Users\bacon\.claude\skills\…\srcdocs\HT0-1-….pdf`、`G:\其他電腦\辦公室\@@新機組\…`；
+# 讀的人要的是文件檔名，不是建置者的目錄結構）。沒有本機痕跡的路徑（AMS 伺服器的 C:\ProgramData\… 之類）不動。
+PATHY_RE = re.compile(r'(?:[A-Za-z]:|~)?[\\/](?:[^\\/\n;"]*[\\/])+([^\\/\n;"]+)')
+LOCALISH_RE = re.compile(r'Users[\\/]bacon|我的雲端硬碟|@@新機組|其他電腦|\.claude[\\/]')
+
+
+def scrub_paths(s):
+    """字串裡的本機路徑 → 檔名（規則見 PATHY_RE／LOCALISH_RE 的註解）。"""
+    def rep(m):
+        return m.group(1) if LOCALISH_RE.search(m.group(0)) else m.group(0)
+    return PATHY_RE.sub(rep, s)
+
+
+# 輸出自檢用（與 tools/verify_encrypted.py 的 LOCAL_RE 同一份規則）：
+# `[\\/]{1,2}` 是因為自檢掃的是**寫好的 JSON 文字**，裡面的分隔符是兩個反斜線
+LOCAL_RE = re.compile(r'Users[\\/]{1,2}bacon|/c/Users/|我的雲端硬碟|@@新機組')
 DOCNO_RE = re.compile(r'(HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4})(?:-([0-9A-Z]{1,2})(?![0-9A-Za-z]))?')
 # 定位器家族（清單文字 vs AMS 製造商＋型號）
 POS_FAM = [('Fisher', r'DVC\s*\d|FIELDVUE|\bFisher\b'), ('Masoneilan', r'SVI|Masoneilan'), ('Flowserve', r'Logix|Flowserve'),
@@ -83,7 +101,7 @@ def clean(v):
     if isinstance(v, (int, float)):
         return v
     s = str(v)
-    s = HOME_RE.sub('~', LOCAL_PREFIX_RE.sub('', s))
+    s = scrub_local(s)
     s = s.replace('\r\n', '\n').strip()
     return s if s else None
 
@@ -115,10 +133,18 @@ def read_xlsx(path):
         rows = []
         for r in it:
             r = list(r[:len(hdr)]) + [None] * (len(hdr) - len(r))
+            # **在來源就剝掉本機路徑**：cell_sources() 讀的是這裡的原始列（不經過 clean()），
+            # 只在 clean() 剝會讓「來源」欄的建置機路徑漏進 valve_src 跟著出貨
+            r = [scrub_local(v) if isinstance(v, str) else v for v in r]
             if any(v not in (None, '') for v in r):
                 rows.append(r)
         out[ws.title] = (hdr, rows)
     return out
+
+
+def scrub_local(s):
+    """本機路徑三道：文件庫根 → 相對、家目錄 → ~、其餘還帶本機痕跡的 → 只剩檔名。"""
+    return scrub_paths(HOME_RE.sub('~', LOCAL_PREFIX_RE.sub('', s)))
 
 
 # ------------------------------------------------------------------ AMS 對照
