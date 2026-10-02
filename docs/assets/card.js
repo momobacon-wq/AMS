@@ -222,7 +222,8 @@
       if (U.isMobile() && this.input) this.input.blur(); // 手機：送出後收軟鍵盤，不然摘要被鍵盤蓋住
       if (!q) { this.run(''); return; }
       let k = q;
-      try { const rs = AMS.index.resolve(q); if (rs.key) k = rs.key; } catch (e) { /* 索引未載 → 照原字串 */ }
+      // 氣動閥清單位號（AMS 沒有）優先於「包含／唯一建議」的模糊對應：不然閥位號會被悄悄換成某個不相干的 AMS 鍵
+      try { const rs = AMS.index.resolve(q); if (rs.key && (rs.how === 'exact' || rs.how === 'compact' || !this.valveHit(q))) k = rs.key; } catch (e) { /* 索引未載 → 照原字串 */ }
       const h = '#/card/' + encodeURIComponent(k);
       if (location.hash === h) this.run(k); else AMS.router.go(h);
     }
@@ -237,6 +238,7 @@
       const key = rs.key || IX.norm(q);
       res.key = key; res.how = rs.how;
       if (!key) { res.status = M.empty; res.empty = true; return res; }
+      if (rs.how !== 'exact' && rs.how !== 'compact') { const vr = this.valveLookup(q, res); if (vr) return vr; }
       const i5 = rs.key ? IX.first.get(rs.key) : null;
       if (i5 == null) { res.status = M.notfound; res.notfound = true; res.sg = rs.suggestions; return res; }
       const r5 = IX.sheet.rows[i5];
@@ -268,7 +270,7 @@
       const qs = q == null ? '' : String(q);
       if (this.input && this.input.value !== qs) this.input.value = qs;
       const res = (this.res = this.lookup(q));
-      if (res.notfound) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
+      if (res.notfound && !res.valve) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
         if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
         if (res.sg.length && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
       }
@@ -277,7 +279,7 @@
       const L = this.spec.lookup;
       if (this.scrollEl) this.scrollEl.classList.toggle('landing', !!res.empty);
       root.querySelector('.cq-status').textContent = res.status;
-      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound ? ' bad' : '');
+      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve ? ' bad' : '');
       const row = res.i3 != null ? AMS.devices.sheet.rows[res.i3] : null;
       // alias / count
       const countStyle = this.ruleStyleFor('count', row, res);
@@ -310,6 +312,7 @@
       body.innerHTML = '';
       body.classList.toggle('landing', !!res.empty);
       if (changed) { root.scrollTop = 0; if (this.scrollEl) this.scrollEl.scrollTop = 0; }
+      if (res.valve) { body.appendChild(this.renderValveOnly(res)); document.title = String(q) + '（氣動閥清單） · 設備查詢卡 · AMS'; return; }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) {
         body.appendChild(this.renderLanding());
@@ -368,6 +371,130 @@
       document.title = [head, res.alias && res.alias !== head ? `（${res.alias}）` : ''].join('') + (head ? ' · ' : '') + '設備查詢卡 · AMS';
     }
     numbered(key, title) { return this.nums && this.nums[key] ? `${this.nums[key]}. ${title}` : title; }
+
+    /* ---------- 氣動閥清單（02.json valve；tools/db/pneuvalve_site.py） ---------- */
+    /** 輸入字串 → 氣動閥清單的 {sid,row}（清單位號、xx／x0 依涵蓋機組展開後的位號都收；比對去掉分隔符） */
+    valveHit(q) {
+      const V = this.spec && this.spec.valve; if (!V || !V.index) return null;
+      const e = V.index[AMS.index.compact(q)];
+      return e ? { sid: String(e[0]), row: e[1] } : null;
+    }
+    /** 清單某列對到的 AMS 設備：[{alias, unit, tag, how, cmp, cmpText, note}]（依機組排序） */
+    valveAliases(vh) {
+      const V = this.spec.valve;
+      if (!this._vrev) {
+        this._vrev = new Map();
+        for (const [al, list] of Object.entries(V.by_alias || {})) {
+          for (const e of list) {
+            const k = e[0] + ':' + e[1]; const i3 = AMS.devices.byAlias.get(al);
+            const tag = i3 != null ? U.text(AMS.devices.sheet.rows[i3][0]) : al;
+            if (!this._vrev.has(k)) this._vrev.set(k, []);
+            this._vrev.get(k).push({ alias: al, unit: e[2], tag, how: e[3], cmp: e[4], cmpText: e[5], note: e[6] });
+          }
+        }
+      }
+      return (this._vrev.get(vh.sid + ':' + vh.row) || []).slice().sort((a, b) => (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
+    }
+    /** 此 AMS 設備對到的清單列（摘要「氣動閥」組） */
+    valveEntries(alias) {
+      const V = this.spec.valve; const list = V && V.by_alias && alias ? V.by_alias[alias] : null;
+      return (list || []).map((e) => ({ sid: String(e[0]), row: e[1], unit: e[2], how: e[3], cmp: e[4], cmpText: e[5], note: e[6] }));
+    }
+    /** AMS 索引沒有（或只有模糊對應）而氣動閥清單有：輸入帶機組（G11…）且該機組恰有一台 AMS 設備 → 直接顯示那台；否則顯示「只在清單」的閥卡 */
+    valveLookup(q, res) {
+      const vh = this.valveHit(q); if (!vh) return null;
+      const IX = AMS.index; const M = this.spec.lookup.msg;
+      const als = this.valveAliases(vh);
+      const mine = als.filter((x) => x.unit && IX.compact(q).startsWith(x.unit));
+      if (mine.length === 1 && !this._inValve) {
+        this._inValve = true;
+        let r2; try { r2 = this.lookup(mine[0].alias); } finally { this._inValve = false; }
+        if (r2 && !r2.notfound) { r2.status = fill(M.valve_via || '「{q}」是氣動閥清單位號，對應 AMS 設備 {tag}（{how}）。', { q: IX.norm(q), tag: mine[0].tag, how: mine[0].how }) + r2.status; return r2; }
+      }
+      res.valve = vh; res.valveAls = als; res.notfound = true; res.key = IX.norm(q);
+      res.status = als.length ? fill(M.valve_multi || '「{q}」在氣動閥清單（多機組合併列）；同一閥在 AMS 資料庫的設備見下方。', { q: IX.norm(q) })
+        : fill(M.valve_only || '「{q}」在氣動閥清單，AMS 資料庫沒有對應設備（開關閥／非 HART·FF 智慧定位器，或機組不在本庫）。', { q: IX.norm(q) });
+      return res;
+    }
+    /** 只在氣動閥清單的位號：閥規格（逐格出處）＋同一閥在 AMS 的設備 */
+    renderValveOnly(res) {
+      const V = this.spec.valve;
+      const wrap = U.h('section', { class: 'csec sum valve-only' });
+      const hero = U.h('div', { class: 'sum-hero' });
+      hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, String(res.key))));
+      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, '氣動閥清單位號'), U.h('span', { class: 'sum-subi' }, res.valveAls.length ? 'AMS 設備見下方' : '不在 AMS 資料庫')));
+      if (res.valveAls.length) {
+        const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, '同一閥在 AMS 的設備：'));
+        for (const x of res.valveAls) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(x.alias), title: x.how }, U.h('span', { class: 'mono' }, x.tag), U.h('span', { class: 'muted small' }, ' ' + x.unit + ' · ' + x.alias)));
+        hero.appendChild(ch);
+      }
+      wrap.appendChild(hero);
+      const groups = U.h('div', { class: 'sum-groups' });
+      const sec = U.h('section', { class: 'sum-g sum-valve' });
+      const g = ((this.spec.summary && this.spec.summary.groups) || []).find((x) => x.valve) || {};
+      sec.appendChild(U.h('h3', { class: 'sum-gh' }, g.label || ('氣動閥（' + (V.list_name || '氣動閥清單') + '）')));
+      const grid = U.h('div', { class: 'sum-body' });
+      grid.innerHTML = '<p class="muted cl-empty">載入中…</p>';
+      sec.appendChild(grid);
+      if (g.note) sec.appendChild(U.h('p', { class: 'muted small aux-note' }, g.note));
+      groups.appendChild(sec);
+      wrap.appendChild(groups);
+      this.fillValveGroup(grid, [{ sid: res.valve.sid, row: res.valve.row }], res);
+      return wrap;
+    }
+    /** 氣動閥組：載入 57／58（valve_src 逐格出處＋valve_docs 雲端連結）後逐欄顯示；ents＝[{sid,row,unit?,how?,cmp?,cmpText?,note?}] */
+    async fillValveGroup(grid, ents, res) {
+      const V = this.spec.valve; const mode = this.currentMode();
+      try {
+        const js = {};
+        for (const e of ents) if (!js[e.sid]) js[e.sid] = await D.loadSheet(e.sid);
+        if (this.destroyed || this.res !== res) return;
+        grid.innerHTML = '';
+        ents.forEach((e, k) => {
+          const j = js[e.sid]; const cols = j.columns.map((c) => c.label); const row = j.rows[e.row] || [];
+          const ix = { docs: j.valve_docs || {} };
+          const srcs = (j.valve_src || {})[String(e.row)] || {};
+          const tag = U.text(row[cols.indexOf('Valve Tag No.')]);
+          const name = (D.meta(e.sid) || {}).name || e.sid;
+          const box = U.h('div', { class: 'sum-sig' });
+          const head = U.h('div', { class: 'sum-sigh' });
+          if (ents.length > 1) head.appendChild(U.h('span', { class: 'pill plain' }, `閥 ${k + 1}/${ents.length}`));
+          head.appendChild(U.h('span', { class: 'sum-sigi key mono', title: '氣動閥清單位號' }, tag));
+          if (e.unit) head.appendChild(U.h('span', { class: 'sum-sigi', title: '此設備所在機組' }, '本卡＝' + e.unit));
+          if (e.cmp === 'mismatch') head.appendChild(U.h('span', { class: 'pill bad' }, '⚠ 定位器廠牌與 AMS 不符'));
+          const nTwo = Object.values(srcs).filter((s) => s && s[3]).length;
+          if (nTwo) head.appendChild(U.h('span', { class: 'pill warn', title: '兩份一手文件讀法不同的格（點來源看 A／B 讀法）' }, `兩讀 ${nTwo} 格`));
+          head.appendChild(U.h('a', { class: 'lk small', href: '#/s/' + encodeURIComponent(e.sid) + '?r=' + e.row }, `在 ${name} 開啟此列（全部欄位）›`));
+          box.appendChild(head);
+          const sg = U.h('div', { class: 'cfields sumgrid' });
+          if (e.how) sg.appendChild(this.fieldEl({ label: 'AMS 對照', val: e.how + (e.note ? '；' + e.note : ''), src: { lvl: 'inferred', text: '推論 · 閥位號（xx／x0 依涵蓋機組展開）或 GE 舊位號 ↔ AMS 位號索引；多代理逐筆驗證（pneuvalve_site.py）' } }, mode));
+          if (e.cmp) {
+            const fl = e.cmp === 'mismatch' ? [{ t: '⚠ 不符', cls: 'bad' }] : e.cmp === 'absent' ? [{ t: '清單寫無定位器', cls: 'warn' }] : e.cmp === 'ok' ? [{ t: '✓ 一致', cls: 'ok' }] : [];
+            sg.appendChild(this.fieldEl({ label: '定位器（清單 ↔ AMS）', val: e.cmpText, warn: e.cmp === 'mismatch', flags: fl, src: { lvl: 'inferred', text: '推論 · 清單「Positioner 定位器」欄 vs AMS 製造商＋型號，比廠牌家族；以現場銘牌為準' } }, mode));
+          }
+          for (const [lab, col] of V.fields || []) {
+            const ci = cols.indexOf(col); if (ci < 0) continue;
+            const val = U.cardValue(row[ci]);
+            const s = srcs[col];
+            const soft = /^(查無|待查|N\/A)/.test(String(val));
+            const detail = s ? this.docDetail(ix, s[2], []) : [];
+            const flags = [];
+            if (s && s[3]) {
+              const t = s[3]; flags.push({ t: '兩讀', cls: 'warn' });
+              detail.push(['讀法 A', `${t[0] || '—'}（${t[1] || '出處未記'}）`]); detail.push(['讀法 B', `${t[2] || '—'}（${t[3] || '出處未記'}）`]);
+              if (t[4]) detail.push(['表內採用', t[4]]);
+              if (t[5]) detail.push(['備註', t[5]]);
+            }
+            const href = s && s[2] ? this.docHref(ix, s[2]) : null;
+            sg.appendChild(this.fieldEl({ label: lab, val, soft, flags, href, hrefTitle: href ? this.docTitle(ix, s[2]) : null, src: s ? { lvl: s[0], text: s[1], detail } : null }, mode));
+          }
+          box.appendChild(sg);
+          grid.appendChild(box);
+        });
+        if (V.list_url) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, '正本（可編輯）：', U.h('a', { class: 'lk', href: V.list_url, target: '_blank', rel: 'noopener noreferrer' }, (V.list_name || 'Google 試算表') + ' ↗')));
+        this.applyMode();
+      } catch (err) { console.error(err); grid.innerHTML = `<p class="muted cl-empty">無法載入氣動閥清單：${U.esc(err.message)}</p>`; }
+    }
 
     /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */
     renderNotFound(res) {
@@ -873,6 +1000,8 @@
       const openState = U.store.get('card.sumOpen', {}) || {};
       const after = [];
       for (const g of S.groups || []) {
+        const vEnts = g.valve ? this.valveEntries(res.alias) : null;
+        if (g.valve && !vEnts.length) continue; // 氣動閥組只給對到氣動閥清單的設備
         let sec;
         if (g.collapsed) {
           const isOpen = openState[g.key] === true;
@@ -887,6 +1016,7 @@
         sec.appendChild(grid);
         if (g.note) sec.appendChild(U.h('p', { class: 'muted small aux-note' }, g.note));
         if (g.after_stock) after.push(sec); else groups.appendChild(sec);
+        if (g.valve) { grid.className = 'sum-body'; grid.innerHTML = '<p class="muted cl-empty">載入中…</p>'; this.fillValveGroup(grid, vEnts, res); continue; }
         if (g.kind || g.per_entry) { grid.innerHTML = '<p class="muted cl-empty">載入中…</p>'; pend.push({ grid, group: g }); continue; }
         for (const it of g.items || []) {
           if (it.proto && proto && proto !== it.proto) continue; // HART／FF 專用列

@@ -205,6 +205,17 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 - 比對狀態顯示：`near` → 黃色 `.cmp-flag.warn`「≈ 近似（請確認）」，摘要標頭另出黃色 pill「≈ 量程近似（請確認）：<來源>」不併入紅色 ⚠；`flags.cmp.dcdas_multi === 'warn'` → 黃色 pill「控制器多通道量程不一（n 個通道）」（n＝`sec.dcdas.entries` 數）；`kind` `dcdas_ch`（其他通道）標籤「控制器組態（其他通道）」。這些鍵沒有資料時前端不顯示。
 - 查詢卡連到分塊表（參數現值）的連結帶 `rn=<此設備最後一列>`（`sheetHref(sid, {r, rn, f})`），table.js 可只載 r..rn 所在的分塊。table.js 的部分載入模式：`U.isMobile()`、或路由帶 `r`／`f` 時分塊表只 `ensurePart(partOf(r)..partOf(rn))`、不自動 `loadAll`；工具列載入列顯示「已載入 k/N 部分 · …（篩選、排序、CSV 只含已載入的列）」與「載入全部」鈕（`data-act="loadall"` → `loadRest(null)`）；桌機無參數維持自動全載。
 
+## v4（docs/db 站：氣動閥清單；tools/db/pneuvalve_site.py）
+
+來源是 Google 試算表「興達全廠氣動閥LIST_v2.6」匯出的 xlsx（`paths.PNEUVALVE_XLSX`／`AMS_PNEUVALVE_XLSX`），不是 AMS 資料庫；產生器在 extract_db／build_card_aux（或 `--recompare`）之後跑，資料加密中也可直接跑（自行解密 → 套用 → `extract_db.data_build` → 加密）。冪等：先移除上一次的 57～61、群組與 00 目錄列再重加。`rebuild.py` 兩條路徑結尾都會跑，`--only-pneuvalve` 只跑這一步、`--skip-pneuvalve` 略過。
+- 側欄群組「氣動閥清單」（`manifest.groups` 排在「設備與位置」之後；`tab_color #8B5A00`）：`57_氣動閥主表`、`58_水處理與公用水系統`（xlsx 全部欄位＋`Valve Tag No.` 後插入 `AMS 設備 1（查詢卡）`／`AMS 設備 2（查詢卡）`（連結格 `{t:<AMS 位號>, l:{s:"02", q:<alias>}}`）與 `AMS 對照（方式／定位器比對）`；`ui.presets`「有 AMS 設備」；七條 bands）、`59_氣動閥兩讀並列`、`60_氣動閥推翻紀錄`、`61_氣動閥刪除紀錄`（原分頁照搬）。00 目錄與各表註記、`workbook.subtitle` 的「本站 N 頁」同步更新。
+- 57／58 另帶兩個前端專用鍵（table.js 不讀）：`valve_src = {"<列>": {"<xlsx 欄名>": [lvl, 來源字串, docKey|null, 兩讀|null]}}`（只做查詢卡顯示的欄；來源依序取 v2.6推翻紀錄、v2.6補齊明細（文件＋頁碼＋證據等級；推導／翻譯 → `inferred`，EOMR／FAT → `factory`）、專屬來源欄（SOV／定位器／LS／失效動作文件來源）、本列主要資料來源；兩讀＝`[讀法A, 出處A, 讀法B, 出處B, 表內採用, 備註]`）與 `valve_docs = {docKey: {title, folder, why?, url?, url_note?}}`（文件編號經 `build_card_aux.resolve_doc_numbers` 對到雲端檔案）。
+- `02.json.valve = {sheets, fields:[[卡片標籤, xlsx 欄名]], index:{compact 位號: [sid, 列]}, by_alias:{alias: [[sid, 列, 機組, 對照方式, 定位器比對 ok|mismatch|absent|unknown, 比對說明, 備註]]}, list_name, list_url}`。`index` 收清單位號本身與依「涵蓋機組」展開的位號（Gxx→G11…G32、Cx0→C10…、`G11/G12…` 斜線列舉）；鍵＝`IX.compact`。
+- 對照：閥位號（展開後）＝04 位號索引任一鍵，或 GT 閥 `<機組>_90<Legacy/GE Tag>`；再套 `<CARDWORK>/pneuvalve_xwalk.json`（`drop`／`add`／`note`；2026-10-02 多代理逐筆驗證的結果，另存 fill26/pneuvalve_ams_xwalk.json）。定位器比對＝清單「Positioner 定位器」欄與 AMS 製造商＋型號比廠牌家族（`POS_FAM`）。
+- 摘要組 `{"key":"valve","valve":true,label,note}`（`extract_db.summary_spec`，排在 `dev` 之後；舊 02 缺的話產生器補上）：`by_alias` 有此 alias 才渲染（否則整組不出現），`fillValveGroup` 懶載 57／58，每個清單列一塊 `.sum-sig`（標頭：清單位號、本卡機組、⚠ 定位器廠牌不符、兩讀 n 格、「在 57_… 開啟此列」），欄位逐格帶 `src`（文件連結開雲端檔案；兩讀在「文件資訊」列 A／B）。
+- 查詢：`lookup()` 在位號索引只有模糊對應（`contain`／`suggest`／`none`）時先查 `valve.index`：輸入帶機組且該機組恰有一台 AMS 設備 → 顯示那台（狀態列「是氣動閥清單位號，對應 AMS 設備 …」）；否則 `res.valve` → `renderValveOnly`（閥卡＋同一閥在 AMS 的設備 chips；狀態列不標紅）。`go()` 與頂列搜尋 `onEnter` 同樣不讓模糊對應蓋掉清單位號。
+- 端對端：`tools/tests/test_pneuvalve.py`（測試位號從 02.json `valve` 挑，不寫死）。
+
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
 GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只有 `data/meta.json` 是明文；瀏覽器在員工代號登入後再輸入**密語**解密（與 momobacon-wq/signal-atlas 同一套作法）。

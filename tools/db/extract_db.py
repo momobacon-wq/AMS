@@ -311,6 +311,10 @@ def summary_spec(ci3, ci13):
                 K('警報／跳機設定值（儀器清單）', 'instlist', '警報/跳機設定值'),
                 K('DCS 警報設定（端子表）', 'terminal', ['警報 1_HI', '警報 1_LO', '警報 2_HI', '警報 2_LO', '警報 3_HI', '警報 3_LO'], kv=True),
             ]},
+            # 氣動閥（排在 dev／range 這一對之後，整列寬）：02.json `valve`（pneuvalve_site.py 寫入）有此 alias 才顯示，否則整組移除；內容逐格出處取自 57／58 的 valve_src
+            {'key': 'valve', 'label': '氣動閥（全廠氣動閥清單 v2.6）', 'valve': True,
+             'note': '來源：興達全廠氣動閥LIST v2.6（Google 試算表；側欄「氣動閥清單」）。每格出處＝v2.6 補齊明細的文件＋頁碼或專屬來源欄；'
+                     '「兩讀」＝兩份一手文件讀法不同，以現場銘牌為準。'},
             {'key': 'dcs', 'label': '控制系統（控制器 I/O 組態，checkout 快照）', 'kind': 'dcdas', 'per_entry': True,
              'head': ['訊號名', '控制器', '通道'],
              'items': ['控制器', 'I/O 模組', '通道', '訊號名', '裝置位號 (DeviceTag)', '輸入型式', 'HART 通道', 'DCS AI 量程 (Low/High Value)', '訊號說明', 'signal-atlas 深連結'],

@@ -303,7 +303,14 @@
         // 與查詢卡同一套解析（去分隔符／去前後綴／唯一建議直接開）：同一字串在頂列與卡片框結果一致
         try {
           const IX = AMS.index; await IX.load();
-          const rs = IX.resolve(t); if (rs.key) key = rs.key;
+          const rs = IX.resolve(t);
+          // 氣動閥清單位號（02.json valve.index）優先於模糊對應（包含／唯一建議），交給查詢卡判斷是 AMS 設備還是只在清單
+          let vx = false;
+          if (rs.key && rs.how !== 'exact' && rs.how !== 'compact') {
+            const cm = (D.sheets || []).find((x) => x.mode === 'card');
+            try { const sp = cm ? await D.loadSheet(cm.id) : null; vx = !!(sp && sp.valve && sp.valve.index && sp.valve.index[IX.compact(t)]); } catch (e) { /* 規格載入失敗 → 照舊 */ }
+          }
+          if (rs.key && !vx) key = rs.key;
         } catch (e) { /* 索引載入失敗 → 照原字串查詢 */ }
         gs.blur(); R.go('#/card/' + encodeURIComponent(key)); gs.value = '';
       },

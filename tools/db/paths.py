@@ -2,7 +2,8 @@
 """tools/db/paths.py — 重建流程所有「repo 外」路徑的唯一來源（sheets_*.py、sheets_index.py、build_workbook.py、rebuild.py --sqlite 都從這裡拿）。
 
 每個值都可用環境變數覆寫；沒設就用預設（集中在 %LOCALAPPDATA%\\AMS，與 web.key、drive_map.json、cardwork 同處）。
-  AMS_SQLITE        還原備份後倒出的 AmsDb.sqlite（tools/db/restore.sh 的輸出）          預設 %LOCALAPPDATA%\\AMS\\AmsDb.sqlite
+  AMS_SQLITE        還原備份後倒出的 AmsDb.sqlite（tools/db/restore.sh 的輸出）          預設 %LOCALAPPDATA%\\AMS\\AmsDb.sqlite；
+                    該檔不存在時退用文件庫的備份副本 <LIBRARY_ROOT>\\AMS\\20260912_AMS資料庫解析_工作檔\\AmsDb.sqlite（20260912、已 fix_blobs＋索引；只讀）
   AMS_CARDWORK      各產生器輸出 ams／terminal／instlist／eomr／docindex／docsearch.json   預設 %LOCALAPPDATA%\\AMS\\cardwork
   AMS_PDFTXT_CACHE  pdftotext 純文字快取（docmap_eomr／docmap_docindex 的 --cache）        預設 %LOCALAPPDATA%\\AMS\\pdftxt
   AMS_LIBRARY_ROOT  工程文件庫根目錄（Google 雲端硬碟桌面版的「@@新機組資料備份」）        預設 hst-docsearch config.json 的 library_root，否則 <家目錄>\\我的雲端硬碟\\@@新機組資料備份
@@ -10,10 +11,12 @@
   AMS_BUILD_DIR     sheets_*.py 的 csv 傾印（out/）、sheets_cache.pkl、sheets_final.pkl、prev_templates.json  預設 %LOCALAPPDATA%\\AMS\\build
   AMS_DCDAS_INDEX   signal-atlas 控制器索引（build_card_aux --dcdas）                     預設 %LOCALAPPDATA%\\dcdas\\index.sqlite
   AMS_DRIVE_MAP     drive_map.py 的輸出                                                 預設 %LOCALAPPDATA%\\AMS\\drive_map.json
+  AMS_PNEUVALVE_XLSX  全廠氣動閥清單 xlsx（試算表「興達全廠氣動閥LIST_v2.6」匯出；pneuvalve_site.py 的輸入）
+                    預設 ~\\.claude\\skills\\notebooklm-batch5-Research\\data\\興達全廠氣動閥LIST_v2.6.xlsx
 
   py tools/db/paths.py     # 印出目前解析到的每個路徑與是否存在（接手新機器時先跑這個）
 
-規則：模組層級只算路徑、不建目錄、不讀檔（import 不會有副作用）；需要目錄的呼叫端自己 os.makedirs。
+規則：模組層級只算路徑（AMS_SQLITE 預設值會檢查檔案是否存在）、不建目錄、不讀檔（import 不會有副作用）；需要目錄的呼叫端自己 os.makedirs。
 """
 import json
 import os
@@ -49,15 +52,25 @@ def _fts_default():
         return ''
 
 
-AMS_SQLITE = _env('AMS_SQLITE', os.path.join(AMS_LOCAL, 'AmsDb.sqlite'))
+LIBRARY_ROOT = _env('AMS_LIBRARY_ROOT', _library_root_default())
+
+
+def _sqlite_default():
+    local = os.path.join(AMS_LOCAL, 'AmsDb.sqlite')
+    lib = os.path.join(LIBRARY_ROOT, 'AMS', '20260912_AMS資料庫解析_工作檔', 'AmsDb.sqlite')
+    return lib if not os.path.exists(local) and os.path.exists(lib) else local
+
+
+AMS_SQLITE = _env('AMS_SQLITE', _sqlite_default())
 CARDWORK = _env('AMS_CARDWORK', os.path.join(AMS_LOCAL, 'cardwork'))
 PDFTXT_CACHE = _env('AMS_PDFTXT_CACHE', os.path.join(AMS_LOCAL, 'pdftxt'))
-LIBRARY_ROOT = _env('AMS_LIBRARY_ROOT', _library_root_default())
 PREV_XLSX = _env('AMS_PREV_XLSX', os.path.join(LIBRARY_ROOT, 'AMS', '20260910_AMS解析.xlsx'))
 BUILD_DIR = _env('AMS_BUILD_DIR', os.path.join(AMS_LOCAL, 'build'))
 DCDAS_INDEX = _env('AMS_DCDAS_INDEX', os.path.join(_LOCAL, 'dcdas', 'index.sqlite'))
 DRIVE_MAP = _env('AMS_DRIVE_MAP', os.path.join(AMS_LOCAL, 'drive_map.json'))
 FTS_DB = _env('AMS_FTS_DB', _fts_default())
+PNEUVALVE_XLSX = _env('AMS_PNEUVALVE_XLSX', os.path.join(os.path.expanduser('~'), '.claude', 'skills', 'notebooklm-batch5-Research', 'data',
+                                                        '興達全廠氣動閥LIST_v2.6.xlsx'))
 
 # 衍生路徑（由上面推得，不另設環境變數）
 SHEETS_OUT = os.path.join(BUILD_DIR, 'out')                       # sheets_*.py 直接執行時的 csv 傾印
@@ -68,7 +81,8 @@ DOCSEARCH_JSON = os.path.join(CARDWORK, 'docsearch.json')          # docmap_docs
 
 ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFTXT_CACHE), ('LIBRARY_ROOT', LIBRARY_ROOT),
        ('PREV_XLSX', PREV_XLSX), ('BUILD_DIR', BUILD_DIR), ('SHEETS_CACHE', SHEETS_CACHE), ('SHEETS_FINAL', SHEETS_FINAL),
-       ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB)]
+       ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB),
+       ('PNEUVALVE_XLSX', PNEUVALVE_XLSX)]
 
 
 def report():

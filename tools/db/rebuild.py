@@ -7,6 +7,8 @@
   py tools/db/rebuild.py --skip-drive-map   # 不重讀 Google 雲端硬碟中繼資料
   py tools/db/rebuild.py --cardwork DIR     # 有各產生器輸出時做完整建置（build_card_aux DIR），而不是 --recompare
   py tools/db/rebuild.py --only-stamp       # 只改了前端程式：兩站重新戳記＋驗證
+  py tools/db/rebuild.py --only-pneuvalve   # 只重新併入氣動閥清單（試算表改了）：pneuvalve_site → 戳記 → 驗證
+                                            # （兩條完整路徑最後也都會跑 pneuvalve_site；--skip-pneuvalve 略過）
   py tools/db/rebuild.py --only-stamp --e2e # push 前關卡：戳記＋驗證＋端對端測試（tools/tests/run_e2e.py），結尾印 git status --short docs/
   py tools/db/rebuild.py --sqlite <AmsDb.sqlite> [--backup-date 2026-09-12]
                                             # 一條龍（拿到新的 .ams_bckup、tools/db/restore.sh 倒出 SQLite 之後）：
@@ -57,6 +59,16 @@ def verify_and_finish(a, t0, label):
     subprocess.run(['git', 'status', '--short', 'docs/'], cwd=ROOT)
 
 
+PNEU = '氣動閥清單（pneuvalve_site：%s → 57～61 分頁、查詢卡「氣動閥」組；自行解密／加密）'
+
+
+def run_pneuvalve(a):
+    """必須在 extract_db／build_card_aux／patch_site_spec 之後（它們會清掉 sheets/ 或重寫 02 摘要）；資料加密中也可直接跑。"""
+    if a.skip_pneuvalve:
+        print('\n== 略過氣動閥清單（--skip-pneuvalve）：57～61 分頁與查詢卡氣動閥組不會出現 ==', flush=True); return
+    run(PNEU % paths.PNEUVALVE_XLSX, PY, os.path.join('tools', 'db', 'pneuvalve_site.py'), DATA)
+
+
 def rebuild_from_sqlite(a, t0):
     """--sqlite：README「重建」步驟表的全部步驟。每步先印輸入／輸出路徑；任一步失敗就停（明文會先加密回去）。"""
     sqlite = os.path.abspath(a.sqlite)
@@ -94,6 +106,7 @@ def rebuild_from_sqlite(a, t0):
                 '--library', lib, '--drive-map', paths.DRIVE_MAP)
         run('查詢卡附加資料（build_card_aux 完整：%s → card/*.json，加密、戳記）' % cardwork, PY, os.path.join(db, 'build_card_aux.py'), cardwork, DATA,
             '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP)
+        run_pneuvalve(a)
     except BaseException:
         if is_plaintext():
             print('\n!! 建置失敗，資料仍是明文 → 先原地加密回去（不留明文）', flush=True)
@@ -116,8 +129,19 @@ def main():
     ap.add_argument('--sqlite', metavar='AmsDb.sqlite', help='一條龍：從 restore.sh 倒出的 SQLite 重做 Excel、網站資料、cardwork 與查詢卡附加資料')
     ap.add_argument('--backup-date', default='2026-09-12', help='備份日（card_ams_extra 的「距備份 N 天」基準；--sqlite 用）')
     ap.add_argument('--skip-workbook', action='store_true', help='--sqlite 時略過 build_workbook（沿用 paths.SHEETS_FINAL）')
+    ap.add_argument('--skip-pneuvalve', action='store_true', help='略過氣動閥清單（pneuvalve_site.py；57～61 分頁與查詢卡氣動閥組會消失）')
+    ap.add_argument('--only-pneuvalve', action='store_true', help='只重新併入氣動閥清單（試算表改了、AMS 資料沒變）→ 戳記 → 驗證')
     a = ap.parse_args()
     t0 = time.time()
+    if a.only_pneuvalve:
+        try:
+            run_pneuvalve(a)
+        except BaseException:
+            if is_plaintext():
+                subprocess.run([PY, os.path.join('tools', 'encrypt_data.py'), DATA], cwd=ROOT)
+            raise
+        stamp_both()
+        verify_and_finish(a, t0, '氣動閥清單'); return
     if a.only_stamp:
         stamp_both()
         verify_and_finish(a, t0, '只戳記'); return
@@ -136,6 +160,7 @@ def main():
             run('查詢卡附加資料（build_card_aux 完整）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), a.cardwork, DATA)
         else:
             run('查詢卡附加資料（build_card_aux --recompare：併入 docsearch、Drive 連結、重算比對、加密、戳記）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), '--recompare', DATA)
+        run_pneuvalve(a)
     except BaseException:
         if is_plaintext():
             print('\n!! 建置失敗，資料仍是明文 → 先原地加密回去（不留明文）', flush=True)

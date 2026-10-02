@@ -22,6 +22,7 @@
 - 02_設備查詢卡：輸入目前／舊位號、識別時位號、HostTag、裝置 ID、設備鍵、GUID 或別名（D0xxxx，與前一版相同）。
 - 各表都有「設備別名 (alias)」欄，可在兩個資料集之間互相對照。
 - 未收錄於網站（只在 Excel 明細活頁簿）：範本參數現值 306,891 列、全部警報定義 140,438 列。
+- **氣動閥清單**（側欄群組，57～61）：Google 試算表「興達全廠氣動閥LIST_v2.6」併入——57 主表／58 水處理（每列附 AMS 設備連結與定位器廠牌比對）、59 兩讀並列、60 推翻紀錄、61 刪除紀錄。查詢卡：對到清單的 AMS 設備多一組「氣動閥」（閥體／執行器／定位器／SOV／極限開關／失效動作…，每格附出處、可開雲端文件）；AMS 沒有的閥位號（開關閥等）改顯示閥卡，不再是「查無」。試算表改了：`rclone backend copyid gdrive: 1_WOl6HYkY9y0WbGRH_NHP6d8cOsAWgk4ZmA1hwIQ5LE <xlsx> --drive-export-formats xlsx`（或 fill26 的 build_v26.py 輸出）→ `py tools/db/rebuild.py --only-pneuvalve --e2e`。格式見 CONTRACT.md「v4」。
 
 ### 重建（拿到新的 .ams_bckup 時）
 
@@ -38,6 +39,7 @@
 | 5. 全文檢索 | `py tools/db/docmap_docsearch.py --data docs/db/data` | hst-docsearch 的 FTS 索引、`drive_map.json` | `CARDWORK/docsearch.json` | 4 分 |
 | 6. 查詢卡附加資料 | `py tools/db/build_card_aux.py <CARDWORK> docs/db/data` | cardwork 五份＋docsearch、`%LOCALAPPDATA%\dcdas\index.sqlite`、`drive_map.json` | `docs/db/data/card/*.json` → 加密＋戳記 | 3 分 |
 | 7. 戳記＋驗證 | `py tools/db/rebuild.py --only-stamp` | — | 兩站 `index.html`／`version.json`；`verify_encrypted` 0 錯誤 | 1 分 |
+| 7b. 氣動閥清單 | `py tools/db/pneuvalve_site.py docs/db/data`（`rebuild.py` 兩條路徑結尾自動跑；`--only-pneuvalve` 單跑） | `PNEUVALVE_XLSX`、`<CARDWORK>/pneuvalve_xwalk.json`、`drive_map.json` | `sheets/57～61.json`、02.json `valve`、00 目錄、manifest | 1 分 |
 | 8. push 前 | `py tools/db/rebuild.py --only-stamp --e2e` | — | 端對端測試全綠 | 3 分 |
 
 只改資料來源（docsearch／Drive 連結／比對規則）而沒有新備份時仍用 `py tools/db/rebuild.py`（`--recompare`，見下）；`rebuild.py --sqlite` 也接受 `--skip-workbook`（沿用 `sheets_final.pkl`）、`--skip-docsearch`、`--skip-drive-map`。
@@ -193,7 +195,8 @@ tools/db/docmap_docsearch.py    cardwork/docsearch.json：hst-docsearch FTS 全�
 tools/db/drive_map.py           %LOCALAPPDATA%\AMS\drive_map.json：文件庫相對路徑 → Google 雲端硬碟檔案 ID
 tools/db/build_card_aux.py      docs/db/data/card/*.json：五份 cardwork＋dcdas 索引＋docsearch＋drive_map → 查詢卡附加資料、DCS 比對（--recompare 只重算）
 tools/db/patch_site_spec.py     把 extract_db 的 02／13 規格改動套到已發布資料
-tools/db/rebuild.py             一鍵：--recompare 流程、--only-stamp、--e2e、--sqlite 一條龍
+tools/db/rebuild.py             一鍵：--recompare 流程、--only-stamp、--e2e、--sqlite 一條龍、--only-pneuvalve
+tools/db/pneuvalve_site.py      氣動閥清單（試算表 xlsx）→ 57～61 分頁、02.json valve、00 目錄（自行解密／加密）
 tools/stock/README.md           備品庫存部署、匯入、本機測試、D1 額度
 tools/stock/worker/src/index.js Cloudflare Worker API（list／logs／txn／clientlog；D1）
 tools/stock/worker/schema.sql   D1 表：items、ledger、txns、client_log、revoked
@@ -206,7 +209,7 @@ tools/stock/mock_stock.py  mock_inventory.json   本機備品後端替身與假�
 tools/stock/Code.gs             試算表版替代後端
 tools/tests/run_e2e.py          端對端入口（起 mock 伺服器、給 mock 真的 stockToken、跑 test_*.py）
 tools/tests/e2e_common.py       開瀏覽器、登入、輸入密語、載入卡片
-tools/tests/test_auth.py  test_card.py  test_stock.py  test_sw.py  test_main.py   各測試模組（涵蓋見「端對端測試」）
+tools/tests/test_auth.py  test_card.py  test_stock.py  test_sw.py  test_main.py  test_pneuvalve.py   各測試模組（涵蓋見「端對端測試」）
 ```
 
 ### repo 外的檔案（建置機器；遺失後果與重建方式）
@@ -214,7 +217,9 @@ tools/tests/test_auth.py  test_card.py  test_stock.py  test_sw.py  test_main.py 
 | 路徑 | 由誰產生 | 用途 | 遺失後果 | 重建 |
 |---|---|---|---|---|
 | `%LOCALAPPDATA%\AMS\web.key` | 首次 `encrypt_data.py`（第 2 行 salt 自動產生） | 密語＋salt；所有加密／驗證／E2E 都讀它 | **無法重建資料、無法驗證、E2E 全掛；密語沒人記得＝資料要重新產生並全員換密語** | 從密碼管理器還原；或 `rotate_passphrase.py` 換新（要重新產生兩站資料時才不需要舊密語） |
-| `%LOCALAPPDATA%\AMS\AmsDb.sqlite` | `tools/db/restore.sh` | 所有 sheets_*.py、card_ams_extra、docmap_eomr 的資料來源 | 不能重跑 Excel／網站資料，只能用 `--recompare` 繞 | `restore.sh <備份> <輸出>`（10 分鐘） |
+| `%LOCALAPPDATA%\AMS\AmsDb.sqlite` | `tools/db/restore.sh` | 所有 sheets_*.py、card_ams_extra、docmap_eomr 的資料來源 | 不能重跑 Excel／網站資料，只能用 `--recompare` 繞 | `restore.sh <備份> <輸出>`（10 分鐘）；本機沒有時 `paths.py` 自動改讀文件庫的備份副本 `AMS60912_AMS資料庫解析_工作檔\AmsDb.sqlite`（20260912、已 fix_blobs；只讀） |
+| `PNEUVALVE_XLSX`（預設 `~\.claude\skills\notebooklm-batch5-Research\data\興達全廠氣動閥LIST_v2.6.xlsx`） | 試算表匯出／fill26 build_v26.py | 氣動閥清單 57～61 與查詢卡氣動閥組 | `pneuvalve_site` 中止（rebuild 可 `--skip-pneuvalve`，但氣動閥分頁會消失） | rclone 從試算表匯出（README「氣動閥清單」） |
+| `%LOCALAPPDATA%\AMS\cardwork\pneuvalve_xwalk.json` | 2026-10-02 對照驗證（副本在 fill26/pneuvalve_ams_xwalk.json） | 氣動閥 ↔ AMS 對照覆寫（剔除／補對／備註） | 只剩自動規則：少 2 組 GE 90LT 對照、查詢卡少驗證備註 | 從 fill26 副本複製回來 |
 | `%LOCALAPPDATA%\AMS\build\sheets_cache.pkl`、`sheets_final.pkl` | `build_workbook.py` | 模組結果快取；`sheets_final.pkl`＝extract_db 的輸入 | 只能 `--recompare`／`patch_site_spec` 繞，資料層退化 | 重跑 `build_workbook.py`（10 分鐘） |
 | `%LOCALAPPDATA%\AMS\cardwork\*.json` | 五個產生器＋docmap_docsearch | build_card_aux 完整建置的輸入 | 只能 `--recompare`：儀器清單／EOMR 量程不再列入比對 | `rebuild.py --sqlite`（需文件庫） |
 | `%LOCALAPPDATA%\AMS\pdftxt\` | docmap_eomr／docmap_docindex | pdftotext 純文字快取 | 重抽一次（數小時） | 自動 |
