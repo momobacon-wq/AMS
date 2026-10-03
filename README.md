@@ -204,6 +204,7 @@ tools/db/build_card_aux.py      docs/db/data/card/*.json：五份 cardwork＋dcd
 tools/db/patch_site_spec.py     把 extract_db 的 02／13 規格改動套到已發布資料
 tools/db/rebuild.py             一鍵：--recompare 流程、--only-stamp、--e2e、--sqlite 一條龍、--only-pneuvalve
 tools/db/pneuvalve_site.py      氣動閥清單（試算表 xlsx）→ 57～61 分頁、02.json valve、00 目錄（自行解密／加密）
+tools/db/pneuvalve_keys.py      氣動閥清單每列可搜尋的識別碼（GE 舊位號、去機組核心、Mark VIe 器件名、GE KKS、附件位號）→ valve.index／valve.list
 tools/stock/README.md           備品庫存部署、匯入、本機測試、D1 額度
 tools/stock/worker/src/index.js Cloudflare Worker API（list／logs／txn／clientlog；D1）
 tools/stock/worker/schema.sql   D1 表：items、ledger、txns、client_log、revoked
