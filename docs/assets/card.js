@@ -832,7 +832,7 @@
       const mode = this.currentMode();
       const empty = (txt) => { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, txt)); };
       if (sa.key === 'compare') { this.fillCompare(aux, grid); return; }
-      if (sa.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }
+      if (sa.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, false); return; }   // false＝完整資料區段（整列寬的大圖，不掛 .sum-has-shot）
       if (sa.kind) { // 工程文件
         if (!sec) {
           const used = this.searchedList(ix, sa.kind);
@@ -1172,7 +1172,7 @@
       grid.innerHTML = '';
       const sec = (aux && aux.sec && aux.sec[g.kind]) || null;
       const used = ix ? this.searchedList(ix, g.kind) : [];
-      if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, false); return; }
+      if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }   // true＝摘要組（寬容器時左欄位右縮圖）
       if (g.kind === 'docindex' || g.kind === 'docsearch') {
         if (!sec || !(sec.rows || []).length) {
           grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
@@ -1204,9 +1204,10 @@
 
     /** 圖控 HMI 畫面位置（card aux `sec.hmi`，CONTRACT.md「圖控 HMI 畫面位置」）：
      *  rows 每（畫面, 選單機組）一組 4 列（圖控畫面／導覽路徑／所在位置／對應方式），以 extra.g 分組，
-     *  第一列的 extra 帶 nav／img／marks。withImages=true（完整資料區段）才載縮圖並把紅圈以百分比疊上去
-     *  （標記不燒進影像，同一張圖可給多個位號共用）；摘要組只列名稱與路徑。 */
-    fillHmi(sec, ix, grid, mode, withImages) {
+     *  第一列的 extra 帶 nav／img／marks。摘要組與完整資料區段都有縮圖＋紅圈（標記以百分比疊上去，不燒進影像，
+     *  所以同一張圖可給多個位號共用）；`inSum` 只決定版面——摘要組的畫面塊掛 `.sum-has-shot`，寬容器（容器查詢 ≥ 1150px）時
+     *  左欄四個欄位、右欄縮圖；完整資料區段維持整列寬的大圖。影像本身延後到祖先 <details> 展開才抓（whenDetailsOpen）。 */
+    fillHmi(sec, ix, grid, mode, inSum) {
       grid.innerHTML = '';
       grid.classList.remove('cfields', 'sumgrid');   // 每個畫面一塊（內含自己的 .cfields），不是一格一欄
       grid.classList.add('hmi-body');
@@ -1224,7 +1225,8 @@
           : `查無（${scope ? scope + '：' : ''}這些畫面都沒有引用此位號）`));
         return;
       }
-      const list = U.h('div', { class: 'hmi-list' + (withImages ? ' shots' : '') });
+      const list = U.h('div', { class: 'hmi-list' });
+      const loaders = [];   // 每張縮圖的影像載入函式；收合中先不跑（見下方 whenDetailsOpen）
       const groups = [];
       for (const r of rows) {
         const ex = (r.length > 4 && r[4]) || {};
@@ -1247,10 +1249,15 @@
           ex.unit ? U.h('span', { class: 'hmi-unit', title: '開啟這張畫面的選單項所屬機組，不是這台儀器所屬機組' }, '以選單機組 ' + ex.unit + ' 開啟') : null,
           U.h('span', { class: 'hmi-file mono' }, ex.s));
         block.appendChild(head);
-        if (withImages) {
-          if (ex.img && meta.file) block.appendChild(this.hmiShot(meta, ex, title));
-          else block.appendChild(U.h('p', { class: 'muted small hmi-noimg' }, '此畫面檔未內含設計時影像（.cim 沒有 ThumbNail 串流），只能顯示畫面名稱與導覽路徑。'));
-        }
+        // sum-has-shot：摘要組裡有縮圖的區塊才在寬容器下左右並排（左欄位右縮圖，app.css 的 @container hmilist）。
+        // class 只在摘要路徑掛：完整資料區沒有宣告 container-name 的祖先，掛了目前無害但是日後的陷阱。
+        if (ex.img && meta.file) {
+          // 摘要組：渲染時就載圖。延後到展開才載行不通——點開摘要組會觸發重新渲染並把它恢復成收合，
+          // toggle 監聽留在被換掉的舊 <details> 上，縮圖永遠停在 loading（2026-10-03 使用者回報「沒有看到圖控畫面」）。
+          // 完整資料區（.cq-more）仍延後：那一區預設收合，展開是明確動作，不會被重新渲染重置。
+          if (inSum) block.classList.add('sum-has-shot');
+          block.appendChild(this.hmiShot(meta, ex, title, inSum ? null : loaders));
+        } else block.appendChild(U.h('p', { class: 'muted small hmi-noimg' }, '此畫面檔未內含設計時影像（.cim 沒有 ThumbNail 串流），只能顯示畫面名稱與導覽路徑。'));
         const fields = U.h('div', { class: 'cfields hmi-f' });
         for (const r of grp.rows) {
           fields.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: r[0] === '導覽路徑' || r[0] === '對應方式' ? 2 : undefined,
@@ -1260,21 +1267,50 @@
         list.appendChild(block);
       }
       grid.appendChild(list);
-      const noimg = withImages ? groups.filter((g) => !g.head.img).length : 0;
+      // 收合中不抓影像：摘要組與完整資料區段都是「卡片一渲染就填好」（不是展開才填），而每張畫面影像是 70–105 KB 的密文
+      // （抓 → AES-GCM 解密 → gunzip → base64 → blob）。同 line 346「完整資料收合時不載變更歷程」的作法，等真的展開再載。
+      this.whenDetailsOpen(grid, () => loaders.forEach((f) => f()));
+      const noimg = groups.filter((g) => !g.head.img).length;
       if (noimg && groups.length > noimg) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, `其中 ${noimg} 個畫面檔未內含設計時影像。`));
     }
-    /** 一張畫面縮圖＋標記（按鈕：點開燈箱放大）。影像 JSON 解密後轉 blob URL（core.js D.loadHmiImage）。 */
-    hmiShot(meta, ex, title) {
+    /** el 位在收合的 <details>（摘要組預設收起、完整資料區 .cq-more）內時，等祖先全部展開才跑 load，而且只跑一次；
+     *  都已經展開就立刻跑。注意 beforeprint 會強制展開全部 <details>，但 load 是非同步的，沒展開過的組第一次列印
+     *  可能只印到 .hmi-frame.loading 佔位框（與「參數現值」同一個已知取捨；佔位文字在列印時會說明原因）。 */
+    whenDetailsOpen(el, load) {
+      // 以「元素真的可見」當觸發，不靠祖先 <details> 的 toggle 事件鏈：摘要組的 grid 在 fillSumGroup 當下
+      // 的祖先鏈不保證已經接上（2026-10-03 實測摘要組展開後 toggle never fired，縮圖永遠停在 loading）。
+      let done = false;
+      let io = null;
+      const run = () => { if (done || this.destroyed) return; done = true; if (io) io.disconnect(); load(); };
+      const closed = () => {
+        for (let d = el.closest('details'); d; d = d.parentElement ? d.parentElement.closest('details') : null) if (!d.open) return true;
+        return false;
+      };
+      const visible = () => el.getClientRects().length > 0 && !closed();
+      if (visible()) { run(); return; }
+      if (typeof IntersectionObserver === 'function') {
+        io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting || e.boundingClientRect.height > 0)) run(); });
+        io.observe(el);
+      }
+      for (let d = el.closest('details'); d; d = d.parentElement ? d.parentElement.closest('details') : null) {
+        d.addEventListener('toggle', () => { if (visible()) run(); });
+      }
+      window.addEventListener('beforeprint', run, { once: true });   // 列印一定要有圖
+    }
+    /** 一張畫面縮圖＋標記（按鈕：點開燈箱放大）。影像 JSON 解密後轉 blob URL（core.js D.loadHmiImage）。
+     *  loaders 有給就把載入函式推進去（由 whenDetailsOpen 在展開後才跑），沒給就立刻載。 */
+    hmiShot(meta, ex, title, loaders) {
       const btn = U.h('button', { type: 'button', class: 'hmi-shot', 'aria-label': '放大畫面：' + title, title: '點擊放大' });
       const frame = this.hmiFrame(meta, ex);
       btn.appendChild(frame);
       btn.appendChild(U.h('span', { class: 'hmi-zoom', 'aria-hidden': 'true' }, '⤢ 放大'));
-      D.loadHmiImage(meta.file).then((o) => {
+      const load = () => D.loadHmiImage(meta.file).then((o) => {
         if (this.destroyed) return;
-        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面縮圖（設計時影像）', loading: 'lazy', decoding: 'async', width: o.w || null, height: o.h || null });
+        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面縮圖（設計時影像）', decoding: 'async', width: o.w || null, height: o.h || null });
         frame.insertBefore(img, frame.firstChild);
         frame.classList.remove('loading');
       }).catch((e) => { if (!this.destroyed) { frame.classList.remove('loading'); frame.appendChild(U.h('span', { class: 'muted small hmi-err' }, '無法載入畫面影像：' + ((e && e.message) || e))); } });
+      if (loaders) loaders.push(load); else load();
       btn.addEventListener('click', () => this.openHmiLightbox(meta, ex, title));
       return btn;
     }

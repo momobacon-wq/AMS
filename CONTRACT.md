@@ -278,8 +278,19 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 
 ### 前端（card.js `fillHmi`／`hmiShot`／`hmiFrame`／`openHmiLightbox`；core.js `D.loadHmiImage`；app.css）
 
-- 摘要組 `{"key":"hmi","kind":"hmi","collapsed":true,"after_stock":true}`（排在「文件全文檢索」之後）**只列畫面名稱＋導覽路徑**，不載影像；
-  附加區段 `{"key":"hmi","kind":"hmi"}`（排在 `docsearch` 之後）才有縮圖與標記。兩者都走 `fillHmi()`，`withImages` 決定載不載圖。
+- 摘要組 `{"key":"hmi","kind":"hmi","collapsed":true,"after_stock":true}`（排在「文件全文檢索」之後）與附加區段 `{"key":"hmi","kind":"hmi"}`
+  （排在 `docsearch` 之後）**都有縮圖與標記**（2026-10-03：使用者回報在摘要看不到圖控畫面，摘要組從「只列名稱＋導覽路徑」改成也顯示縮圖）。
+  兩者都走 `fillHmi(sec, ix, grid, mode, inSum)`；第 5 個參數**只決定版面**，不再決定載不載圖（原本的 `withImages` 已經沒有 `false` 的呼叫點）：
+  - 摘要組（`inSum=true`）佔整列寬（`.sum-hmi { grid-column: 1 / -1 }`——漏了這一條就只佔兩欄格的左半、右半邊空著），
+    有縮圖的畫面塊掛 `.sum-has-shot`，而 `.sum-hmi .hmi-list` 宣告 `container-type: inline-size; container-name: hmilist`：
+    **容器 ≥ 1150px 時左欄四個欄位、右欄縮圖**（`@container hmilist`，看容器寬不是視窗寬；1280 筆電的容器是 1238px，成立）。
+    斷點刻意不取 900：容器 900–1100（含 iPad 橫向 1024）時左欄只有 374–440px，`src-full` 的三欄 `.cf` 會把中文值切成 7–10 行，比上下排版更難讀。
+    窄容器與沒有縮圖的畫面塊維持原本的「圖在上、欄位在下」；左欄比縮圖矮時下方留白（`align-self: start` 的必然代價，不要改成 stretch，否則 `.cfields` 會把高度攤給每一列）。
+  - 附加區段（`inSum=false`）不掛 `.sum-has-shot`、不套容器查詢，維持整列寬的大圖（那裡縮圖是主角）。
+- **影像延後載入**：`hmiShot()` 只先建好 `.hmi-frame.loading` 佔位，真正的 `D.loadHmiImage` 由 `whenDetailsOpen(grid, …)`
+  在祖先 `<details>`（摘要組自己／`.cq-more`）**全部展開後**才跑一次。兩個區段都是「卡片一渲染就填好」（不是展開才填），
+  不延後的話只要位號有圖控畫面，每次開卡都會白抓 70–105 KB／張的密文。代價：`beforeprint` 強制展開時 `load` 來不及完成，
+  沒展開過的組第一次列印只會印到佔位框（與「參數現值」同一個已知取捨；`@media print` 的佔位文字會說明原因）。
 - 影像：`D.loadHmiImage(path)` → `D.fetchJSON`（AES-GCM → gunzip）→ base64 → `Blob` → `URL.createObjectURL`；同一張圖多處共用，
   `CardView.destroy()` 呼叫 `D.revokeHmiImages()` 一次 revoke 並把 `card/hmi/*` 從 `D.cache` 丟掉。**`docs/db/index.html` 的 CSP `img-src` 必須含 `blob:`。**
 - 標記**不燒進影像**：`.hmi-mk`（紅圈）／`.hmi-box`（物件矩形）是以百分比絕對定位疊在 `<img>` 上的空元素，所以同一張圖可給多個位號共用，放大時自動同步縮放。

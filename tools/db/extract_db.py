@@ -334,10 +334,10 @@ def summary_spec(ci3, ci13):
             {'key': 'search', 'label': '文件全文檢索（hst-docsearch：位號／序號命中的文件與頁碼）', 'kind': 'docsearch', 'collapsed': True, 'after_stock': True,
              'note': '搜整個工程文件庫的全文索引（文字層＋OCR）；「文件-版次 p.N｜命中行」，數值可點開 Google 雲端硬碟的那份檔案。位號不採 OCR 命中；'
                      '「序號命中」「型號／廠牌／量程（文件）」是由命中行以規則抽出的推定值，僅供對照，不列入 DCS 比對。'},
-            # 圖控 HMI 畫面（card aux 的 sec.hmi）：摘要只列畫面名稱＋導覽路徑；縮圖與紅圈標記在「完整資料 › 圖控 HMI 畫面位置」
+            # 圖控 HMI 畫面（card aux 的 sec.hmi）：摘要組展開即顯示縮圖＋紅圈標記（2026-10-03 使用者回報在摘要看不到圖），完整資料區另有同一張圖
             {'key': 'hmi', 'label': '圖控 HMI 畫面（這台儀器畫在哪一頁）', 'kind': 'hmi', 'collapsed': True, 'after_stock': True,
              'note': '來源：圖控畫面檔（GE CIMPLICITY／ActivePoint 的 .cim，唯讀原檔未修改）——物件屬性包（device／caption／aliasSignal…）代入選單變數後切出位號，'
-                     '再以物件矩形換算成畫面上的位置。畫面縮圖與紅圈標記在下方「完整資料 › 圖控 HMI 畫面位置」。'
+                     '再以物件矩形換算成畫面上的位置。展開本組就會顯示畫面縮圖與紅圈標記（點圖可放大）；下方「完整資料 › 圖控 HMI 畫面位置」有同一張圖與完整欄位。'
                      '索引建在 Screens 根目錄的 248 個畫面（操作員能從選單導覽到的）；另 225 個在子目錄的元件面板與函式庫範本'
                      '（customFaceplate／tpFpFaceplate／customLibrary…）不建索引——它們沒有選單列也沒有畫面變數，'
                      '但字串已逐條掃過，命中的位號都已由根目錄畫面涵蓋，所以 248＋225＝473 個 .cim 都查過了。'

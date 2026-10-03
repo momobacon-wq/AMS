@@ -64,13 +64,43 @@ def run(ctx):
         # ---- 參數現值連結帶 rn=（分塊表只載 r..rn 所在的分塊）
         ck('param quick link carries rn=', page.locator('.cq-more .clinks a[href*="rn="]').count() >= 1)
         page.locator('.cq-more > summary').click(); page.wait_for_timeout(200)
-        # ---- 圖控 HMI 畫面位置（CONTRACT.md v5）：摘要只有名稱＋路徑；完整資料裡有縮圖、標記、燈箱
+        # ---- 圖控 HMI 畫面位置（CONTRACT.md v5）：摘要組與完整資料都有縮圖＋標記，但影像延後到展開才抓；摘要組整列寬、寬容器時左欄位右縮圖
+        page.evaluate('performance.clearResourceTimings()')
         load_card(page, ctx, HMI_TAG)
+        # 摘要組的縮圖在渲染時就載：延後到展開才載行不通——點開摘要組會觸發重新渲染並把它恢復成收合，
+        # toggle 監聽留在被換掉的舊 <details> 上，縮圖永遠停在 loading（2026-10-03 使用者回報「沒有看到圖控畫面」）。
+        # 完整資料區（.cq-more 預設收合、展開是明確動作）仍延後載入，所以同一張圖只抓一次。
+        page.wait_for_function("(() => { const i = document.querySelector('.sum-hmi .hmi-img'); return i && i.complete && i.naturalWidth > 0; })()", timeout=30000)
+        pre = page.evaluate("""(() => ({ req: performance.getEntriesByType('resource').filter(e => /\\/card\\/hmi\\//.test(e.name)).length,
+          sumImg: document.querySelectorAll('.sum-hmi .hmi-img').length, auxImg: document.querySelectorAll('.cq-more .hmi-img').length,
+          auxPh: document.querySelectorAll('.cq-more .hmi-frame.loading').length,
+          moreOpen: document.querySelector('details.cq-more').open }))()""")
+        ck('摘要組渲染時就載縮圖、完整資料區仍延後（同一張圖最多抓 1 次；命中快取時 0 次）',
+           pre['req'] <= 1 and pre['sumImg'] >= 1 and pre['auxImg'] == 0 and pre['auxPh'] >= 1 and not pre['moreOpen'], pre)
         page.evaluate("document.querySelector('details.sum-hmi').open = true")
-        page.wait_for_timeout(400)
+        page.wait_for_function("(() => { const i = document.querySelector('.sum-hmi .hmi-img'); return i && i.complete && i.naturalWidth > 0; })()", timeout=30000)
         sum_hmi = page.inner_text('.sum-hmi')
         ck('摘要圖控組：畫面名稱＋導覽路徑', 'BOP_Feed_Water.cim' in sum_hmi and '›' in sum_hmi, sum_hmi[:80])
-        ck('摘要圖控組不載影像', page.locator('.sum-hmi .hmi-img').count() == 0)
+        ck('摘要圖控組展開即顯示縮圖與標記', page.locator('.sum-hmi .hmi-img').count() >= 1 and page.locator('.sum-hmi .hmi-mk').count() == 2)
+        lay = page.evaluate("""(() => { const g = document.querySelector('.sum-hmi'), s = g.querySelector('.hmi-screen');
+          const f = s.querySelector('.hmi-f').getBoundingClientRect(), sh = s.querySelector('.hmi-shot').getBoundingClientRect();
+          const im = s.querySelector('img.hmi-img').getBoundingClientRect(), fr = s.querySelector('.hmi-frame').getBoundingClientRect();
+          return {gap: Math.round(g.getBoundingClientRect().width - g.parentElement.getBoundingClientRect().width),
+                  cols: getComputedStyle(s).gridTemplateColumns, fLeft: Math.round(f.left), shotLeft: Math.round(sh.left), fW: Math.round(f.width),
+                  listW: Math.round(g.querySelector('.hmi-list').clientWidth), dw: Math.round(im.width - fr.width),
+                  split: s.classList.contains('sum-has-shot'), auxN: document.querySelectorAll('.aux-hmi .hmi-screen').length,
+                  auxSplit: document.querySelectorAll('.aux-hmi .hmi-screen.sum-has-shot').length}; })()""")
+        ck('摘要圖控組佔整列寬（不是半格，右半不留空）', abs(lay['gap']) <= 1, lay)
+        ck('寬容器：左邊欄位、右邊縮圖（容器查詢兩欄，斷點 1150）',
+           ' ' in lay['cols'] and lay['shotLeft'] > lay['fLeft'] and lay['listW'] >= 1150 and lay['split'], lay)
+        # 左欄不能窄到讓 src-full 的三欄把中文值切成 7 行以上（斷點 900 時左欄只有 374–440px，比不並排還難讀）
+        ck('並排時左欄仍讀得下去（≥ 430px）', lay['fW'] >= 430, lay)
+        ck('完整資料區不掛 .sum-has-shot（容器查詢只給摘要組）', lay['auxN'] >= 1 and lay['auxSplit'] == 0, lay)
+        ck('縮圖貼齊標記框（標記位置才對得上）', abs(lay['dw']) <= 3, lay)
+        page.locator('.sum-hmi .hmi-shot').first.click(); page.wait_for_timeout(500)
+        ck('摘要縮圖也能點開燈箱（容器查詢祖先不影響）', page.locator('.hmi-lb').count() == 1 and page.locator('.hmi-lb .hmi-mk').count() == 2)
+        page.keyboard.press('Escape'); page.wait_for_timeout(300)
+        ck('燈箱 Esc 關得掉', page.locator('.hmi-lb').count() == 0)
         page.evaluate("document.querySelector('details.cq-more').open = true")
         page.wait_for_function("document.querySelectorAll('.aux-hmi .hmi-img').length > 0", timeout=30000)
         page.evaluate("document.querySelector('.aux-hmi .hmi-img').scrollIntoView({block:'center'})")
