@@ -645,7 +645,8 @@ def hmi_write_images(outdir, out, hm, stats):
           'note': ('x／y 是 0~1 的畫面比例、左上為原點，可直接乘縮圖寬高；marks 每筆＝[中心 x, 中心 y, 框寬, 框高]，'
                    '框寬／高為 0 時只標點不畫框，**marks[0] 就是「所在位置」文字描述的那處**（前端照陣列順序編 ①②③）。'
                    '縮圖是 .cim 內含的設計時 ThumbNail（EMF），不是執行時截圖，'
-                   '所以數值顯示成 ### 、部分標題是 CAPTION 佔位、左側導覽抽屜是所有選單項疊影。'
+                   '所以數值顯示成 ### 、部分標題是 CAPTION 佔位；左側導覽抽屜、左上角錶框、選單列與 Loading 提示'
+                   '原本是所有選單項／所有機組變體疊在一起，已在產圖時塗成空面板。'
                    'stats.screens_total＝建索引的根目錄畫面數；screens_all＝Screens 遞迴全部 .cim；'
                    'excluded＝子目錄的元件面板／函式庫（不建索引，但字串掃過，見 searched.hmi[0].why）。'),
           'stats': {'devices': ndev, 'screens': len(screens), 'screens_with_img': len(files),
