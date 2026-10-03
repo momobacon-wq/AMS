@@ -1092,9 +1092,133 @@
     if (i < 0) return U.esc(t);
     return U.esc(t.slice(0, i)) + '<mark>' + U.esc(t.slice(i, i + n.length)) + '</mark>' + U.esc(t.slice(i + n.length));
   };
+  /* ---------- 氣動閥清單（02.json valve；tools/db/pneuvalve_site.py）：查詢卡、頂列搜尋、自動完成共用 ----------
+   * valve.index＝{compact 鍵: [[sid, 列], …]}（清單位號、展開位號、去機組核心、GE 舊位號、Mark VIe 器件名、GE KKS、附件位號…；一鍵可對多列）
+   * valve.weak＝多列共用的廠商代號（V1、IGV）；valve.list＝[sid, 列, 位號, [別名…], 中文名, 英文名]（建議用） */
+  const VS = (AMS.valves = {});
+  VS.load = function () { // D.fetchJSON 有快取：查詢卡已載過規格就不再下載
+    if (!VS._p) {
+      const cm = (D.sheets || []).find((x) => x.mode === 'card');
+      if (!cm) return Promise.resolve(null); // manifest 還沒載（密語視窗時就聚焦搜尋框）：不要把「沒有」記住
+      VS._p = (async () => {
+        const sp = await D.loadSheet(cm.id);
+        VS.V = (sp && sp.valve) || null;
+        return VS.V;
+      })().catch(() => { VS._p = null; return null; });
+    }
+    return VS._p;
+  };
+  /** AMS 位號索引的模糊命中長度（只有 contain 才算）：氣動閥的「包含」命中要比它長才贏 */
+  VS.amsLen = (rs) => (rs && rs.how === 'contain' && rs.key ? IX.compact(rs.key).length : 0);
+  /** 'sid:列' → valve.list 的那一筆 [sid, 列, 位號, [別名…], 中文名, 英文名, [涵蓋機組…]] */
+  VS.item = function (V, sid, row) {
+    if (!V || !V.list) return null;
+    if (V._rm == null) { V._rm = new Map(); for (const it of V.list) V._rm.set(it[0] + ':' + it[1], it); }
+    return V._rm.get(sid + ':' + row) || null;
+  };
+  VS.covers = function (V, e, unit) { const it = VS.item(V, e[0], e[1]); const us = it && it[6]; return !us || !us.length || us.includes(unit); };
+  VS.core = (tag) => IX.compact(tag).replace(/^(?:[GCS](?:XX|X0|\d\d))+/, ''); // GxxMBP70QN222／G11/G12HSD11QM001 → 去機組核心
+  /** 輸入字串 → { ents:[{sid,row}], unit, c, k, via } | null；k＝命中的索引鍵。via：
+   *  key（整串是鍵）｜suffix（去附件後綴 -MB01／-KH01）｜unit（去機組前綴 G11(_)(90)，只留涵蓋該機組的列）｜
+   *  unit-other（去前綴後有這個鍵，但清單沒有一列涵蓋該機組）｜weak（多列共用的廠商代號）｜
+   *  contain（貼上帶前後綴：包含 ≥6 字元的鍵，且比 AMS 的包含命中長）｜token（Mark VIe 訊號名：以 _ . 空白分段、去開頭 L 後整段是鍵） */
+  VS.hit = function (V, q, amsLen) {
+    if (!V || !V.index) return null;
+    const c = IX.compact(q);
+    if (!c) return null;
+    const mk = (e, unit, via, k) => ({ ents: (Array.isArray(e[0]) ? e : [e]).map((x) => ({ sid: String(x[0]), row: x[1] })), unit, c, k, via });
+    if (V.index[c]) return mk(V.index[c], '', 'key', c);
+    let m = /^(.{4,}?)(?:KH|MB|BG|XG|XS|XB)\d\d$/.exec(c);
+    if (m && V.index[m[1]]) return mk(V.index[m[1]], '', 'suffix', m[1]);
+    m = /^([GCS]\d\d)(90)?(.+)$/.exec(c);
+    if (m) {
+      for (const k of [m[3], (m[2] || '') + m[3]]) {
+        const e = k.length >= 3 ? V.index[k] : null;
+        if (!e) continue;
+        const cov = e.filter((x) => VS.covers(V, x, m[1]));
+        return cov.length ? mk(cov, m[1], 'unit', k) : mk(e, m[1], 'unit-other', k);
+      }
+      if (V.weak && V.weak[m[3]]) return mk(V.weak[m[3]], '', 'weak', m[3]); // G11IGV：廠商代號前面多打了機組
+    }
+    if (V.weak && V.weak[c]) return mk(V.weak[c], '', 'weak', c);
+    if (c.length >= 6) {
+      let best = '';
+      for (const k in V.index) if (k.length >= 6 && k.length > best.length && c.includes(k)) best = k;
+      if (best && best.length > (amsLen || 0)) return mk(V.index[best], '', 'contain', best);
+    }
+    for (const t0 of IX.norm(q).split(/[_.\s]+/)) { // S1.do_l20wsv_o、L20VG8、ao_hpev_out
+      const t = IX.compact(t0).replace(/^L(?=\d\d[A-Z])/, '');
+      if (t.length >= 4 && t !== c && V.index[t]) return mk(V.index[t], '', 'token', t);
+    }
+    return null;
+  };
+  /** 打一半的字 → 清單裡相近的閥。項目形狀同 IX.suggest：{key, src:'氣動閥清單', alias:<名稱>, tag:<清單位號>, valve:[sid,列], m:'pre'|'sub'|'name', rows?}；
+   *  key 一定是 VS.hit／位號索引查得到的字串。比對（去分隔符）：位號／別名開頭 → 包含；輸入帶機組（G11…、G11_90…）或 90 時去掉前綴再比，
+   *  只取涵蓋該機組的列，key 給帶機組的位號；輸入含中文時改比名稱（以空白分段、每段都要出現在中／英文名）。 */
+  VS.suggest = function (V, q, limit) {
+    limit = limit || 8;
+    const n = IX.norm(q); const c = IX.compact(q); const out = [];
+    if (!V || !V.list || n.length < 2) return out;
+    const pre = []; const sub = []; const nm = [];
+    const cjk = /[^\x00-\x7F]/.test(n);
+    const toks = n.split(/\s+/).filter(Boolean);
+    const forms = []; // {c, unit}：原字串、去機組、去 90
+    if (!cjk && c.length >= 2) {
+      forms.push({ c, unit: '' });
+      const m = /^([GCS]\d\d)(90)?(.*)$/.exec(c);
+      if (m && m[3].length >= 2) forms.push({ c: m[3], unit: m[1] });
+      const m9 = /^90(.{2,})$/.exec(c);
+      if (m9) forms.push({ c: m9[1], unit: '' });
+      const ml = /^L(\d\d[A-Z].*)$/.exec(c);
+      if (ml) forms.push({ c: ml[1], unit: '' });
+    }
+    for (const it of V.list) {
+      const [sid, row, tag, als, zh, en, units] = it;
+      const mkItem = (key, name, m, showTag) => ({ key, src: '氣動閥清單', alias: name || zh || en || '', tag: showTag ? tag : '', valve: [sid, row], m });
+      let got = null;
+      for (const f of forms) {
+        if (f.unit && units && units.length && !units.includes(f.unit)) continue;
+        const T = IX.compact(tag); const core = VS.core(tag);
+        const unitKey = () => (f.unit ? f.unit + core : tag);
+        if (!f.unit && T.startsWith(f.c)) { got = mkItem(tag, '', 'pre'); break; }
+        if (core.startsWith(f.c) && (f.unit || f.c.length >= 3)) { got = mkItem(f.unit ? unitKey() : tag, '', 'pre', !!f.unit); break; }
+        const a = (als || []).find((x) => IX.compact(x).startsWith(f.c)) || (f.c.length >= 3 ? (als || []).find((x) => IX.compact(x).includes(f.c)) : null);
+        if (a) { got = mkItem(f.unit ? f.unit + '_' + a : a, '', IX.compact(a).startsWith(f.c) ? 'pre' : 'sub', true); break; } // 帶機組：key 也帶機組（S10_LCV-3461 只開 ST 那列）
+        if (f.c.length >= 4 && core.includes(f.c)) { got = mkItem(f.unit ? unitKey() : tag, '', 'sub', !!f.unit); break; }
+      }
+      if (!got && toks.length) { // 名稱：每一段都要出現（中文名或英文名）；純英數查詢至少 3 個字元
+        const hay = (s) => !!s && toks.every((t) => s.toUpperCase().includes(t));
+        if (cjk || n.length >= 3) { if (hay(zh)) got = mkItem(tag, zh, 'name'); else if (hay(en)) got = mkItem(tag, en, 'name'); }
+      }
+      if (got) (got.m === 'pre' ? pre : got.m === 'sub' ? sub : nm).push(got);
+    }
+    const seen = new Map(); // 同一別名對多列（VA46-1A、LCV-3461）只列一次，rows＝列數（顯示用；tag 保持真的位號）
+    for (const it of pre.concat(sub, nm)) {
+      const k = IX.compact(it.key);
+      if (seen.has(k)) { const f = seen.get(k); f.rows = (f.rows || 1) + 1; continue; }
+      seen.set(k, it);
+      if (out.length < limit) out.push(it);
+    }
+    return out;
+  };
+  const acHint = (it) => `${U.esc(it.src || '')}${it.alias ? ' · ' + U.esc(it.alias) : ''}${it.rows > 1 ? ` · <b>${it.rows} 列</b>` : it.tag && it.tag !== it.key ? ' · ' + U.esc(it.tag) : ''}${it.n > 1 ? ` · <b class="warn">${it.n} 台</b>` : ''}`;
+  /** 只有 AMS 位號索引（備品庫存的 KKS 正規化用這個：氣動閥清單的別名／Gxx 位號不能被當成安裝位號寫進紀錄） */
   AMS.tagSuggestSource = {
     prepare: () => IX.load().catch(() => {}),
     fetch: async (q) => { await IX.load(); return IX.suggest(q, 12); },
-    render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${U.esc(it.src || '')}${it.alias ? ' · ' + U.esc(it.alias) : ''}${it.tag && it.tag !== it.key ? ' · ' + U.esc(it.tag) : ''}${it.n > 1 ? ` · <b class="warn">${it.n} 台</b>` : ''}</span>`,
+    render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${acHint(it)}</span>`,
+  };
+  /** 查詢卡與頂列搜尋：AMS 位號索引＋氣動閥清單。AMS 在前；兩邊都有時 AMS 至少 8 筆、清單最多 4～6 筆 */
+  AMS.searchSuggestSource = {
+    prepare: () => { VS.load(); return IX.load().catch(() => {}); },
+    fetch: async (q) => {
+      const [, V] = await Promise.all([IX.load(), VS.load()]);
+      const a = IX.suggest(q, 12);
+      const have = new Set(a.map((x) => IX.compact(x.key)));
+      const v = VS.suggest(V, q, 12).filter((x) => !have.has(IX.compact(x.key)));
+      const nv = Math.min(v.length, a.length >= 8 ? 4 : 6);
+      return a.slice(0, 12 - nv).concat(v.slice(0, nv));
+    },
+    render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${acHint(it)}</span>`,
   };
 })();

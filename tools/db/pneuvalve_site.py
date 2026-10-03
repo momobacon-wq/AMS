@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(HERE, '..'))
 import encrypt_data  # noqa: E402
 import extract_db  # noqa: E402
 import paths  # noqa: E402
+import pneuvalve_keys  # noqa: E402
 
 GROUP = '氣動閥清單'
 TAB_COLOR = '#8B5A00'
@@ -104,6 +105,22 @@ def clean(v):
     s = scrub_local(s)
     s = s.replace('\r\n', '\n').strip()
     return s if s else None
+
+
+def name_clean(s):
+    """閥名（建議清單用）：去掉查無類、開頭的「=位號(-KH01) / =位號 …：」參照、落單的 = ：與重複的詞。"""
+    s = clean(s) or ''
+    if not isinstance(s, str) or re.match(r'\s*(查無|待查|N/?A(?![A-Za-z]))', s):
+        return ''
+    s = re.sub(r'=\s*[A-Za-z0-9]{6,}(?:-[A-Z]{2}\d\d)?', ' ', s)
+    s = re.sub(r'^[\s=/:：,;，；]+', '', s)
+    s = re.sub(r'\s+=(?=\s|$)|[\s=/:：,;，；]+$', '', s)
+    s = re.sub(r'\s+[:：]\s*', ' ', s)   # 拿掉參照後落單在中間的冒號（「定位器 ：HOOD 噴水」）
+    out = []
+    for w in s.split():
+        if not out or out[-1] != w:
+            out.append(w)
+    return ' '.join(out).strip()
 
 
 def col_meta(label, values):
@@ -450,9 +467,21 @@ def run(a, data):
                 valves.append({'sid': sid, 'row': i, 'tag': str(r[ti]).strip(), 'cov': r[ci], 'legacy': r[li], 'r': r, 'hdr': hdr})
     xw = crosswalk(valves, s03, s04, overrides)
 
+    # 搜尋用識別碼（pneuvalve_keys）：index＝{compact 鍵: [[sid, 列], …]}（同一鍵可對多列：LCV-3461、VA46-1A）；
+    # weak＝只當建議的廠商代號；vlist＝自動完成／查無頁建議用的 [sid, 列, 位號, [別名…], 中文名, 英文名]
+    list_cores = {compact(pneuvalve_keys.core_of(v['tag'])) for v in valves}
+    merged = collections.defaultdict(list)
+    xh, xrows = wbx['v2.6刪除紀錄']
+    if '併入列' in xh and '類別' in xh:
+        for r in xrows:
+            if r[xh.index('併入列')] and '別名' in str(r[xh.index('類別')]):
+                merged[str(r[xh.index('併入列')]).strip()].append(str(r[0]).strip())
     all_texts = []
     entries = []
     valve_index = {}
+    valve_weak = {}
+    valve_list = []
+    fam_stats = collections.Counter()
     by_alias = collections.defaultdict(list)
     cmp_stats = collections.Counter()
     for sid, sh, short in MAIN_SHEETS:
@@ -478,8 +507,24 @@ def run(a, data):
                 print('  ! %s 對到 %d 台 AMS 設備（只放前 2 台連結，其餘寫在對照欄）' % (tag, len(lst)))
             out_rows.append(rr[:ti + 1] + links + ['｜'.join(info) or None] + rr[ti + 1:])
             if tag:
-                for k in {compact(tag)} | {compact(e) for _, e in expand_units(tag, r[hdr0.index('涵蓋機組')])}:
-                    valve_index.setdefault(k, [sid, i])
+                rowd = {h: ('' if v is None else str(v)) for h, v in zip(hdr0, r)}
+                als = []
+                for k, fam in pneuvalve_keys.valve_keys(rowd, list_cores, merged.get(tag, ())):
+                    fam_stats[fam] += 1
+                    tgt = valve_weak if fam in pneuvalve_keys.WEAK else valve_index
+                    lst_k = tgt.setdefault(compact(k), [])
+                    if [sid, i] not in lst_k:
+                        lst_k.append([sid, i])
+                    if fam not in ('tag', 'tag-unit', 'core', 'ge-dev-90', 'ge-kks-core'):
+                        als.append(k)
+                zh = name_clean(re.sub(r'\s*[(（]自動翻譯[)）]\s*$', '', rowd.get('閥門名稱(中文)') or ''))
+                en = name_clean(rowd.get('Valve Name (EN)') or '')
+                if len(re.findall(r'[一-鿿]', zh)) < 2:
+                    zh = ''   # 自動翻譯只剩「= = ：」之類的殘渣 → 留空，建議改用英文名
+                elif len(re.findall(r'[一-鿿]', zh)) < 4 and en:
+                    zh = '%s（%s）' % (zh, en[:34])   # 只剩「密封油」「水洗」這種泛稱 → 附英文名才分得出是哪一顆
+                units = sorted({u for u, _ in expand_units(tag, rowd.get('涵蓋機組'))})
+                valve_list.append([sid, i, tag, als, zh[:40], en[:70], units])
             for c in hdr0:
                 v = r[hdr0.index(c)]
                 if isinstance(v, str):
@@ -561,6 +606,8 @@ def run(a, data):
         'sheets': {sid: '%s_%s' % (sid, short) for sid, _, short in MAIN_SHEETS},
         'fields': [[lab, col] for lab, col in CARD_FIELDS],
         'index': valve_index,
+        'weak': valve_weak,
+        'list': valve_list,
         'by_alias': dict(by_alias),
         'list_name': LIST_NAME, 'list_url': SHEET_URL,
     }
@@ -576,6 +623,8 @@ def run(a, data):
     n_al = len(by_alias)
     print('對照：%d 個閥位號 ↔ %d 台 AMS 設備；定位器比對 %s；位號索引 %d 鍵；雲端文件 %d 份；build %s'
           % (len(xw), n_al, dict(cmp_stats), len(valve_index), len(docs), man['build']))
+    multi = {k: v for k, v in valve_index.items() if len(v) > 1}
+    print('搜尋識別碼：%s；一鍵多列 %d 個（如 %s）；只當建議 %d 個' % (dict(fam_stats), len(multi), '、'.join(list(multi)[:6]), len(valve_weak)))
     dupe = [al for al, v in by_alias.items() if len(v) > 1]
     if dupe:
         print('  ! 同一台 AMS 設備對到多個閥列：%s' % ', '.join(dupe[:20]))

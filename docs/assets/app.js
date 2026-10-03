@@ -294,7 +294,7 @@
     // 全域搜尋 → 設備查詢卡
     const gs = U.$('#global-search');
     if (U.isMobile()) gs.placeholder = '搜尋位號／alias…'; // 360px 寬時完整提示會被截斷
-    new AMS.Autocomplete(gs, Object.assign({}, AMS.tagSuggestSource, {
+    new AMS.Autocomplete(gs, Object.assign({}, AMS.searchSuggestSource || AMS.tagSuggestSource, {
       emptyItems: () => (AMS.CardView && AMS.CardView.recentItems ? AMS.CardView.recentItems() : []), // 框內空白時列「最近查過」
       onPick: (it) => { gs.value = ''; gs.blur(); R.go('#/card/' + encodeURIComponent(it.key)); },
       onEnter: async (t) => {
@@ -307,8 +307,8 @@
           // 氣動閥清單位號（02.json valve.index）優先於模糊對應（包含／唯一建議），交給查詢卡判斷是 AMS 設備還是只在清單
           let vx = false;
           if (rs.key && rs.how !== 'exact' && rs.how !== 'compact') {
-            const cm = (D.sheets || []).find((x) => x.mode === 'card');
-            try { const sp = cm ? await D.loadSheet(cm.id) : null; vx = !!(sp && sp.valve && sp.valve.index && sp.valve.index[IX.compact(t)]); } catch (e) { /* 規格載入失敗 → 照舊 */ }
+            // 清單有命中、或有「開頭相符」的候選：保留原字串，由查詢卡 lookup() 決定（開 AMS 設備、閥卡，或列兩邊候選）
+            try { const V = await AMS.valves.load(); vx = !!AMS.valves.hit(V, t, AMS.valves.amsLen(rs)) || AMS.valves.suggest(V, t, 12).some((x) => x.m === 'pre'); } catch (e) { /* 規格載入失敗 → 照舊 */ }
           }
           if (rs.key && !vx) key = rs.key;
         } catch (e) { /* 索引載入失敗 → 照原字串查詢 */ }

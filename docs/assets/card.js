@@ -184,7 +184,7 @@
       this.bodyEl = root.querySelector('.cq-body');
       const form = root.querySelector('.cq');
       form.addEventListener('submit', (e) => { e.preventDefault(); this.go(this.input.value); });
-      this.ac = new AMS.Autocomplete(this.input, Object.assign({}, AMS.tagSuggestSource, {
+      this.ac = new AMS.Autocomplete(this.input, Object.assign({}, AMS.searchSuggestSource || AMS.tagSuggestSource, {
         emptyItems: () => CardView.recentItems(), // 聚焦或清空時列「最近查過」
         onPick: (it) => this.go(it.key),
         onEnter: (t) => this.go(t),
@@ -223,7 +223,7 @@
       if (!q) { this.run(''); return; }
       let k = q;
       // 氣動閥清單位號（AMS 沒有）優先於「包含／唯一建議」的模糊對應：不然閥位號會被悄悄換成某個不相干的 AMS 鍵
-      try { const rs = AMS.index.resolve(q); if (rs.key && (rs.how === 'exact' || rs.how === 'compact' || !this.valveHit(q))) k = rs.key; } catch (e) { /* 索引未載 → 照原字串 */ }
+      try { const rs = AMS.index.resolve(q); if (rs.key && (rs.how === 'exact' || rs.how === 'compact' || !this.valveBlocksFuzzy(q, rs))) k = rs.key; } catch (e) { /* 索引未載 → 照原字串 */ }
       const h = '#/card/' + encodeURIComponent(k);
       if (location.hash === h) this.run(k); else AMS.router.go(h);
     }
@@ -238,9 +238,22 @@
       const key = rs.key || IX.norm(q);
       res.key = key; res.how = rs.how;
       if (!key) { res.status = M.empty; res.empty = true; return res; }
-      if (rs.how !== 'exact' && rs.how !== 'compact') { const vr = this.valveLookup(q, res); if (vr) return vr; }
-      const i5 = rs.key ? IX.first.get(rs.key) : null;
-      if (i5 == null) { res.status = M.notfound; res.notfound = true; res.sg = rs.suggestions; return res; }
+      let fuzzyBlocked = false;
+      if (rs.how !== 'exact' && rs.how !== 'compact') {
+        const vr = this.valveLookup(q, res, rs); if (vr) return vr;
+        fuzzyBlocked = !!rs.key && !this.valveHit(q, rs) && this.valveBlocksFuzzy(q, rs);
+      }
+      const i5 = rs.key && !fuzzyBlocked ? IX.first.get(rs.key) : null;
+      if (i5 == null) {
+        res.status = M.notfound; res.notfound = true; res.sg = rs.suggestions;
+        if (fuzzyBlocked) { // AMS 的模糊候選仍列在最前面（只是不自動開）
+          const r0 = IX.sheet.rows[IX.first.get(rs.key)];
+          const it0 = { key: rs.key, src: U.text(r0[L.src_col]), alias: U.text(r0[L.alias_col]) };
+          res.sg = [it0].concat(IX.suggest(q, 12).filter((x) => x.key !== rs.key)).slice(0, 12);
+          res.key = IX.norm(q);
+        }
+        return res;
+      }
       const r5 = IX.sheet.rows[i5];
       res.i5 = i5;
       res.alias = U.text(r5[L.alias_col]);
@@ -272,7 +285,9 @@
       const res = (this.res = this.lookup(q));
       if (res.notfound && !res.valve) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
         if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
-        if (res.sg.length && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
+        try { res.vsg = AMS.valves.suggest(this.spec.valve, res.q, 12); } catch (e) { res.vsg = []; }
+        if ((res.sg.length || res.vsg.length) && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
+        else if (this.spec.valve) res.status += '；氣動閥可到側欄「氣動閥清單」（57／58）搜尋，GE 舊位號在 Legacy/GE Tag 欄';
       }
       this.aux = null; this.statsReady = false;
       const root = this.root;
@@ -312,7 +327,19 @@
       body.innerHTML = '';
       body.classList.toggle('landing', !!res.empty);
       if (changed) { root.scrollTop = 0; if (this.scrollEl) this.scrollEl.scrollTop = 0; }
-      if (res.valve) { body.appendChild(this.renderValveOnly(res)); document.title = String(q) + '（氣動閥清單） · 設備查詢卡 · AMS'; return; }
+      if (res.valve) {
+        body.appendChild(this.renderValveOnly(res));
+        if (res.valve.via === 'weak' || res.valve.c.length < 5) {
+          let sg = []; try { sg = AMS.index.suggest(res.q, 12); } catch (e) { sg = []; }
+          if (sg.length) {
+            const box = U.h('section', { class: 'csec nf-also' }, U.h('h2', { class: 'csec-h' }, 'AMS 位號索引裡含這個字串的鍵'));
+            const ch = U.h('div', { class: 'nf-chips' });
+            for (const it of sg) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + [it.src, it.alias].filter(Boolean).join(' · '))));
+            box.appendChild(ch); body.appendChild(box);
+          }
+        }
+        document.title = String(q) + '（氣動閥清單） · 設備查詢卡 · AMS'; return;
+      }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) {
         body.appendChild(this.renderLanding());
@@ -373,13 +400,10 @@
     numbered(key, title) { return this.nums && this.nums[key] ? `${this.nums[key]}. ${title}` : title; }
 
     /* ---------- 氣動閥清單（02.json valve；tools/db/pneuvalve_site.py） ---------- */
-    /** 輸入字串 → 氣動閥清單的 {sid,row}（清單位號、xx／x0 依涵蓋機組展開後的位號都收；比對去掉分隔符） */
-    valveHit(q) {
-      const V = this.spec && this.spec.valve; if (!V || !V.index) return null;
-      const e = V.index[AMS.index.compact(q)];
-      return e ? { sid: String(e[0]), row: e[1] } : null;
-    }
-    /** 清單某列對到的 AMS 設備：[{alias, unit, tag, how, cmp, cmpText, note}]（依機組排序） */
+    /** 輸入字串 → 氣動閥清單命中 {ents:[{sid,row}], unit, c, via}（AMS.valves.hit：清單位號、展開位號、去機組核心、GE 舊位號、
+     *  Mark VIe 器件名、GE KKS、附件位號；去附件後綴／機組前綴後再查；rs＝IX.resolve 的結果，AMS 的「包含」命中較長時讓 AMS） */
+    valveHit(q, rs) { return AMS.valves.hit(this.spec && this.spec.valve, q, AMS.valves.amsLen(rs)); }
+    /** 命中的清單列對到的 AMS 設備：[{alias, unit, tag, how, cmp, cmpText, note}]（多列聯集、去重、依機組排序） */
     valveAliases(vh) {
       const V = this.spec.valve;
       if (!this._vrev) {
@@ -393,38 +417,100 @@
           }
         }
       }
-      return (this._vrev.get(vh.sid + ':' + vh.row) || []).slice().sort((a, b) => (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
+      const out = []; const seen = new Set();
+      for (const e of vh.ents) for (const x of this._vrev.get(e.sid + ':' + e.row) || []) if (!seen.has(x.alias)) { seen.add(x.alias); out.push(x); }
+      return out.sort((a, b) => (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
+    }
+    /** 命中的鍵（vh.k）是哪一個別名：回傳清單列別名的顯示字串（VA13-25、20SSV-3B、11LBF54AA004）；命中的是位號／展開位號／核心 → '' */
+    valveAliasText(vh) {
+      const V = this.spec.valve; const IX = AMS.index; const k = vh.k || vh.c;
+      for (const e of vh.ents) {
+        const it = AMS.valves.item(V, e.sid, e.row);
+        if (!it) continue;
+        const T = IX.compact(it[2]); const core = AMS.valves.core(it[2]);
+        if (k === T || k === core || k === 'XX' + core || k === 'YY' + core || (/^[GCS]\d\d/.test(k) && k.slice(3) === core)) return '';
+        const a = (it[3] || []).find((x) => { const a1 = IX.compact(x); return a1 === k || '90' + a1 === k || (k.length >= 4 && a1.endsWith(k)); });
+        if (a) return a;
+      }
+      return '';
     }
     /** 此 AMS 設備對到的清單列（摘要「氣動閥」組） */
     valveEntries(alias) {
       const V = this.spec.valve; const list = V && V.by_alias && alias ? V.by_alias[alias] : null;
       return (list || []).map((e) => ({ sid: String(e[0]), row: e[1], unit: e[2], how: e[3], cmp: e[4], cmpText: e[5], note: e[6] }));
     }
-    /** AMS 索引沒有（或只有模糊對應）而氣動閥清單有：輸入帶機組（G11…）且該機組恰有一台 AMS 設備 → 直接顯示那台；否則顯示「只在清單」的閥卡 */
-    valveLookup(q, res) {
-      const vh = this.valveHit(q); if (!vh) return null;
-      const IX = AMS.index; const M = this.spec.lookup.msg;
+    /** AMS 位號索引沒有完全相符、而氣動閥清單有：
+     *  - AMS 的模糊對應（包含／唯一建議）指到的正是這顆閥自己的 AMS 設備（11HAD10QN005 → G11HAD10QN005；只有一台的核心）→ 讓 AMS 照舊開那台；
+     *  - 輸入帶機組（G11…）且該機組恰有一台 AMS 設備 → 顯示那台；
+     *  - 否則顯示閥卡（一鍵對多列時每列一塊）。狀態列說明經由哪一種識別碼對到。 */
+    valveLookup(q, res, rs) {
+      const vh = this.valveHit(q, rs); if (!vh) return null;
+      const IX = AMS.index; const M = this.spec.lookup.msg; const V = this.spec.valve;
       const als = this.valveAliases(vh);
-      const mine = als.filter((x) => x.unit && IX.compact(q).startsWith(x.unit));
+      // 使用者打的機組：G11…（整串或去前綴）→ 'G11'；只打數字（11HAD10QN005、…QN005.PV 這類「包含」命中）→ 取鍵前面的兩位數 '11'
+      let unit = vh.unit || '';
+      if (!unit) {
+        const um = /^[GCS]\d\d(?=[A-Z])/.exec(vh.k || vh.c); // 命中的鍵本身帶機組（展開位號 G12HAD10QN001，含貼上 .PV 的「包含」命中）
+        if (um) unit = um[0];
+        else if (vh.k && vh.c !== vh.k) { const pm = /([GCS])?(\d\d)$/.exec(vh.c.slice(0, vh.c.indexOf(vh.k))); if (pm) unit = (pm[1] || '') + pm[2]; }
+      }
+      const unitOf = (x) => (unit.length === 3 ? x.unit === unit : x.unit.slice(1) === unit);
+      if (rs && rs.key && (rs.how === 'contain' || rs.how === 'suggest') && vh.via !== 'unit-other') {
+        const i5 = IX.first.get(rs.key);
+        const al = i5 != null ? U.text(IX.sheet.rows[i5][this.spec.lookup.alias_col]) : '';
+        const dev = al ? als.find((x) => x.alias === al) : null;
+        // 讓給 AMS 的條件：那台就是這顆閥自己的設備，而且機組與使用者打的一致（沒打機組時：只有一台，或不是整串命中）
+        if (dev && (unit ? unitOf(dev) : (vh.via !== 'key' || als.length === 1))) return null;
+      }
+      const mine = unit && vh.via !== 'unit-other' ? als.filter(unitOf) : [];
+      const aliasTxt = this.valveAliasText(vh);
+      const first = AMS.valves.item(V, vh.ents[0].sid, vh.ents[0].row);
+      const listTag = first ? first[2] : '';
+      const covs = []; for (const e of vh.ents) for (const u of ((AMS.valves.item(V, e.sid, e.row) || [])[6] || [])) if (!covs.includes(u)) covs.push(u);
+      const cover = covs.join('、');
+      let what;
+      if (vh.via === 'weak') what = '廠商代號（多顆閥共用，不是 GE 舊位號）';
+      else if (vh.via === 'contain' || vh.via === 'token') what = `內含「${aliasTxt || vh.k}」的字串（${aliasTxt ? 'GE 舊位號／別名' : '氣動閥清單位號'}）`;
+      else if (vh.via === 'suffix') what = `「${aliasTxt || listTag}」加附件後綴`;
+      else if (vh.via === 'unit-other') what = `去掉機組「${vh.unit}」後對到氣動閥清單的「${aliasTxt || listTag}」，但清單${vh.ents.length > 1 ? '這 ' + vh.ents.length + ' 列' : '這一列'}只涵蓋 ${cover || '其他機組'}（沒有 ${vh.unit}），以下是同型閥的資料`;
+      else if (aliasTxt) what = AMS.index.compact(aliasTxt) === vh.c ? ' GE 舊位號／別名' : `「${aliasTxt}」的另一種寫法（GE 舊位號／別名）`;
+      else what = AMS.index.compact(listTag) === vh.c ? '氣動閥清單位號' : `氣動閥清單「${listTag}」的另一種寫法`;
       if (mine.length === 1 && !this._inValve) {
         this._inValve = true;
         let r2; try { r2 = this.lookup(mine[0].alias); } finally { this._inValve = false; }
-        if (r2 && !r2.notfound) { r2.status = fill(M.valve_via || '「{q}」是氣動閥清單位號，對應 AMS 設備 {tag}（{how}）。', { q: IX.norm(q), tag: mine[0].tag, how: mine[0].how }) + r2.status; return r2; }
+        if (r2 && !r2.notfound) { r2.status = fill(M.valve_via || '「{q}」是{what}，對應 AMS 設備 {tag}（{how}）。', { q: IX.norm(q), what, tag: mine[0].tag, how: mine[0].how }) + r2.status; return r2; }
       }
+      vh.alias = aliasTxt; vh.listTag = listTag; vh.exactTag = !aliasTxt && vh.via === 'key' && AMS.index.compact(listTag) === vh.c;
       res.valve = vh; res.valveAls = als; res.notfound = true; res.key = IX.norm(q);
-      res.status = als.length ? fill(M.valve_multi || '「{q}」在氣動閥清單（多機組合併列）；同一閥在 AMS 資料庫的設備見下方。', { q: IX.norm(q) })
-        : fill(M.valve_only || '「{q}」在氣動閥清單，AMS 資料庫沒有對應設備（開關閥／非 HART·FF 智慧定位器，或機組不在本庫）。', { q: IX.norm(q) });
+      const n = vh.ents.length;
+      const other = vh.via === 'unit-other' || (unit && !mine.length && als.length);
+      res.valveOther = !!other;
+      res.status = fill(vh.via === 'unit-other' ? '「{q}」：{what}' : '「{q}」是{what}', { q: vh.exactTag ? listTag : IX.norm(q), what }) + (n > 1 ? `，清單裡有 ${n} 列用到它（都列在下面）` : '')
+        + (vh.via === 'weak' ? '；這幾顆閥在 AMS 沒有設備，AMS 位號索引裡含這個字串的鍵（若有）列在閥卡下方。' : als.length ? (other ? `；AMS 資料庫沒有 ${vh.unit || unit} 這台，同型閥在其他機組的設備見下方。` : '；同一閥在 AMS 資料庫的設備見下方。')
+          : '；AMS 資料庫沒有對應設備（開關閥／非 HART·FF 智慧定位器，或機組不在本庫）。');
       return res;
+    }
+    /** 位號索引的模糊對應（包含／唯一建議）要不要採用：氣動閥清單有命中 → 不採用（交給 valveLookup）；
+     *  清單有「開頭相符」的候選、而且不是 AMS 那台自己的閥 → 也不採用（C10MAJ60QM06 不該悄悄開 C10MAJ60BP006；G11_90VA13 不該直接開 VA13T-1），改列兩邊的候選 */
+    valveBlocksFuzzy(q, rs) {
+      const V = this.spec && this.spec.valve; if (!V) return false;
+      if (this.valveHit(q, rs)) return true;
+      const IX = AMS.index;
+      const i5 = rs && rs.key ? IX.first.get(rs.key) : null;
+      const al = i5 != null ? U.text(IX.sheet.rows[i5][this.spec.lookup.alias_col]) : '';
+      return AMS.valves.suggest(V, q, 12).some((it) => it.m === 'pre' && !((V.by_alias || {})[al] || []).some((e) => String(e[0]) === String(it.valve[0]) && e[1] === it.valve[1]));
     }
     /** 只在氣動閥清單的位號：閥規格（逐格出處）＋同一閥在 AMS 的設備 */
     renderValveOnly(res) {
       const V = this.spec.valve;
       const wrap = U.h('section', { class: 'csec sum valve-only' });
       const hero = U.h('div', { class: 'sum-hero' });
-      hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, String(res.key))));
-      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, '氣動閥清單位號'), U.h('span', { class: 'sum-subi' }, res.valveAls.length ? 'AMS 設備見下方' : '不在 AMS 資料庫')));
+      const vv = res.valve;
+      hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, vv.exactTag ? vv.listTag : String(res.key)))); // 清單位號保留原寫法（Gxx／Sx0 的小寫 x＝多機組）
+      const viaLab = vv.exactTag ? '氣動閥清單位號' : vv.via === 'weak' ? '廠商代號（清單位號見下）' : (vv.alias ? 'GE 舊位號／別名 ' + vv.alias + '（清單位號見下）' : '對應氣動閥清單（清單位號見下）');
+      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, viaLab), vv.ents.length > 1 ? U.h('span', { class: 'sum-subi' }, `清單裡有 ${vv.ents.length} 列`) : null, U.h('span', { class: 'sum-subi' }, res.valveAls.length ? (res.valveOther ? '此機組不在 AMS 資料庫' : 'AMS 設備見下方') : '不在 AMS 資料庫')));
       if (res.valveAls.length) {
-        const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, '同一閥在 AMS 的設備：'));
+        const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, res.valveOther ? '同型閥在其他機組的 AMS 設備：' : '同一閥在 AMS 的設備：'));
         for (const x of res.valveAls) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(x.alias), title: x.how }, U.h('span', { class: 'mono' }, x.tag), U.h('span', { class: 'muted small' }, ' ' + x.unit + ' · ' + x.alias)));
         hero.appendChild(ch);
       }
@@ -439,7 +525,7 @@
       if (g.note) sec.appendChild(U.h('p', { class: 'muted small aux-note' }, g.note));
       groups.appendChild(sec);
       wrap.appendChild(groups);
-      this.fillValveGroup(grid, [{ sid: res.valve.sid, row: res.valve.row }], res);
+      this.fillValveGroup(grid, res.valve.ents, res);
       return wrap;
     }
     /** 氣動閥組：載入 57／58（valve_src 逐格出處＋valve_docs 雲端連結）後逐欄顯示；ents＝[{sid,row,unit?,how?,cmp?,cmpText?,note?}] */
@@ -507,9 +593,21 @@
       const ixName = D.meta(ixId) ? D.meta(ixId).name : ixId;
       const q = String(res.q == null ? '' : res.q).trim();
       inner.innerHTML = (sg.length
-        ? `<p>你是不是要找（含「${U.esc(q)}」的鍵）：</p><div class="nf-chips">${sg.map((it) => `<a class="chip-btn" href="#/card/${encodeURIComponent(it.key)}">${AMS.hilite(it.key, q)}<span class="muted small">${U.esc([it.src, it.alias].filter(Boolean).join(' · '))}</span></a>`).join('')}</div>`
+        ? `<p>你是不是要找（含「${U.esc(q)}」的鍵）：</p><div class="nf-chips">${sg.map((it) => `<a class="chip-btn" href="#/card/${encodeURIComponent(it.key)}"><span class="mono">${AMS.hilite(it.key, q)}</span><span class="muted small">${U.esc([it.src, it.alias].filter(Boolean).join(' · '))}</span></a>`).join('')}</div>`
         : '<p class="muted">位號索引中沒有包含這個字串的鍵。</p>')
         + `<p><a class="lk" href="${U.esc('#/s/' + encodeURIComponent(ixId) + '?q=' + encodeURIComponent(q))}">在 ${U.esc(ixName)} 搜尋「${U.esc(q)}」（所有欄位）›</a></p>`;
+      // 氣動閥清單裡相近的閥（位號／GE 舊位號／名稱包含輸入字串）＋到 57／58 全欄位搜尋
+      const V = this.spec.valve;
+      if (V) {
+        const vs = Array.isArray(res.vsg) ? res.vsg : AMS.valves.suggest(V, q, 12);
+        if (vs.length) {
+          const blk = U.h('div', { class: 'nf-valves' }, U.h('p', {}, '氣動閥清單中相近的閥：'));
+          const ch = U.h('div', { class: 'nf-chips' });
+          for (const it of vs) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + [it.rows > 1 ? it.rows + ' 列' : it.tag, it.alias].filter(Boolean).join(' · '))));
+          blk.appendChild(ch); inner.appendChild(blk);
+        }
+        for (const sid of Object.keys(V.sheets || {})) inner.appendChild(U.h('p', {}, U.h('a', { class: 'lk', href: '#/s/' + encodeURIComponent(sid) + '?q=' + encodeURIComponent(q) }, `在 ${V.sheets[sid]} 搜尋「${q}」（所有欄位）›`)));
+      }
       box.appendChild(inner);
       return box;
     }
