@@ -34,6 +34,8 @@
     return (v) => U.text(v).toLowerCase().includes(t);
   }
   AMS.compileFilter = compileFilter;
+  // 「搜尋此表」去分隔符比對：查詢拿掉 - _ 空白；儲存格只拿掉 - _（不拿空白，否則「of 101」「at 100%」會跟前一個字黏成假位號）
+  const QSEP_RE = /[-_ ]/g; const HSEP_RE = /[-_]/g;
 
   /* ------------------------------------------------------------ CSV 欄位
    * Excel 開啟 CSV 時會把「002」「00020002」變成數字、「800204e6」變成 8.00E+206、「10/21/2025 14:03」變成日期：
@@ -848,6 +850,10 @@
         if (fn) preds.push([c, fn]);
       }
       const q = (s.q || '').trim().toLowerCase();
+      // 照字面找不到任何一列時，位號型查詢（字母＋數字且去分隔符後 ≥4 字元，或純字母 ≥8 字元）改以去分隔符比對：
+      // VA1325、va13 25、全形ＶＡ１３２５ 找得到 VA13-25；lptwinjsofv 找得到 LPT_WINJ_SOFV。字面有結果就不做（不多列、也不多花時間）
+      const qc0 = q.normalize('NFKC').replace(/[\u2010-\u2015\u2212]/g, '-').replace(/[\u00a0\t]/g, ' ').replace(QSEP_RE, '');
+      const qc = !/[^\x00-\x7f]/.test(qc0) && ((qc0.length >= 4 && /[a-z]/.test(qc0) && /\d/.test(qc0)) || (qc0.length >= 8 && /^[a-z]+$/.test(qc0))) ? qc0 : '';
       if (!this.hay) this.hay = [];
       this.searchCols = Array.isArray(this.ui.search_cols) && this.ui.search_cols.length ? this.ui.search_cols : this.cols.map((c, i) => i);
       const src = this.loaded; const rows = this.data.rows;
@@ -861,24 +867,28 @@
         const np = preds.length;
         // facet 筆數依「其他」篩選條件計算（每個 facet 排除自己那欄的條件；ENG-06）
         const fcols = this.facets.size ? Array.from(this.facets) : null;
-        if (fcols) live = new Map(fcols.map((c) => [c, new Map()]));
         const sum = this.summary;
         const bump = (c, v) => { const m = live.get(c); const t = U.isBlank(U.raw(v)) ? BLANK_TOKEN : U.text(v); m.set(t, (m.get(t) || 0) + 1); };
-        const ok = await U.chunked(src.length, (i) => {
-          const g = src[i]; const row = rows[g];
-          let fails = 0; let failC = -1;
-          for (let p = 0; p < np; p++) {
-            if (!preds[p][1](row[preds[p][0]])) { fails++; failC = preds[p][0]; if (!live || fails > 1) break; }
-          }
-          if (fails > 1 || (fails === 1 && !live)) return;
-          if (q && this.haystack(g).indexOf(q) < 0) return;
-          if (fails === 0) buf[n++] = g;
-          if (live && !(sum && sum.has(g))) {
-            if (fails === 0) { for (let x = 0; x < fcols.length; x++) bump(fcols[x], row[fcols[x]]); }
-            else if (live.has(failC)) bump(failC, row[failC]);
-          }
-        }, alive);
-        if (!ok) return;
+        for (const compact of qc ? [false, true] : [false]) { // 第二輪（去分隔符）只在字面那一輪一列都沒有時才跑
+          n = 0;
+          if (fcols) live = new Map(fcols.map((c) => [c, new Map()]));
+          const ok = await U.chunked(src.length, (i) => {
+            const g = src[i]; const row = rows[g];
+            let fails = 0; let failC = -1;
+            for (let p = 0; p < np; p++) {
+              if (!preds[p][1](row[preds[p][0]])) { fails++; failC = preds[p][0]; if (!live || fails > 1) break; }
+            }
+            if (fails > 1 || (fails === 1 && !live)) return;
+            if (q && (compact ? this.haystack(g).replace(HSEP_RE, '').indexOf(qc) : this.haystack(g).indexOf(q)) < 0) return;
+            if (fails === 0) buf[n++] = g;
+            if (live && !(sum && sum.has(g))) {
+              if (fails === 0) { for (let x = 0; x < fcols.length; x++) bump(fcols[x], row[fcols[x]]); }
+              else if (live.has(failC)) bump(failC, row[failC]);
+            }
+          }, alive);
+          if (!ok) return;
+          if (n) break;
+        }
         out = buf.subarray(0, n);
       }
       this.facetLive = live;

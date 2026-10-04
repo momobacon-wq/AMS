@@ -286,7 +286,10 @@
       if (res.notfound && !res.valve) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
         if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
         try { res.vsg = AMS.valves.suggest(this.spec.valve, res.q, 12); } catch (e) { res.vsg = []; }
+        res.fz = [];
+        if (!res.sg.length && !res.vsg.length && AMS.fuzzy) { try { res.fz = AMS.fuzzy(this.spec.valve || null, res.q, 8); } catch (e) { res.fz = []; } }
         if ((res.sg.length || res.vsg.length) && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
+        else if (res.fz.length) res.status = '找不到這個字串，可能打錯字：相近的鍵列在下方。';
         else if (this.spec.valve) res.status += '；氣動閥可到側欄「氣動閥清單」（57／58）搜尋，GE 舊位號在 Legacy/GE Tag 欄';
       }
       this.aux = null; this.statsReady = false;
@@ -607,6 +610,17 @@
           blk.appendChild(ch); inner.appendChild(blk);
         }
         for (const sid of Object.keys(V.sheets || {})) inner.appendChild(U.h('p', {}, U.h('a', { class: 'lk', href: '#/s/' + encodeURIComponent(sid) + '?q=' + encodeURIComponent(q) }, `在 ${V.sheets[sid]} 搜尋「${q}」（所有欄位）›`)));
+      }
+      // 兩邊都沒有包含這個字串的鍵：列打錯字的相近鍵（S/5、O/0 這類易混字元、差一兩個字）。只列出，不自動開
+      if (!sg.length && !inner.querySelector('.nf-valves') && AMS.fuzzy) {
+        let fz = Array.isArray(res.fz) ? res.fz : null;
+        if (!fz) { try { fz = AMS.fuzzy(V || null, q, 8); } catch (e) { fz = []; } }
+        if (fz.length) {
+          const blk = U.h('div', { class: 'nf-fuzzy' }, U.h('p', {}, '是不是打錯字？相近的鍵：'));
+          const ch = U.h('div', { class: 'nf-chips' });
+          for (const it of fz) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + [it.src, it.tag && it.tag !== it.key ? it.tag : '', it.alias].filter(Boolean).join(' · '))));
+          blk.appendChild(ch); inner.insertBefore(blk, inner.firstChild);
+        }
       }
       box.appendChild(inner);
       return box;

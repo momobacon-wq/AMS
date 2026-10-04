@@ -1201,14 +1201,99 @@
     }
     return out;
   };
-  const acHint = (it) => `${U.esc(it.src || '')}${it.alias ? ' · ' + U.esc(it.alias) : ''}${it.rows > 1 ? ` · <b>${it.rows} 列</b>` : it.tag && it.tag !== it.key ? ' · ' + U.esc(it.tag) : ''}${it.n > 1 ? ` · <b class="warn">${it.n} 台</b>` : ''}`;
+  /** 打錯字的相近鍵（AMS 位號索引＋氣動閥清單）。只當建議：呼叫端只在「完全相符／開頭／包含」都沒有結果時才用，永遠不自動開。
+   *  先把易混字元視為相同（S/5、O/Q/0、I/L/1、B/8、Z/2），再算編輯距離（含相鄰對調）：≤1；比的那一段長度 ≥9 可到 2；只回傳最接近的那一層，清單每列只出一筆。
+   *  帶機組的輸入（G11…、G11_90…）另以去掉前綴的字串比清單的去機組核心／別名，只取涵蓋該機組的列，key 補回機組。
+   *  項目形狀同 IX.suggest／VS.suggest，m 固定 'fuzzy'。 */
+  const CONF = { S: '5', O: '0', Q: '0', I: '1', L: '1', B: '8', Z: '2' };
+  const conf = (s) => s.replace(/[SOQILBZ]/g, (ch) => CONF[ch]);
+  function editDist(a, b, max) { // OSA 距離；超過 max 回傳 max+1
+    const la = a.length; const lb = b.length;
+    if (Math.abs(la - lb) > max) return max + 1;
+    let p2 = null; let p1 = new Array(lb + 1); let cur = new Array(lb + 1);
+    for (let j = 0; j <= lb; j++) p1[j] = j;
+    for (let i = 1; i <= la; i++) {
+      cur[0] = i; let best = cur[0];
+      for (let j = 1; j <= lb; j++) {
+        const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+        let v = Math.min(p1[j] + 1, cur[j - 1] + 1, p1[j - 1] + cost);
+        if (p2 && j > 1 && a.charCodeAt(i - 1) === b.charCodeAt(j - 2) && a.charCodeAt(i - 2) === b.charCodeAt(j - 1)) v = Math.min(v, p2[j - 2] + 1);
+        cur[j] = v; if (v < best) best = v;
+      }
+      if (best > max) return max + 1;
+      const t = p2 || new Array(lb + 1); p2 = p1; p1 = cur; cur = t;
+    }
+    return Math.min(p1[lb], max + 1);
+  }
+  AMS.editDist = editDist;
+  AMS.fuzzyNorm = (q) => String(q == null ? '' : q).normalize('NFKC').replace(/[\u2010-\u2015\u2212]/g, '-'); // 全形、Word／PDF 的各種破折號
+  AMS.fuzzy = function (V, q, limit) {
+    limit = limit || 6;
+    const s = AMS.fuzzyNorm(q);
+    const c = IX.compact(s);
+    if (c.length < 4 || /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/.test(s)) return [];
+    const digitsOnly = /^\d+$/.test(c);
+    const numKey = (k) => /^\d+$/.test(k) && (!digitsOnly || k.length < 6); // 純數字鍵（四位數 DeviceKey 有上千個）：只給夠長的純數字輸入比，否則幾乎任何數字都「相近」
+    const score = (x, k) => { // 容許的距離看「實際拿來比的那一段」的長度；回傳 [易混字元視為相同後的距離, 原距離] 或 null（完全相同也不算：那是命中，不是打錯字）
+      const wide = x.replace(/^[GCS]\d\d(?:90)?/, '').length >= 9 ? 2 : 1; // 機組／90 前綴不算長度（G11_90VNG-1 實際只有 4 個字在比）
+      if (Math.abs(x.length - k.length) > wide) return null;
+      const dc = editDist(conf(x), conf(k), wide);
+      if (dc > wide) return null;
+      const d = editDist(x, k, wide + 3);
+      return d === 0 ? null : [dc, d];
+    };
+    const better = (a, b) => !!a && (!b || a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]));
+    const found = []; const seen = new Set(); const seenRows = new Set();
+    const add = (sc, it) => { const k = IX.compact(it.key); if (seen.has(k)) return false; seen.add(k); it.m = 'fuzzy'; found.push([sc[0], sc[1], found.length, it]); return true; };
+    const kc = IX.keysCompact || [];
+    for (let i = 0; i < kc.length; i++) {
+      if (kc[i].length < 4 || numKey(kc[i])) continue;
+      const sc = score(c, kc[i]);
+      if (!sc) continue;
+      const k = IX.keys[i]; const r = IX.sheet.rows[IX.first.get(k)];
+      add(sc, { key: k, src: U.text(r[IX.srcCol]), alias: U.text(r[IX.ac]), tag: U.text(r[IX.tagCol]), n: U.raw(r[IX.countCol]) });
+    }
+    const m = /^([GCS]\d\d)(90)?(.{4,})$/.exec(c);
+    const m9 = /^90(.{4,})$/.exec(c);
+    if (V && V.list) {
+      for (const it of V.list) { // 每列只出一筆：所有寫法（位號、去機組核心、各別名；輸入帶機組／90 時去前綴再比）取最接近的那個
+        const [sid, row, tag, als, zh, en, units] = it;
+        const T = IX.compact(tag); const core = VS.core(tag);
+        let best = null; let bk = null;
+        const tryIt = (x, k, key, showTag) => { if (k.length < 4 || numKey(k)) return; const sc = score(x, k); if (better(sc, best)) { best = sc; bk = [key, showTag]; } };
+        tryIt(c, T, tag, false);
+        if (core !== T) tryIt(c, core, tag, false);
+        for (const a of als || []) tryIt(c, IX.compact(a), a, true);
+        if (m9) for (const a of als || []) tryIt(m9[1], IX.compact(a), a, true);
+        if (m && !(units && units.length && !units.includes(m[1]))) {
+          tryIt(m[3], core, m[1] + core, true);
+          for (const a of als || []) tryIt(m[3], IX.compact(a), m[1] + '_' + a, true);
+        }
+        if (best && add(best, { key: bk[0], src: '氣動閥清單', alias: zh || en || '', tag: bk[1] ? tag : '', valve: [sid, row] })) seenRows.add(sid + ':' + row);
+      }
+    }
+    if (V && V.index) { // 清單沒列成別名的鍵（附件位號、GE KKS…）：key 用索引鍵本身；已經出過的列不再出、帶機組的輸入只取涵蓋該機組的列
+      for (const k in V.index) {
+        if (k.length < 4 || seen.has(k) || numKey(k)) continue;
+        const e = V.index[k].find((x) => !seenRows.has(x[0] + ':' + x[1]) && (!m || VS.covers(V, x, m[1])));
+        if (!e) continue;
+        const sc = score(c, k); if (!sc) continue;
+        const it = VS.item(V, e[0], e[1]);
+        if (add(sc, { key: k, src: '氣動閥清單', alias: (it && (it[4] || it[5])) || '', tag: it ? it[2] : '', valve: [e[0], e[1]] })) seenRows.add(e[0] + ':' + e[1]);
+      }
+    }
+    if (!found.length) return [];
+    const top = Math.min.apply(null, found.map((x) => x[0])); // 只留最接近的一層：有「易混字元」等級的就不列差一個字的鄰號
+    return found.filter((x) => x[0] === top).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).slice(0, limit).map((x) => x[3]);
+  };
+  const acHint = (it) => `${it.m === 'fuzzy' ? '相近 · ' : ''}${U.esc(it.src || '')}${it.alias ? ' · ' + U.esc(it.alias) : ''}${it.rows > 1 ? ` · <b>${it.rows} 列</b>` : it.tag && it.tag !== it.key ? ' · ' + U.esc(it.tag) : ''}${it.n > 1 ? ` · <b class="warn">${it.n} 台</b>` : ''}`;
   /** 只有 AMS 位號索引（備品庫存的 KKS 正規化用這個：氣動閥清單的別名／Gxx 位號不能被當成安裝位號寫進紀錄） */
   AMS.tagSuggestSource = {
     prepare: () => IX.load().catch(() => {}),
     fetch: async (q) => { await IX.load(); return IX.suggest(q, 12); },
     render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${acHint(it)}</span>`,
   };
-  /** 查詢卡與頂列搜尋：AMS 位號索引＋氣動閥清單。AMS 在前；兩邊都有時 AMS 至少 8 筆、清單最多 4～6 筆 */
+  /** 查詢卡與頂列搜尋：AMS 位號索引＋氣動閥清單。AMS 在前；兩邊都有時 AMS 至少 8 筆、清單最多 4～6 筆；兩邊都沒有時列打錯字的相近鍵 */
   AMS.searchSuggestSource = {
     prepare: () => { VS.load(); return IX.load().catch(() => {}); },
     fetch: async (q) => {
@@ -1216,6 +1301,12 @@
       const a = IX.suggest(q, 12);
       const have = new Set(a.map((x) => IX.compact(x.key)));
       const v = VS.suggest(V, q, 12).filter((x) => !have.has(IX.compact(x.key)));
+      if (!a.length && !v.length) {
+        const rs = IX.resolve(q); // 去分隔符／帶前後綴就對得到（G12-HAP70-BT001、….PV）：列 Enter 會開的那一個，不列相近鍵
+        if (rs.key) return IX.suggest(rs.key, 1);
+        if (VS.hit(V, q, 0)) return [];
+        return AMS.fuzzy(V, q, 6); // 兩邊都沒有：列打錯字的相近鍵（只列出，不自動開）
+      }
       const nv = Math.min(v.length, a.length >= 8 ? 4 : 6);
       return a.slice(0, 12 - nv).concat(v.slice(0, nv));
     },

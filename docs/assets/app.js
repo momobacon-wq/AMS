@@ -294,6 +294,11 @@
     // 全域搜尋 → 設備查詢卡
     const gs = U.$('#global-search');
     if (U.isMobile()) gs.placeholder = '搜尋位號／alias…'; // 360px 寬時完整提示會被截斷
+    // 觸控窄螢幕：聚焦時其餘頂列按鈕讓位（app.css .gs-focus）；框內空白時按 Esc 離開搜尋框，按鈕回來
+    const hdr = gs.closest('.app-header');
+    gs.addEventListener('focus', () => hdr.classList.add('gs-focus'));
+    gs.addEventListener('blur', () => hdr.classList.remove('gs-focus'));
+    gs.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !gs.value) gs.blur(); });
     new AMS.Autocomplete(gs, Object.assign({}, AMS.searchSuggestSource || AMS.tagSuggestSource, {
       emptyItems: () => (AMS.CardView && AMS.CardView.recentItems ? AMS.CardView.recentItems() : []), // 框內空白時列「最近查過」
       onPick: (it) => { gs.value = ''; gs.blur(); R.go('#/card/' + encodeURIComponent(it.key)); },

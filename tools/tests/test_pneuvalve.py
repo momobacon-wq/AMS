@@ -205,6 +205,71 @@ def run(ctx):
             n = page.evaluate("(q) => AMS.valves.suggest(AMS.valves.V, q, 12).filter(x => x.m === 'name').length", zq)
             ck('suggest by 中文名', len(zq) >= 2 and n >= 1, zq)
         ck('AMS suggestions keep ≥8 slots', probe.get('amsSlots', 0) >= 8, probe.get('amsSlots'))
+        # ---- 打錯字建議（只列出、不自動開）＋表格搜尋不分分隔符
+        tp = page.evaluate("""async () => {
+          const V = await AMS.valves.load(); const IX = AMS.index; const VS = AMS.valves; const o = {};
+          const SW = { 5: 'S', 0: 'O', 1: 'I', 8: 'B', 2: 'Z' };
+          const clean = async (t) => !VS.hit(V, t, 0) && !IX.resolve(t).key && !IX.suggest(t, 12).length && !VS.suggest(V, t, 12).length;
+          // (a) 氣動閥別名把最後一個易混數字打成字母（VA13-25 → VA13-2S）
+          for (const it of V.list) { for (const a of it[3] || []) { const m = /^(.*-.*)([50182])([^50182]*)$/.exec(a);
+            if (!m || IX.compact(a).length < 5) continue; const t = m[1] + SW[m[2]] + m[3];
+            if (await clean(t)) { o.valve = { typed: t, want: a, got: AMS.fuzzy(V, t, 8).map((x) => x.key), src: (await AMS.searchSuggestSource.fetch(t)).map((x) => x.m + ':' + x.key), stock: (await AMS.tagSuggestSource.fetch(t)).length }; break; } }
+            if (o.valve) break; }
+          // (b) AMS 位號把一個 0 打成 O
+          for (const k of IX.keys) { if (!/^[GC]\\d\\d[A-Z]{3}\\d\\d[A-Z]{2}\\d{3}$/.test(k)) continue; const i = k.lastIndexOf('0'); if (i < 0) continue;
+            const t = k.slice(0, i) + 'O' + k.slice(i + 1);
+            if (await clean(t)) { o.ams = { typed: t, want: k, got: AMS.fuzzy(V, t, 8).map((x) => x.key) }; break; } }
+          // (c) 有開頭相符的建議時不用相近鍵；太短／無關字串沒有相近鍵
+          const pre = V.list.map((it) => (it[3] || [])[0]).find((a) => a && IX.compact(a).length >= 5);
+          o.pre = pre ? (await AMS.searchSuggestSource.fetch(pre.slice(0, 4))).filter((x) => x.m === 'fuzzy').length : -1;
+          o.junk = AMS.fuzzy(V, 'XYZQ9999', 8).length + AMS.fuzzy(V, 'AB1', 8).length;
+          // (c2) 四位數／短儀表號不該撈出一堆數字鍵；去分隔符就對得到的鍵列它自己、不列相近鍵；每列只出一筆
+          o.noise = AMS.fuzzy(V, '1996', 8).length + AMS.fuzzy(V, 'LS-11', 8).length;
+          const ck = IX.keys.find((k) => /^[GC]\d\d[A-Z]{3}\d\d[A-Z]{2}\d{3}$/.test(k));
+          if (ck) { const t = ck.slice(0, 3) + '-' + ck.slice(3, 8) + '-' + ck.slice(8); o.sepKey = { typed: t, want: ck, src: (await AMS.searchSuggestSource.fetch(t)).map((x) => (x.m || '') + ':' + x.key) }; }
+          const fzAll = []; for (const it of V.list.slice(0, 300)) { const a = (it[3] || [])[0]; if (!a) continue; const r = AMS.fuzzy(V, 'G11_' + a + 'X', 12); const rows = r.filter((x) => x.valve).map((x) => x.valve.join(':')); if (new Set(rows).size !== rows.length) fzAll.push(a); }
+          o.dupRows = fzAll.length;
+          // (d) 表格搜尋：有分隔符的別名去掉分隔符
+          for (const it of V.list) { if (String(it[0]) !== '57') continue; const a = (it[3] || []).find((x) => /[A-Z]/.test(x) && /\\d/.test(x) && /-/.test(x) && IX.compact(x).length >= 5);
+            if (a) { o.sep = { alias: a, compact: IX.compact(a) }; break; } }
+          return o; }""")
+        tv = tp.get('valve')
+        ck('typo: picked a mistyped valve alias', bool(tv), tp)
+        if tv:
+            ck('typo: fuzzy lists the intended alias', tv['want'] in tv['got'], tv)
+            ck('typo: dropdown items are marked fuzzy; stock source stays empty', bool(tv['src']) and all(x.startswith('fuzzy:') for x in tv['src']) and tv['stock'] == 0, tv)
+            page.goto(ctx['base'] + '/db/#/s/57'); page.wait_for_selector(ROWS, timeout=60000)
+            page.fill('#global-search', ''); page.click('#global-search'); page.keyboard.type(tv['typed'], delay=20)
+            try:
+                page.wait_for_function("[...document.querySelectorAll('.ac-hint')].some(e => e.offsetParent && e.textContent.includes('相近'))", timeout=15000); ok = True
+            except Exception:
+                ok = False
+            ck('typo: autocomplete shows 相近 items', ok, tv['typed'])
+            page.keyboard.press('Escape'); page.click('#global-search'); page.keyboard.press('Enter')
+            page.wait_for_selector('.csec.nf', timeout=60000)
+            chips = page.locator('.csec.nf .nf-fuzzy a.chip-btn .mono').all_inner_texts()
+            ck('typo: Enter does not auto-open; not-found page lists the intended key', tv['typed'] in page.evaluate('decodeURIComponent(location.hash)') and tv['want'] in chips, chips)
+        ta = tp.get('ams')
+        ck('typo: picked a mistyped AMS tag', bool(ta), tp)
+        if ta:
+            ck('typo: fuzzy lists the intended AMS tag first', bool(ta['got']) and ta['got'][0] == ta['want'], ta)
+        ck('typo: no fuzzy items when prefix suggestions exist', tp.get('pre') == 0, tp.get('pre'))
+        ck('typo: unrelated / short strings get nothing', tp.get('junk') == 0, tp.get('junk'))
+        ck('typo: 4-digit numbers / short instrument tags get no numeric-key noise', tp.get('noise') == 0, tp.get('noise'))
+        sk = tp.get('sepKey')
+        ck('typo: a key typed with extra separators lists that key itself, not neighbours', bool(sk) and sk['src'] == [':' + sk['want']], sk)
+        ck('typo: one suggestion per valve row', tp.get('dupRows') == 0, tp.get('dupRows'))
+        sp = tp.get('sep')
+        ck('table search: picked an alias with a separator', bool(sp), tp)
+        if sp:
+            COUNT = "() => { const m = /顯示\\s*([\\d,]+)/.exec(document.body.innerText); return m ? Number(m[1].replace(/,/g, '')) : -1; }"
+            n = {}
+            for q in (sp['alias'], sp['compact'], sp['alias'].replace('-', ' ').lower()):
+                page.goto(ctx['base'] + '/db/#/s/57?q=' + quote(q)); page.wait_for_selector('.tv-q', timeout=60000); page.wait_for_timeout(1200)
+                n[q] = page.evaluate(COUNT)
+            ck('table search ignores separators (- _ space)', n[sp['alias']] >= 1 and all(v >= n[sp['alias']] for v in n.values()), n)
+            page.goto(ctx['base'] + '/db/#/s/57?q=' + quote('zq9zq9')); page.wait_for_selector('.tv-q', timeout=60000); page.wait_for_timeout(800)
+            ck('table search: nonsense still finds nothing', page.evaluate(COUNT) in (0, -1), page.evaluate(COUNT))
         ck('no page errors', not errors, errors[:3])
         ck('no console errors/warnings', not console, console[:3])
     with browser(ctx, mobile=True) as (page, errors, console):
@@ -212,6 +277,20 @@ def run(ctx):
         page.goto(ctx['base'] + '/db/#/s/57'); page.wait_for_selector(ROWS, timeout=60000); page.wait_for_timeout(400)
         w = page.evaluate("({sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth})")
         ck('mobile 57: no horizontal page scroll', w['sw'] <= w['cw'], w)
+        # 頂列搜尋框：平常看得到至少十來個字；聚焦時其餘按鈕讓位、佔滿整列；離開後復原
+        GW = """() => { const g = document.querySelector('#global-search'); const cs = getComputedStyle(g);
+          return { text: Math.round(g.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)), vw: innerWidth,
+            brand: !!document.querySelector('.brand').offsetParent, over: document.documentElement.scrollWidth > innerWidth }; }"""
+        g0 = page.evaluate(GW)
+        ck('mobile header search: idle text width ≥ 100px', g0['text'] >= 100 and g0['brand'] and not g0['over'], g0)
+        page.click('#global-search'); page.keyboard.type('VA', delay=20); page.wait_for_timeout(700)
+        g1 = page.evaluate(GW)
+        ck('mobile header search: focused fills the row', g1['text'] >= g1['vw'] - 130 and not g1['brand'] and not g1['over'], g1)
+        ck('mobile header search: dropdown opens', page.locator('.ac-hint').count() >= 1)
+        shot(page, ctx, 'pneu_mobile_search')
+        page.keyboard.press('Escape'); page.fill('#global-search', ''); page.evaluate("document.querySelector('#global-search').blur()"); page.wait_for_timeout(300)
+        g2 = page.evaluate(GW)
+        ck('mobile header search: restores after blur', g2['brand'] and abs(g2['text'] - g0['text']) <= 2, g2)
         pk = page.evaluate(PICK_JS)
         if pk.get('only'):
             page.goto(ctx['base'] + '/db/#/card/' + quote(pk['only']))

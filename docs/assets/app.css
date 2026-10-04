@@ -684,6 +684,22 @@ body.auth-locked .app-header, body.auth-locked .app-body { filter: blur(3px); po
 .auth-chip:hover { background: var(--surface-3); }
 .auth-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 640px) { .auth-chip { padding: 0 8px; max-width: 110px; } }
+/* 窄螢幕頂列：搜尋框原本只剩約 50px（看不到自己打的字）。間距收小、登入鈕只留圖示；
+   觸控裝置聚焦搜尋框時（app.js 在 .app-header 加 gs-focus）其餘按鈕讓位，搜尋框佔滿整列。滑鼠／鍵盤的窄視窗不收（Tab 要走得到那些按鈕） */
+@media (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
+  .app-header { gap: 6px; }
+  .brand { flex: none; }
+}
+@media (pointer: coarse) and (max-width: 720px), (pointer: coarse) and (max-height: 500px) {
+  .app-header.gs-focus .brand, .app-header.gs-focus #btn-legend, .app-header.gs-focus #btn-theme,
+  .app-header.gs-focus #btn-key, .app-header.gs-focus .auth-chip { display: none; }
+  .app-header.gs-focus .ac-list { min-width: 0; }
+}
+/* 「清除密語」在窄螢幕收起來——只在有登入鈕時（body.auth-on）：登出會一併清除此裝置記住的密語 */
+@media (max-width: 520px) { .auth-chip { padding: 0 8px; margin-right: 0; } .auth-chip-name { display: none; } body.auth-on #btn-key { display: none; } }
+@media (max-width: 380px) { .brand { display: none; } }
+.nf-chips .chip-btn { max-width: 100%; min-width: 0; }
+.nf-chips .chip-btn .small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .auth-gate { backdrop-filter: none; } }
 
 /* ---------------- 查詢卡：資料來源分級（card.js；CONTRACT.md src 契約） ---------------- */

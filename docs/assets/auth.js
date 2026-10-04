@@ -144,6 +144,7 @@
       const theme = document.getElementById('btn-theme');
       if (theme) hdr.insertBefore(chip, theme); else hdr.appendChild(chip);
     }
+    document.body.classList.add('auth-on'); // app.css：窄螢幕有登入鈕時才收起「清除密語」
     chip.title = '已登入：' + A.user.name + '（' + A.user.id + '）。點擊登出';
     chip.setAttribute('aria-label', chip.title);
     chip.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg><span class="auth-chip-name">${esc(A.user.name)}</span>`;
