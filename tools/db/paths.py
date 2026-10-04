@@ -82,7 +82,7 @@ SHEETS_FINAL = os.path.join(BUILD_DIR, 'sheets_final.pkl')         # build_workb
 PREV_TEMPLATES_JSON = os.path.join(BUILD_DIR, 'prev_templates.json')  # sheets_templates：前簿 26_附錄_範本 的 JSON 快取
 DOCSEARCH_JSON = os.path.join(CARDWORK, 'docsearch.json')          # docmap_docsearch 的輸出（build_card_aux --docsearch）
 HMI_JSON = os.path.join(CARDWORK, 'hmi.json')                      # tools/db/hmi_index.py 的輸出（畫面／位號→座標索引）
-HMI_SHOTS = os.path.join(CARDWORK, 'hmi_shots')                    # 畫面縮圖（ThumbNail EMF → png/webp）＋ index.json
+HMI_SHOTS = os.path.join(CARDWORK, 'hmi_shots')                    # 畫面影像：執行時截圖 <slug>__<選單機組>.webp ＋ 設計時 ThumbNail EMF <slug>.webp ＋ index.json
 
 ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFTXT_CACHE), ('LIBRARY_ROOT', LIBRARY_ROOT),
        ('PREV_XLSX', PREV_XLSX), ('BUILD_DIR', BUILD_DIR), ('SHEETS_CACHE', SHEETS_CACHE), ('SHEETS_FINAL', SHEETS_FINAL),

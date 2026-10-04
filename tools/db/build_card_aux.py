@@ -19,7 +19,8 @@ Usage:  py tools/db/build_card_aux.py <cardwork_dir> docs/db/data [--chunk-kb 30
   hmi_nav.json   ← tools/db/hmi_nav.py             （逐列選單路徑／畫面標題；`--hmi-nav`，用來挑「以這台的機組開啟」的那一列導覽路徑）
 圖控 HMI（CONTRACT.md「圖控 HMI 畫面位置」）：每台產生 `sec.hmi = {rows: [[欄位, 值, lvl='hmi', 來源字串, extra]]}`，每個（畫面, 選單機組）一組 4 列
 （圖控畫面／導覽路徑／所在位置／對應方式），第一列的 extra 帶 nav、img、marks（[中心 x, 中心 y, 框寬, 框高]，0~1 比例、左上為原點）；
-有設備對應到又有設計時 ThumbNail 的畫面，縮圖包成 `card/hmi/<畫面名>.json`＝`{w,h,mime,b64}`（**走既有 *.json 加密路徑，不另造加密**），
+有設備對應到又有影像的畫面，縮圖包成 `card/hmi/<畫面名>[__<選單機組>].json`＝`{w,h,mime,b64}`（**走既有 *.json 加密路徑，不另造加密**；
+執行時截圖逐選單機組各一檔、設計時 ThumbNail 整個畫面一檔），
 清單與畫面中繼資料放 `card/index.json` 的 `hmi`（含 `files`，verify_encrypted 以它認得這些密文不是孤兒）。
 
 另讀 docs/db/data/sheets/03.json（alias 列序、位號）與 13.json（AMS 量程現值，DCS 基準比對用），
@@ -446,6 +447,11 @@ def hmi_slug(screen_key):
     return base
 
 
+def hmi_unit_slug(unit):
+    """選單機組 'H11.' → 'H11'（檔名用；與 hmi_shots.unit_slug 同規則）。"""
+    return re.sub(r'[^0-9A-Za-z._-]+', '_', (unit or '').rstrip('.')) or 'x'
+
+
 def hmi_nav_rows(hm, key, unit):
     """該畫面的選單路徑：優先取「以這一列選單（機組 unit）開啟」的那一列，否則全部列。
     回傳 ([路徑陣列…], exact)；exact=False 代表不是這台儀器那一列（只能列出全部）。"""
@@ -559,7 +565,8 @@ def hmi_rows(hm, tag):
         ref = next((e.get('ref') for e in sorted(
             ge, key=lambda x: (x['route'] != 'obj', hmi_ref_is_template(x.get('ref')),
                                x['route'], x.get('ref') or '')) if e.get('ref')), None)
-        img = bool(sc.get('img'))
+        # 有沒有影像：hmi.json 的 img 來自 hmi_shots 的 index.json，但 --skip-hmi 時兩者可能不同步，所以也看縮圖索引
+        img = bool(sc.get('img') or (hm['_shots'].get(key.lower()) or {}).get('file'))
         pre = src_prefix('hmi')
         src = '%s · 畫面檔 %s' % (pre, key)
         base = {'s': key, 'g': gi}
@@ -593,8 +600,13 @@ def hmi_apply(sec, hm, tag):
 
 
 def hmi_write_images(outdir, out, hm, stats):
-    """收集 out 裡 sec.hmi 真的用到的畫面 → 寫 card/hmi/<slug>.json（{w,h,mime,b64}，走既有 *.json 加密路徑），
-    回傳 index.hmi（畫面中繼資料＋檔案清單）。先整個清掉 card/hmi/ 才寫，避免掉出覆蓋範圍的畫面留下孤兒密文。"""
+    """收集 out 裡 sec.hmi 真的用到的畫面 → 寫 card/hmi/<slug>[__<選單機組>].json（{w,h,mime,b64}，走既有 *.json 加密路徑），
+    回傳 index.hmi（畫面中繼資料＋檔案清單）。先整個清掉 card/hmi/ 才寫，避免掉出覆蓋範圍的畫面留下孤兒密文。
+
+    影像來源兩種（hmi_shots 的 index.json）：
+      執行時截圖（source='runtime capture'）——**逐「選單機組」各一張**，同一張畫面在 HRSG11／HRSG12 的現值不同，
+        不可共用；只發布這張卡真的用得到的那幾組，`meta.variants[選單機組]` 給前端挑，`meta.file` 是挑不到時的退路。
+      設計時 ThumbNail（EMF）——整個畫面一張，沒有機組之分（值是 ###）。"""
     import base64
     import shutil
     hdir = os.path.join(outdir, 'card', 'hmi')
@@ -610,46 +622,82 @@ def hmi_write_images(outdir, out, hm, stats):
         for r in rs:
             ex = r[4] if len(r) > 4 else None
             if isinstance(ex, dict) and ex.get('s'):
-                used.setdefault(ex['s'], 0)
-                used[ex['s']] += 1
-    screens, files, total = {}, [], 0
+                u = used.setdefault(ex['s'], {'rows': 0, 'units': set()})
+                u['rows'] += 1
+                if ex.get('unit'):
+                    u['units'].add(ex['unit'])
+    screens, files, total, nrt = {}, [], 0, 0
     if used:
         os.makedirs(hdir, exist_ok=True)
+
+    def put(rel, path, w, h):
+        """縮圖檔 → card/hmi/<rel>（{w,h,mime,b64}；走既有 *.json 加密路徑）；回傳寫出的位元組數。"""
+        b = open(path, 'rb').read()
+        data = dumps({'w': w, 'h': h, 'mime': 'image/webp' if path.lower().endswith('.webp') else 'image/png',
+                      'b64': base64.b64encode(b).decode('ascii')}).encode('utf-8')
+        with open(os.path.join(outdir, rel), 'wb') as f:
+            f.write(data)
+        return len(data)
+
     for key in sorted(used):
         sc = hm['screens'].get(key) or {}
         name, zh, en, cap = hmi_screen_name(hm, key)
         nv = hm['_nav'].get(key.lower()) or {}
-        meta = {'title': name, 'en': en, 'nav': nv.get('nav') or sc.get('nav') or [], 'img': False, 'rows': used[key]}
+        meta = {'title': name, 'en': en, 'nav': nv.get('nav') or sc.get('nav') or [], 'img': False, 'rows': used[key]['rows']}
         if zh:
             meta['zh'] = zh
         if cap:
             meta['caption'] = cap
         shot = hm['_shots'].get(key.lower()) or {}
-        fn = sc.get('img') or shot.get('file')
-        src = os.path.join(hm['_shots_dir'], fn) if (fn and hm['_shots_dir']) else None
-        if src and os.path.exists(src):
-            b = open(src, 'rb').read()
-            w = sc.get('img_w') or shot.get('w')
-            h = sc.get('img_h') or shot.get('h')
-            rel = 'card/hmi/%s.json' % hmi_slug(key)
-            data = dumps({'w': w, 'h': h, 'mime': 'image/webp' if fn.lower().endswith('.webp') else 'image/png',
-                          'b64': base64.b64encode(b).decode('ascii')}).encode('utf-8')
-            open(os.path.join(outdir, rel), 'wb').write(data)
-            meta.update({'img': True, 'file': rel, 'w': w, 'h': h, 'bytes': len(data)})
+        rt = shot.get('runtime') or {}
+        # 只發布這張卡用得到的（畫面, 選單機組）；沒有 unit 的列（route 不帶機組）退回 primary
+        want = [u for u in sorted((used[key]['units'] | {rt.get('primary')}) & set(rt.get('variants') or {}))] if rt else []
+        variants = {}
+        for u in want:
+            v = rt['variants'][u]
+            src = os.path.join(hm['_shots_dir'], v['file']) if hm['_shots_dir'] else None
+            if not (src and os.path.exists(src)):
+                continue
+            rel = 'card/hmi/%s__%s.json' % (hmi_slug(key), hmi_unit_slug(u))
+            n = put(rel, src, v['w'], v['h'])
+            variants[u] = {'file': rel, 'w': v['w'], 'h': v['h'], 'bytes': n}
             files.append(rel)
-            total += len(data)
+            total += n
+        if variants:
+            fu = rt['primary'] if rt.get('primary') in variants else sorted(variants)[0]
+            first = variants[fu]
+            # 'unit' ＝ meta.file 那張是哪一組：前端挑不到這一列的機組而退回 meta.file 時，
+            # 說明列要能寫「這張是 X 的畫面，沒有 Y 的截圖」，不能讓使用者以為看到的是自己那一組的現值
+            meta.update({'img': True, 'source': 'runtime', 'captured': rt.get('captured'), 'variants': variants,
+                         'unit': fu, 'file': first['file'], 'w': first['w'], 'h': first['h'], 'bytes': first['bytes']})
+            nrt += 1
+        else:
+            emf = shot.get('emf') or (shot if shot.get('source') != 'runtime capture' else {})
+            fn = emf.get('file')
+            src = os.path.join(hm['_shots_dir'], fn) if (fn and hm['_shots_dir']) else None
+            if src and os.path.exists(src):
+                w, h = emf.get('w'), emf.get('h')
+                rel = 'card/hmi/%s.json' % hmi_slug(key)
+                n = put(rel, src, w, h)
+                meta.update({'img': True, 'source': 'emf', 'file': rel, 'w': w, 'h': h, 'bytes': n})
+                files.append(rel)
+                total += n
         screens[key] = meta
     hs = hm['stats']
-    ix = {'screens': screens, 'files': sorted(files), 'bytes': total,
+    captured = next((m.get('captured') for m in screens.values() if m.get('captured')), None)
+    ix = {'screens': screens, 'files': sorted(files), 'bytes': total, 'captured': captured,
           'design': [hs.get('design_w'), hs.get('design_h')], 'canvas': [1920, 1080],
           'note': ('x／y 是 0~1 的畫面比例、左上為原點，可直接乘縮圖寬高；marks 每筆＝[中心 x, 中心 y, 框寬, 框高]，'
                    '框寬／高為 0 時只標點不畫框，**marks[0] 就是「所在位置」文字描述的那處**（前端照陣列順序編 ①②③）。'
-                   '縮圖是 .cim 內含的設計時 ThumbNail（EMF），不是執行時截圖，'
-                   '所以數值顯示成 ### 、部分標題是 CAPTION 佔位；左側導覽抽屜、左上角錶框、選單列與 Loading 提示'
-                   '原本是所有選單項／所有機組變體疊在一起，已在產圖時塗成空面板。'
+                   '畫面影像兩種來源，看 screens[].source：runtime＝%s 在機組上拍的執行時畫面（原畫面 1920×1080＝標記的座標系，'
+                   '發布的是縮成寬 1280 的 WebP；**逐選單機組各一張**，用 screens[].variants[選單機組] 挑；畫面上的數值是當時的現值，不是即時值）；'
+                   'emf＝.cim 內含的設計時 ThumbNail，沒有執行時截圖的畫面才用，數值顯示成 ### 、部分標題是 CAPTION 佔位，'
+                   '左側導覽抽屜／左上角錶框／選單列／Loading 提示原本是所有選單項疊在一起，已在產圖時塗成空面板。'
                    'stats.screens_total＝建索引的根目錄畫面數；screens_all＝Screens 遞迴全部 .cim；'
-                   'excluded＝子目錄的元件面板／函式庫（不建索引，但字串掃過，見 searched.hmi[0].why）。'),
-          'stats': {'devices': ndev, 'screens': len(screens), 'screens_with_img': len(files),
+                   'excluded＝子目錄的元件面板／函式庫（不建索引，但字串掃過，見 searched.hmi[0].why）。'
+                   % (captured or '使用者')),
+          'stats': {'devices': ndev, 'screens': len(screens), 'screens_with_img': sum(1 for m in screens.values() if m.get('img')),
+                    'files': len(files), 'screens_runtime': nrt,
                     'covered': hs.get('covered'), 'covered_pct': hs.get('covered_pct'),
                     'ams_tags_base': hs.get('ams_tags_base'), 'covered_ff': hs.get('covered_ff'), 'ff_total': hs.get('ff_total'),
                     'entries': hs.get('entries'), 'entries_with_xy': hs.get('entries_with_xy'),
@@ -661,8 +709,10 @@ def hmi_write_images(outdir, out, hm, stats):
                     'excluded_tag_hits': (hs.get('excluded_scan') or {}).get('tag_hits'),
                     'excluded_ff_hits': (hs.get('excluded_scan') or {}).get('ff_hits')}}
     stats['hmi'] = dict(ix['stats'], bytes=total)
-    print('hmi: %d 台設備有畫面對應，%d 個畫面（%d 個有設計時影像，共 %d KB；%d 個畫面檔沒有 ThumbNail 只能顯示名稱）'
-          % (ndev, len(screens), len(files), total // 1024, len(screens) - len(files)))
+    nimg = sum(1 for m in screens.values() if m.get('img'))
+    print('hmi: %d 台設備有畫面對應，%d 個畫面有影像（%d 個用 %s 的執行時截圖、%d 個用設計時 ThumbNail）；'
+          '發布 %d 個影像檔共 %d KB；%d 個畫面兩種影像都沒有，只能顯示名稱'
+          % (ndev, nimg, nrt, captured or '執行時', nimg - nrt, len(files), total // 1024, len(screens) - nimg))
     return ix
 
 
@@ -694,7 +744,8 @@ def hmi_doc(hm):
     """index.searched['hmi'] 的一筆：把圖控畫面檔目錄當一份「文件」描述（不含本機絕對路徑、沒有 Drive 連結）。"""
     hs = hm['stats']
     why = ('GE CIMPLICITY／ActivePoint 的 .cim 畫面檔（唯讀原檔，未修改）：物件屬性包＋選單變數解析出位號，'
-           '物件矩形換算成畫面比例；縮圖取自 .cim 內含的設計時 ThumbNail（EMF）。'
+           '物件矩形換算成畫面比例；畫面影像優先用使用者在機組上拍的執行時截圖（逐選單機組各一張），'
+           '沒拍到的畫面才退回 .cim 內含的設計時 ThumbNail（EMF，值顯示成 ###）。'
            '索引建在 Screens 根目錄的 %s 個畫面（操作員能從選單導覽到的）；%s'
            '覆蓋 %s/%s 台（%s%%）；FF 設備 %s/%s。畫面 %s 個（其中 %s 個畫面引用到 AMS 位號）。'
            % (hs.get('screens_total'), hmi_excluded_text(hm),

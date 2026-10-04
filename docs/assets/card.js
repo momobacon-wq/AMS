@@ -1369,7 +1369,7 @@
           // 完整資料區（.cq-more）仍延後：那一區預設收合，展開是明確動作，不會被重新渲染重置。
           if (inSum) block.classList.add('sum-has-shot');
           block.appendChild(this.hmiShot(meta, ex, title, inSum ? null : loaders));
-        } else block.appendChild(U.h('p', { class: 'muted small hmi-noimg' }, '此畫面檔未內含設計時影像（.cim 沒有 ThumbNail 串流），只能顯示畫面名稱與導覽路徑。'));
+        } else block.appendChild(U.h('p', { class: 'muted small hmi-noimg' }, '這張畫面沒有影像（沒拍到執行時畫面，.cim 也沒有 ThumbNail 串流），只能顯示畫面名稱與導覽路徑。'));
         const fields = U.h('div', { class: 'cfields hmi-f' });
         for (const r of grp.rows) {
           fields.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: r[0] === '導覽路徑' || r[0] === '對應方式' ? 2 : undefined,
@@ -1382,8 +1382,10 @@
       // 收合中不抓影像：摘要組與完整資料區段都是「卡片一渲染就填好」（不是展開才填），而每張畫面影像是 70–105 KB 的密文
       // （抓 → AES-GCM 解密 → gunzip → base64 → blob）。同 line 346「完整資料收合時不載變更歷程」的作法，等真的展開再載。
       this.whenDetailsOpen(grid, () => loaders.forEach((f) => f()));
-      const noimg = groups.filter((g) => !g.head.img).length;
-      if (noimg && groups.length > noimg) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, `其中 ${noimg} 個畫面檔未內含設計時影像。`));
+      // 計數與上面「要不要畫縮圖」用**同一個條件**：ex.img 只代表縮圖索引裡有這張畫面，
+      // 真正有沒有發布影像是 meta.file（縮圖快取缺檔時兩者會不一致，頁尾就會說 0 個沒有影像、區塊卻印著沒有影像）
+      const noimg = groups.filter((g) => !(g.head.img && ((hx.screens && hx.screens[g.head.s]) || {}).file)).length;
+      if (noimg && groups.length > noimg) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, `其中 ${noimg} 個畫面沒有影像。`));
     }
     /** el 位在收合的 <details>（摘要組預設收起、完整資料區 .cq-more）內時，等祖先全部展開才跑 load，而且只跑一次；
      *  都已經展開就立刻跑。注意 beforeprint 會強制展開全部 <details>，但 load 是非同步的，沒展開過的組第一次列印
@@ -1409,6 +1411,30 @@
       }
       window.addEventListener('beforeprint', run, { once: true });   // 列印一定要有圖
     }
+    /** 這一組（畫面, 選單機組）要用哪一張影像：執行時截圖是**逐選單機組各一張**（同一張畫面在 HRSG11／HRSG12
+     *  是兩份不同的現值），所以先照 ex.unit 找 meta.variants。找不到時退回 meta.file（＝meta.unit 那一組，
+     *  版型一樣所以紅圈位置照樣對），但**一定要把 mismatch 傳出去**讓 hmiSrcText 講明白：
+     *  標頭寫著「以選單機組 H12. 開啟」卻端出 HRSG11 的現值而不出聲，是這一段最嚴重的誤導。
+     *  回傳 {file, w, h, unit（這張圖是哪一組）, mismatch（本來要的是哪一組，沒落差就是 null）}。 */
+    hmiPick(meta, ex) {
+      const m = meta || {};
+      const want = (ex && ex.unit) || null;
+      const v = (m.variants && want) ? m.variants[want] : null;
+      if (v) return { file: v.file, w: v.w, h: v.h, unit: want, mismatch: null };
+      return { file: m.file, w: m.w, h: m.h, unit: m.unit || null,
+               mismatch: (m.variants && want) ? want : null };
+    }
+    /** 影像來源的一句說明（燈箱說明列與 alt 用）：執行時截圖要講擷取日期與機組，不然會被當成即時值。
+     *  pick 是 hmiPick 的回傳；挑不到這一列的機組時要說成「這張是 X 的畫面，不是這一列的 Y」。 */
+    hmiSrcText(meta, pick) {
+      if (!meta || meta.source !== 'runtime') return '設計時影像（值顯示為 ###）';
+      const p = pick || {};
+      const bits = [];
+      if (meta.captured) bits.push(meta.captured + ' 擷取');
+      if (p.mismatch) bits.push(`⚠ 這張是選單機組 ${p.unit || '其他機組'} 的畫面，沒有 ${p.mismatch} 的截圖——位置對得上，數值不是這一組的`);
+      else if (p.unit) bits.push('選單機組 ' + p.unit);
+      return '執行時畫面' + (bits.length ? `（${bits.join('，')}）` : '') + '，畫面上的值是擷取當時的現值、不是即時值';
+    }
     /** 一張畫面縮圖＋標記（按鈕：點開燈箱放大）。影像 JSON 解密後轉 blob URL（core.js D.loadHmiImage）。
      *  loaders 有給就把載入函式推進去（由 whenDetailsOpen 在展開後才跑），沒給就立刻載。 */
     hmiShot(meta, ex, title, loaders) {
@@ -1416,9 +1442,10 @@
       const frame = this.hmiFrame(meta, ex);
       btn.appendChild(frame);
       btn.appendChild(U.h('span', { class: 'hmi-zoom', 'aria-hidden': 'true' }, '⤢ 放大'));
-      const load = () => D.loadHmiImage(meta.file).then((o) => {
+      const pick = this.hmiPick(meta, ex);
+      const load = () => D.loadHmiImage(pick.file).then((o) => {
         if (this.destroyed) return;
-        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面縮圖（設計時影像）', decoding: 'async', width: o.w || null, height: o.h || null });
+        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面縮圖（' + this.hmiSrcText(meta, pick) + '）', decoding: 'async', width: o.w || null, height: o.h || null });
         frame.insertBefore(img, frame.firstChild);
         frame.classList.remove('loading');
       }).catch((e) => { if (!this.destroyed) { frame.classList.remove('loading'); frame.appendChild(U.h('span', { class: 'muted small hmi-err' }, '無法載入畫面影像：' + ((e && e.message) || e))); } });
@@ -1431,7 +1458,8 @@
      *  同一位號的兩處常常只差幾個像素，沒有編號使用者看不出有兩個圈，也對不上「另有 N 處」。 */
     hmiFrame(meta, ex) {
       const frame = U.h('span', { class: 'hmi-frame loading' });
-      const w = Number(meta.w) || 1280; const h = Number(meta.h) || 720;
+      const pick = this.hmiPick(meta, ex);
+      const w = Number(pick.w) || 1280; const h = Number(pick.h) || 720;
       frame.style.aspectRatio = w + ' / ' + h;
       const marks = ex.marks || [];
       const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫';
@@ -1459,20 +1487,21 @@
       const ov = U.h('div', { class: 'modal hmi-lb', role: 'dialog', 'aria-modal': 'true', 'aria-label': '畫面放大：' + title });
       const panel = U.h('div', { class: 'hmi-lb-panel' });
       const close = U.h('button', { class: 'icon-btn modal-x', type: 'button', 'aria-label': '關閉放大檢視' }, '✕');
+      const pick = this.hmiPick(meta, ex);
       const cap = U.h('div', { class: 'hmi-lb-cap' }, U.h('span', { class: 'hmi-t' }, title),
         U.h('span', { class: 'hmi-file mono' }, ex.s),
-        U.h('span', { class: 'muted small' }, '設計時影像（值顯示為 ###）；紅圈＝此位號的物件位置'
+        U.h('span', { class: 'muted small' }, this.hmiSrcText(meta, pick) + '；紅圈＝此位號的物件位置'
           + ((ex.marks || []).length > 1 ? `，共 ${ex.marks.length} 處，① 是「所在位置」那列描述的那處` : '')));
       const frame = this.hmiFrame(meta, ex);
       frame.classList.add('big');
-      const ar = (Number(meta.w) || 1280) / (Number(meta.h) || 720);
+      const ar = (Number(pick.w) || 1280) / (Number(pick.h) || 720);
       frame.style.maxWidth = `min(100%, calc((100dvh - 152px) * ${ar.toFixed(4)}))`;   // 108px 說明列 ＋ ✕ 自己那一列
       panel.append(close, frame, cap);
       ov.appendChild(panel);
       document.body.appendChild(ov);
       document.body.classList.add('modal-open');
-      D.loadHmiImage(meta.file).then((o) => {
-        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面（設計時影像）' });
+      D.loadHmiImage(pick.file).then((o) => {
+        const img = U.h('img', { class: 'hmi-img', src: o.url, alt: title + ' 畫面（' + this.hmiSrcText(meta, pick) + '）' });
         frame.insertBefore(img, frame.firstChild);
         frame.classList.remove('loading');
       }).catch(() => { frame.classList.remove('loading'); });

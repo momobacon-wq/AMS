@@ -7,8 +7,10 @@ DOC_TAG = 'C10LAB22BP001'      # 有文件全文檢索與雲端硬碟連結
 FLAG_TAG = 'G12HAP70BT001'     # 量程與 DCS 不符（端子表／寫入事件），控制器量程相符
 NEAR = 'LAB22'                 # 部分字串 → 相近建議
 MULTI = '10BT001'              # HostTag 對到 3 台（G12HAD／HAG／LBA10BT001）→ ?a= 切換
-HMI_TAG = 'C10LAB22BF001'      # 圖控：BOP_Feed_Water.cim，有設計時縮圖與 2 個標記（兩處只差 1.6% 畫面高 → 要靠 ①② 分辨）
-HMI_NOIMG = 'G12HAP70BT001'    # 圖控：HRSG_Blowdown_UX.cim 沒有 ThumbNail（只顯示名稱與路徑）
+HMI_TAG = 'C10LAB22BF001'      # 圖控：BOP_Feed_Water.cim（選單機組 BOPM1A.），有縮圖與 2 個標記（兩處只差 1.6% 畫面高 → 要靠 ①② 分辨）
+HMI_UNIT = 'G12HAP70BT001'     # 圖控：HRSG_Blowdown_UX.cim **以選單機組 H12. 開啟**，而該畫面 H11./H12. 各拍了一張執行時截圖
+#                                （primary 是 H11.）→ 用來守住「照 ex.unit 挑 variant」：挑錯就會把 HRSG11 的現值端到 G12 這台的卡上。
+#                                2026-10-04 起 43 個被引用的畫面全部有執行時截圖，`.hmi-noimg`（兩種影像都沒有）在現行語料是 0 筆，無法再用資料驗。
 HMI_FF = 'G11_90LT-1'          # FF：圖控畫面檔完全查無
 HMI_TMPL = '1-LI-CW101-1'      # 曾顯示未代入樣板 aliasSignal={device}（74 列）→ 現在必須是 device=1-LI-CW101-1_XQ01
 HMI_MULTI = 'C10LAB40BP001'    # 多點簡寫 caption=…LAB40BP001\002 → 卡片要有白話說明
@@ -148,9 +150,20 @@ def run(ctx):
         # 掃描範圍一次講完（不會同一張卡出現 248 與 473 兩個數字卻沒解釋）
         ck('查無文案講清楚掃了哪些、排除了哪些', '248' in ff_txt and '225' in ff_txt and '473' in ff_txt, ff_txt[:220])
         load_card(page, ctx, DOC_TAG)     # 還原「最近查過」的順序（下面的「← 上一個」chip 預期上一台是 DOC_TAG）
-        load_card(page, ctx, HMI_NOIMG)   # ＝FLAG_TAG：順便把卡片還原成下一段（摘要標頭）預期的那一台
+        load_card(page, ctx, HMI_UNIT)    # ＝FLAG_TAG：順便把卡片還原成下一段（摘要標頭）預期的那一台
         page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1200)
-        ck('無 ThumbNail 的畫面：只顯示名稱並註明', page.locator('.aux-hmi .hmi-noimg').count() == 1 and page.locator('.aux-hmi .hmi-img').count() == 0)
+        page.wait_for_function("document.querySelectorAll('.aux-hmi .hmi-img').length > 0", timeout=30000)
+        # 執行時截圖是**逐選單機組各一張**：真的抓進來的必須是這一列選單機組（H12.）那一張，不是 primary（H11.）那一張。
+        # 看 D.cache 的鍵（實際抓過的路徑）而不是 performance resource（緩衝區只有 250 筆，換過幾張卡就把舊的擠掉）
+        hgot = page.evaluate("[...AMS.data.cache.keys()].filter(k => k.indexOf('card/hmi/') === 0)")
+        ck('圖控影像照選單機組挑（不會端出別的機組的現值）',
+           any('HRSG_Blowdown_UX__H12' in k for k in hgot) and not any('HRSG_Blowdown_UX__H11' in k for k in hgot), hgot)
+        # 只看 hmiSrcText 的產物（img alt）。**不可**退而求其次看 .aux-hmi 的 inner_text：
+        # 區段說明（sections_aux 的 note）就印在同一個 .aux-hmi 裡，用 or 串起來會讓這條斷言永遠綠燈、什麼都沒守到
+        cap = page.evaluate("(() => { const i = document.querySelector('.aux-hmi img.hmi-img'); return i ? i.alt : ''; })()")
+        ck('說明寫出擷取日期、選單機組與「不是即時值」',
+           '2026-10-04' in cap and '選單機組 H12.' in cap and '不是即時值' in cap, cap[:160])
+        ck('沒有影像的畫面才出現 .hmi-noimg（現行語料 0 筆）', page.locator('.aux-hmi .hmi-noimg').count() == 0)
         # ---- 摘要標頭：資料日期列（不印 15 台控制器整串）、分享鈕、複製鈕、點值即複製、標籤去「現值／現行」
         asof = page.locator('.sum-asof').inner_text() if page.locator('.sum-asof').count() else ''
         ck('asof line lists AMS / controller checkout / docsearch dates', 'AMS 資料庫 20' in asof and '控制器 checkout' in asof and '文件索引' in asof, asof[:120])

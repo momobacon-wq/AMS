@@ -38,7 +38,7 @@
 | 4. 各產生器 → cardwork | `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py`（引數見各檔檔頭） | `AmsDb.sqlite`、明文 `sheets/`、工程文件庫（`LIBRARY_ROOT`）、pdftotext 快取（`PDFTXT_CACHE`） | `CARDWORK/ams.json`、`terminal.json`、`instlist.json`、`eomr.json`、`docindex.json` | 15 分（首次 pdftotext 更久） |
 | 5. 全文檢索 | `py tools/db/docmap_docsearch.py --data docs/db/data` | hst-docsearch 的 FTS 索引、`drive_map.json` | `CARDWORK/docsearch.json` | 4 分 |
 | 6. 查詢卡附加資料 | `py tools/db/build_card_aux.py <CARDWORK> docs/db/data` | cardwork 五份＋docsearch、`%LOCALAPPDATA%\dcdas\index.sqlite`、`drive_map.json` | `docs/db/data/card/*.json` → 加密＋戳記 | 3 分 |
-| 6b. 圖控 HMI 畫面位置 | `py tools/db/hmi_shots.py` → `py tools/db/hmi_nav.py` → `py tools/db/hmi_index.py`（順序固定；`rebuild.py` 在第 6 步之前自動跑，`--skip-hmi` 略過） | `AMS_HMI_SCREENS`（圖控 `.cim` 畫面檔目錄，唯讀）、`AmsDb.sqlite`、dcdas 索引 | `CARDWORK/hmi_shots/`（155 張 webp）、`hmi_nav.json`、`hmi.json` → 第 6 步併成 `sec.hmi` 與 `card/hmi/*.json` | 2 分 |
+| 6b. 圖控 HMI 畫面位置 | `py tools/db/hmi_shots.py` → `py tools/db/hmi_nav.py` → `py tools/db/hmi_index.py`（順序固定；`rebuild.py` 在第 6 步之前自動跑，`--skip-hmi` 略過）。前置的 `py tools/db/hmi_runtime_map.py` **不在重建流程裡**：它是離線工具（唯一需要 rapidocr），輸出 `tools/db/hmi_runtime_map.json` 已 commit，只有使用者重拍／補拍圖控畫面時才要重跑 | `AMS_HMI_SCREENS`（圖控 `.cim` 畫面檔目錄＋`圖控\*.xlsx` 執行時截圖，唯讀）、`tools/db/hmi_runtime_map.json`、`AmsDb.sqlite`、dcdas 索引 | `CARDWORK/hmi_shots/`（440 張 webp＝155 設計時＋285 執行時，約 22 MB）、`hmi_nav.json`、`hmi.json` → 第 6 步併成 `sec.hmi` 與 `card/hmi/*.json` | 2 分 |
 | 7. 戳記＋驗證 | `py tools/db/rebuild.py --only-stamp` | — | 兩站 `index.html`／`version.json`；`verify_encrypted` 0 錯誤 | 1 分 |
 | 7b. 氣動閥清單 | `py tools/db/pneuvalve_site.py docs/db/data`（`rebuild.py` 兩條路徑結尾自動跑；`--only-pneuvalve` 單跑） | `PNEUVALVE_XLSX`、`<CARDWORK>/pneuvalve_xwalk.json`、`drive_map.json` | `sheets/57～61.json`、02.json `valve`、00 目錄、manifest | 1 分 |
 | 8. push 前 | `py tools/db/rebuild.py --only-stamp --e2e` | — | 端對端測試全綠 | 3 分 |
@@ -88,7 +88,7 @@ py tools/stamp_assets.py docs && py tools/verify_encrypted.py
 
 摘要空白的欄位（設計廠牌／型號、出廠型號／序號、設計量程、P&ID／邏輯圖／Hook-up／位置圖）會依序改用文件索引、全文檢索命中的推定值；所有文件來源的數值都可點開雲端硬碟的那份檔案（需有該資料夾的 Drive 權限）。
 
-查詢卡的「圖控 HMI 畫面位置」（2026-10-03 起）：摘要有「圖控 HMI 畫面（這台儀器畫在哪一頁）」收合組（畫面名稱＋導覽路徑），「完整資料」裡的「圖控 HMI 畫面位置」另有畫面縮圖與紅圈標記（同一張畫面多處時標 ①②③，「所在位置」描述的永遠是 ①；點縮圖可放大）。覆蓋 870/1,679 台（51.8%）。索引建在 Screens **根目錄的 248 個操作員畫面**；另 225 個子目錄的元件面板／函式庫範本不建索引，但字串已逐條掃過（命中的 12 支位號都已由根目錄畫面涵蓋、FF 0 命中）＝遞迴全部 473 個 `.cim` 都查過。FF 設備（351 台）定讞無法對應，23 個畫面檔沒有內含設計時影像只能顯示名稱。細節與座標基準見 [CONTRACT.md](CONTRACT.md)「v5（docs/db 站：圖控 HMI 畫面位置）」。
+查詢卡的「圖控 HMI 畫面位置」（2026-10-03 起）：摘要有「圖控 HMI 畫面（這台儀器畫在哪一頁）」收合組（畫面名稱＋導覽路徑），「完整資料」裡的「圖控 HMI 畫面位置」另有畫面縮圖與紅圈標記（同一張畫面多處時標 ①②③，「所在位置」描述的永遠是 ①；點縮圖可放大）。覆蓋 870/1,679 台（51.8%）。索引建在 Screens **根目錄的 248 個操作員畫面**；另 225 個子目錄的元件面板／函式庫範本不建索引，但字串已逐條掃過（命中的 12 支位號都已由根目錄畫面涵蓋、FF 0 命中）＝遞迴全部 473 個 `.cim` 都查過。FF 設備（351 台）定讞無法對應。**2026-10-04 起畫面影像改用執行時截圖**（使用者在機組上逐頁拍的 1920×1080 畫面，`Screens\圖控\*.xlsx`；對應表 `tools/db/hmi_runtime_map.json` 由 `hmi_runtime_map.py` 離線產生並 commit）：被引用的 43 個畫面**全部**有影像（原本只有 20 個有設計時 ThumbNail），而且**逐選單機組各一張**（HRSG11／HRSG12 是兩份不同的現值，卡片依「以選單機組 … 開啟」那一列挑）。畫面上的值是擷取當時的現值、不是即時值，說明列會寫明日期與機組。細節與座標基準見 [CONTRACT.md](CONTRACT.md)「v5（docs/db 站：圖控 HMI 畫面位置）」。
 `extract.py`／`extract_db.py` 的 `--no-encrypt` 只供本機測試，明文輸出不可 push（`.gitignore` 也擋著）。
 
 ### push 前關卡
@@ -197,7 +197,8 @@ tools/db/docmap_eomr.py         cardwork/eomr.json：出廠證書 EOMR（pdftote
 tools/db/docmap_docindex.py     cardwork/docindex.json：文件索引（PDF 前幾頁提位號）
 tools/db/docmap_docsearch.py    cardwork/docsearch.json：hst-docsearch FTS 全文檢索命中與推定值
 tools/db/drive_map.py           %LOCALAPPDATA%\AMS\drive_map.json：文件庫相對路徑 → Google 雲端硬碟檔案 ID
-tools/db/hmi_shots.py           cardwork/hmi_shots/：圖控 .cim 的 ThumbNail（設計時 EMF）→ 1280 寬 webp＋index.json
+tools/db/hmi_runtime_map.py     tools/db/hmi_runtime_map.json（進 repo）：Screens\圖控\*.xlsx 的執行時截圖 → .cim 畫面＋選單機組（離線跑，唯一需要 rapidocr）
+tools/db/hmi_shots.py           cardwork/hmi_shots/：執行時截圖（逐選單機組）＋圖控 .cim 的 ThumbNail（設計時 EMF）→ 1280 寬 webp＋index.json
 tools/db/hmi_nav.py             cardwork/hmi_nav.json：圖控畫面的選單路徑、標題、畫面變數（逐列對齊）
 tools/db/hmi_index.py           cardwork/hmi.json：位號 → 圖控畫面＋畫面上的 0~1 座標（物件參照／畫面變數／點位索引／控制器 display_screen）
 tools/db/build_card_aux.py      docs/db/data/card/*.json：五份 cardwork＋dcdas 索引＋docsearch＋drive_map＋hmi → 查詢卡附加資料、DCS 比對、圖控畫面位置與縮圖（--recompare 只重算）

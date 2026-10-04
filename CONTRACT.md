@@ -240,9 +240,14 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 
 | 步驟 | 程式 | 輸出 | 內容 |
 |---|---|---|---|
-| 1 | `tools/db/hmi_shots.py` | `CARDWORK/hmi_shots/`（155 個 `.webp` ＋ `index.json`，6.8 MB） | `.cim` 的 `ThumbNail` 串流＝設計時全畫面 EMF → PowerShell GDI+ `System.Drawing.Imaging.Metafile` 渲染成 1920×1080 → **在原生尺寸塗平堆疊 chrome** → 寬 1280 WebP。**全畫面一律以裝置矩形 (0,0,1920,1080) 當畫布**（不可用 EMF 的 `szlDevice`：156 張裡有 3 張不是 1920×1080），所以影像像素 × 1.5 ＝ 畫面裝置像素。PIL 直接開 `.emf` 不可用（走 GDI `PlayEnhMetaFile`，不懂 EMF+ 記錄，畫出來近乎空白）。**塗平堆疊 chrome**（縮圖「殘影」的成因是 CimEdit 存設計時快照時把所有分支／所有機組變體的子物件全部畫出來、執行時才用 visibility 動畫只亮其中一組——導覽面板實測過繪 19~25 倍，**不是渲染器的 bug**）：在 GDI+ 輸出之後、PIL 縮圖之前，把四個原生裝置座標矩形 `nav (0,207,213,1048)`／`loading (0,182,334,205)`／`menubar (213,136,370,177)`／`banner (224,0,450,133)` 用該區逐張（`nav` 單一 probe、其餘逐列 donor）取樣到的背景色塗平，**不裁切**（裁切會動到座標基準，而 `hmi.json` 的 744 筆全畫面標記沒有一筆落在這些區塊內）。閘門：畫布必須真的是 `[0,0,1920,1080]` 且 `--screen` 未改，再逐張數重疊字串配對數——`nav` ≥ 1000 才遮（面板型與沒有 chrome 的樣板頁自動排除，不寫白名單）、`banner` 另需 ≥ 20。逐張夾限：`nav` 底緣由 `MASK_VOCAB`（畫面自己的按鈕 `####`／`MASTER RESET`／`DIAGNOSTIC RESET`）落在 **`MASK_NAV_FLOOR`＝900 以下**的命中往上夾 7px（樓地板以上的命中一律忽略並在結尾印警告——照它夾會把導覽樹整片留著，甚至讓矩形退化到整個不遮）、`banner` 右緣由第一個 `left ≥ 430` 的非 `###` 字串往左夾 2px；`nav` 的取樣 probe 固定在 `y 840~893`（＝樓地板 900 − 夾限留白 7，也就是最低可能的夾限線）＝一定在夾限線以上，`nav` 取樣不可信（眾數佔比 < 0.30 或偏離預設 > 24）時該矩形**整個不塗**（版型變了就該不塗，不是把灰塊放在可能錯的位置）；其餘三個矩形是逐列取樣，單列不可信只有那一列退回預設色（差一列只差 1px，且矩形位置另有配對數門檻把關）。`--no-mask` 完全不遮（回溯比對用）。以 2026-10-03 語料：遮 109 張、不遮 47 張（3 張樣板頁配對數 0 ＋ 44 張 faceplate），`nav` 夾限 46 張（13 張→925、33 張→958~972）、`banner` 夾限 7 張、取樣退回 0 張。`index.json` 每筆因此多兩個欄位：**`masked`**＝真的塗掉的**具名**矩形 `{"nav":[l,t,r,b],"loading":…,"menubar":…,"banner":…}`（沒遮就是 `{}`；不可寫成位置陣列——矩形組合會變，`masked[0]` 會把 `loading` 誤讀成 `nav`）、**`mask_metrics`**＝`{nav_pairs, nav_strings, banner_pairs, banner_strings, nav_bottom, nav_vocab_ignored}`（沒過門檻的畫面也留配對數，日後要調門檻不必重跑整套分析）。`masked` 每筆都有，`mask_metrics` 的**鍵是條件性的、一律用 `.get()` 讀**：只有評估過遮罩的全畫面型才有這個鍵（2026-10-03 語料 112/156，faceplate 沒有），`banner_*`／`nav_bottom` 只在過了 `nav` 門檻的 109 張，`nav_vocab_ignored` 只在真有命中被樓地板忽略時才寫（今天 0 張）。 |
+| 0 | `tools/db/hmi_runtime_map.py` | `tools/db/hmi_runtime_map.json`（**進 repo**，290 張截圖 → 201 個畫面、285 組（畫面, 選單機組）） | **離線**（不在 `rebuild.py` 裡）把使用者 2026-10-04 在機組上拍的執行時畫面對應到 `.cim`。輸入是 `Screens\圖控\*.xlsx` 七個活頁簿內嵌的 PNG（`BOP` 51／`BOPE` 35／`G11` 64／`G12` 57／`H11` 20／`H12` 20／`S1` 43，**全部 1920×1080**＝標記所用的裝置座標系）。**認畫面要兩個互相獨立的訊號，缺一不可**：①擷取順序＝`CIMNavigationMenuItemsStd.csv` 的選單順序（`BOOK_MENUS` 記每個活頁簿收哪幾個分頁）——單靠順序不行，有人重貼過同一張，多一張就把後面全部推移一格；②畫面左上麵包屑（`分頁 :: 子選單 :: 項目`，裁 `(0,186,760,214)` 放大 2 倍後 OCR）比對 CSV 的封閉詞彙——單靠 OCR 也不行，同一分頁裡「Hp & Lp Economiser」「Chiller Unit」各出現兩次（機組不同、文字一樣），而且 OCR 把 HRSG11 讀成 HRSG1、分不出 HRSG11／HRSG12（那是活頁簿決定的）。兩者以 **Needleman–Wunsch 單調對齊**（`GAP_IMG=-0.55`／`GAP_ROW=-0.15`，跳圖比跳選單列貴）合起來，選單列決定 `Cim Screen FileName` 與 `Unit`。**位元組完全相同的兩張**（Excel 會讓同一本裡兩個錨點共用同一個 media，所以以 `(活頁簿, sha1)` 分組；跨本相同只列進 `cross_book_identical` 警告、不丟）一定是重貼：留分數高的、丟另一張，它本來要對上的那列其實沒拍到（實測 3 張：`G11#17`＝Compressor 重貼、`G12#10`＝Gas Fuel Purge 重貼、`G12#55`＝G12S SIL Ventilation 重貼）。**還有兩道與分數無關的守門**，因為光看分數擋不住「同一頁拍了兩張（不是重貼）」——多出來的那張會被 DP 綁到鄰列，而同子選單的麵包屑彼此極像，分數常常還在 0.80 以上：①**argmax 檢查**：被指派的那列若不是這張圖 OCR 最像的那列、而且差距 > `ARGMAX_GAP`＝0.05，就列進 `review`（今天命中 2 張，`G11#49`／`G12#42` 的「SIL Overview vs Overview」，都是對的——只能靠順序分辨）；②**每張都要有歸屬**：`shots == mapped + dropped + unmatched`，`assert` 擋著，沒對上任何選單列的一律列進 `unmatched` 並逐張印出（`BOOK_MENUS` 的分頁清單與活頁簿不符時整本後面會挪位，以前這種情況統計看起來完全乾淨）。同一個 `.cim` ＋同一個 `Unit` 出現兩列選單（`GT_Perf` 的 Gas Turbine 1／2、`HRSG_Perf` 的 HRSG 1／2，只差 `ScreenVariables` 的 `num;1_`／`num;2_`）是**兩個不同的頁面、不是重複**，但 `variants` 以機組當鍵分不開，只能留第一張——第二張會進 `dropped` 並附理由，`stats.clash` 也記著（今天 2 組，都沒有 AMS 位號落在上面）。讀繪圖錨點時走訪**全部** `xl/drawings/drawing*.xml`、直接抓 `r:embed`，並以 `<xdr:pic>` 的個數當斷言：舊寫法要求 `<xdr:cNvPr …/>` 自閉合，使用者填了替代文字或加了超連結就會整張跳過、後面的序號整串挪位。每張都記 PNG 的 `sha1`，活頁簿重拍／重排時 `hmi_shots` 會對不上而出聲，不會默默貼錯圖。**只有這支要 `rapidocr-onnxruntime`**；重建流程讀的是它 commit 出來的 JSON，不跑 OCR。輸出另有 `dropped`（5 張：3 張重貼＋2 張同機組兩列選單）／`review`（6 張：分數 < 0.80 的 4 張＋argmax 命中的 2 張）／`unmatched`（0）／`cross_book_identical`（0）／`stats.clash` 供覆核。2026-10-04 真的會發布的 66 組已逐張以視覺覆核過麵包屑＋分頁高亮＋左欄高亮＋頁面標題，全部相符（其中 3 張 HMI 自己把麵包屑的分頁段落畫成空白，靠另外三個訊號定案）。 |
+| 1 | `tools/db/hmi_shots.py` | `CARDWORK/hmi_shots/`（155 個設計時 `.webp` 6.8 MB ＋ 285 個執行時 `<slug>__<選單機組>.webp` 15.1 MB ＝ 440 個 webp 共 21.9 MB，連 `index.json` 整個目錄 22.2 MB；257 個畫面有影像，其中 101 個本來沒有 ThumbNail） | **影像優先序：執行時截圖 > 設計時 ThumbNail。** 讀步驟 0 的對應表（`--runtime-map`，預設 `tools/db/hmi_runtime_map.json`），逐張核對 PNG 的 `sha1` 與尺寸必須是 `1920×1080`，再縮成寬 1280 WebP；**逐「選單機組」各存一張**（同一張畫面在 HRSG11／HRSG12 是兩份不同的現值，不可共用）。`index.json` 每一筆的 `file`／`w`／`h`／`bytes`／`source` 一律是「這個畫面要發布的那張」：有執行時截圖 → `source="runtime capture"`、另有 `runtime:{captured, primary, variants:{選單機組:{file,w,h,bytes,book,anchor,src_sha1,crumb,…}}}`，而設計時那一筆（含 `bounds`／`masked`／`mask_metrics`／`sha1`／`dup_of`）**原封不動整包搬進 `emf`**（不丟，遮罩統計也改讀它）；沒有截圖 → 欄位與 2026-10-03 版完全相同、沒有 `runtime`／`emf` 鍵。`--no-runtime` 完全不碰執行時這段，實測輸出與加這段程式之前**156/156 逐位元組相同**（含 `index.json`）。以下設計時那條路徑不變：`.cim` 的 `ThumbNail` 串流＝設計時全畫面 EMF → PowerShell GDI+ `System.Drawing.Imaging.Metafile` 渲染成 1920×1080 → **在原生尺寸塗平堆疊 chrome** → 寬 1280 WebP。**全畫面一律以裝置矩形 (0,0,1920,1080) 當畫布**（不可用 EMF 的 `szlDevice`：156 張裡有 3 張不是 1920×1080），所以影像像素 × 1.5 ＝ 畫面裝置像素。PIL 直接開 `.emf` 不可用（走 GDI `PlayEnhMetaFile`，不懂 EMF+ 記錄，畫出來近乎空白）。**塗平堆疊 chrome**（縮圖「殘影」的成因是 CimEdit 存設計時快照時把所有分支／所有機組變體的子物件全部畫出來、執行時才用 visibility 動畫只亮其中一組——導覽面板實測過繪 19~25 倍，**不是渲染器的 bug**）：在 GDI+ 輸出之後、PIL 縮圖之前，把四個原生裝置座標矩形 `nav (0,207,213,1048)`／`loading (0,182,334,205)`／`menubar (213,136,370,177)`／`banner (224,0,450,133)` 用該區逐張（`nav` 單一 probe、其餘逐列 donor）取樣到的背景色塗平，**不裁切**（裁切會動到座標基準，而 `hmi.json` 的 744 筆全畫面標記沒有一筆落在這些區塊內）。閘門：畫布必須真的是 `[0,0,1920,1080]` 且 `--screen` 未改，再逐張數重疊字串配對數——`nav` ≥ 1000 才遮（面板型與沒有 chrome 的樣板頁自動排除，不寫白名單）、`banner` 另需 ≥ 20。逐張夾限：`nav` 底緣由 `MASK_VOCAB`（畫面自己的按鈕 `####`／`MASTER RESET`／`DIAGNOSTIC RESET`）落在 **`MASK_NAV_FLOOR`＝900 以下**的命中往上夾 7px（樓地板以上的命中一律忽略並在結尾印警告——照它夾會把導覽樹整片留著，甚至讓矩形退化到整個不遮）、`banner` 右緣由第一個 `left ≥ 430` 的非 `###` 字串往左夾 2px；`nav` 的取樣 probe 固定在 `y 840~893`（＝樓地板 900 − 夾限留白 7，也就是最低可能的夾限線）＝一定在夾限線以上，`nav` 取樣不可信（眾數佔比 < 0.30 或偏離預設 > 24）時該矩形**整個不塗**（版型變了就該不塗，不是把灰塊放在可能錯的位置）；其餘三個矩形是逐列取樣，單列不可信只有那一列退回預設色（差一列只差 1px，且矩形位置另有配對數門檻把關）。`--no-mask` 完全不遮（回溯比對用）。以 2026-10-03 語料：遮 109 張、不遮 47 張（3 張樣板頁配對數 0 ＋ 44 張 faceplate），`nav` 夾限 46 張（13 張→925、33 張→958~972）、`banner` 夾限 7 張、取樣退回 0 張。`index.json` 每筆因此多兩個欄位：**`masked`**＝真的塗掉的**具名**矩形 `{"nav":[l,t,r,b],"loading":…,"menubar":…,"banner":…}`（沒遮就是 `{}`；不可寫成位置陣列——矩形組合會變，`masked[0]` 會把 `loading` 誤讀成 `nav`）、**`mask_metrics`**＝`{nav_pairs, nav_strings, banner_pairs, banner_strings, nav_bottom, nav_vocab_ignored}`（沒過門檻的畫面也留配對數，日後要調門檻不必重跑整套分析）。`masked` 每筆都有，`mask_metrics` 的**鍵是條件性的、一律用 `.get()` 讀**：只有評估過遮罩的全畫面型才有這個鍵（2026-10-03 語料 112/156，faceplate 沒有），`banner_*`／`nav_bottom` 只在過了 `nav` 門檻的 109 張，`nav_vocab_ignored` 只在真有命中被樓地板忽略時才寫（今天 0 張）。 |
 | 2 | `tools/db/hmi_nav.py` | `CARDWORK/hmi_nav.json`（248 筆） | 每個根目錄畫面的**逐列對齊**選單路徑：`nav`／`units`／`variables`／`nav_src` 四個陣列同序（`navigation/CIMNavigationMenuItemsStd.csv` 的原始列序，不去重），另有 `title_en`／`label`／`caption_en`／`title_src`／`title_conf`／`captions`／`alt_names`／`file_aliases`＋`alias_tier`（`case`＝定讞／`norm`＝很可能／`loose`＝推論）。`title_zh` 全部 `null`：原廠語言檔只宣告西班牙／日／法文，473 個 `.cim` 的字串 0 個含中文（LanguageMapper.clm 裡像中文的漢字是日文）。 |
 | 3 | `tools/db/hmi_index.py` | `CARDWORK/hmi.json`（354 KB） | `{by_tag:{位號:[{screen, unit, route, ref, x, y, w, h}]}, screens:{檔名:{title_en, title_zh, nav, units, img, img_w, img_h, img_canvas, w, h}}, stats}`。讀 1＋2 的輸出與 `paths.AMS_SQLITE`（現行 AMS 位號集合）、`paths.DCDAS_INDEX`。 |
+
+**兩種影像共用同一個座標系**：執行時截圖與設計時 ThumbNail 都是 1920×1080 裝置像素、版型逐像素相同（實測把 `C10LAB22BF001`
+的兩個標記疊到 `BOP_Feed_Water` 的執行時截圖與設計時縮圖，落點一致），所以換影像來源**不動任何換算**——`index.json` 的 `canvas`、
+`hmi.json` 的 `x/y/w/h`、`card.js` 的百分比定位、本節以下所有數字全部照舊。
 
 **座標基準：28800 × 16200 twips**（＝1920×1080 裝置像素 × 15，16:9）。先前推測的 25600×14400 是讀偏一個位元組的旗標對造成的錯覺，**已作廢**。
 `.cim` 的矩形四元組是 `(left, top, right, bottom)` 且 **y 軸向上**（top > bottom），而且貼在**下一個**物件名之前，所以屬於前一個物件
@@ -270,13 +275,18 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
   `所在位置`（`畫面左 58%／上 46%（約佔畫面寬 7%、高 4%）＝圖上標記 ①；這支位號在同一張畫面另有 1 處（圖上 ②），位置可能幾乎重疊`）、
   `對應方式`（`物件參照：device=C{UNIT1_NO}LAB22BF001_XQ01`；結尾帶 `\012\013` 的多點簡寫會補一句白話「同一個物件掛 …BP001、…BP002、…BP003 共 3 支，每一支都另有自己的索引」，
   否則使用者會以為是亂碼——涵蓋 572 列）。
-  每列 `extra` 都帶 `{s: 畫面檔名, g: 組序}` 供前端分組；**第一列**另帶 `nav`／`img`（該畫面有沒有設計時影像）／`marks`／`routes`／`unit`／`ref`。
+  每列 `extra` 都帶 `{s: 畫面檔名, g: 組序}` 供前端分組；**第一列**另帶 `nav`／`img`（該畫面有沒有影像，兩種來源都算）／`marks`／`routes`／`unit`／`ref`。
 - `marks: [[中心 x, 中心 y, 框寬, 框高]]`（0~1 比例、左上原點、已去重）：框寬／高為 **0 時只標點不畫框**（直線、文字錨點）；
   同一畫面同時有「有框」與「線狀」標記時只留有框的。**`marks[0]` 就是「所在位置」那列文字描述的那處**（面積最大者排前面），
   前端照陣列順序標 ①②③——同一位號的兩處常常只差 1~2% 畫面高（放大圖上約 11 px），沒有編號使用者看不出有兩個圈、也對不上「另有 N 處」。
-- **影像**：有設備對應到、而且 `.cim` 內含 ThumbNail 的畫面，縮圖包成 `docs/db/data/card/hmi/<畫面名去掉 .cim>.json ＝ {w, h, mime:"image/webp", b64}`，
+- **影像**：有設備對應到、而且有影像的畫面才包，`docs/db/data/card/hmi/….json ＝ {w, h, mime:"image/webp", b64}`，
   **走既有 `*.json` 加密路徑**（`encrypt_data.py` 的 `rglob("*.json")`），沒有第二套加密。寫之前先整個清掉 `card/hmi/`，掉出覆蓋範圍的畫面不會留下孤兒密文。
-- `card/index.json` 新增 `hmi = {screens:{檔名:{title, en, zh?, caption?, nav, img, file?, w?, h?, bytes?, rows}}, files:[…], bytes, design:[28800,16200], canvas:[1920,1080], note, stats}`。
+  檔名分兩種：執行時截圖是 **`<畫面名去掉 .cim>__<選單機組去掉結尾的點>.json`**（`BOP_Feed_Water__BOPM1A.json`），**逐選單機組一檔、而且只發布這一輪真的用得到的那幾組**
+  （再加上 `runtime.primary` 那組當退路）；設計時 ThumbNail 是 `<畫面名去掉 .cim>.json`，整個畫面一檔。
+  **同一張畫面不可跨機組共用執行時截圖**——HRSG11 與 HRSG12 是兩份不同的現值，共用等於把別的機組的數字端到使用者面前。
+- `card/index.json` 新增 `hmi = {screens:{檔名:{title, en, zh?, caption?, nav, img, source?, captured?, variants?, file?, w?, h?, bytes?, rows}}, files:[…], bytes, captured, design:[28800,16200], canvas:[1920,1080], note, stats}`。
+  `source` ＝ `"runtime"`（使用者拍的執行時畫面；此時 `captured` 是擷取日期、`variants:{選單機組:{file,w,h,bytes}}`、`file` 是挑不到機組時的退路）或 `"emf"`（設計時 ThumbNail）；沒有影像的畫面兩個鍵都沒有，一律用 `.get()`／`?.` 讀。
+  `stats` 另有 `screens_with_img`（有影像的畫面數）／`screens_runtime`（其中用執行時截圖的）／`files`（實際發布的影像檔數，有機組變體時會大於畫面數）。
   `stats` 除了覆蓋率，另有 `screens_total`（建索引的根目錄畫面數 248）／`screens_all`（遞迴全部 473）／`excluded`（225）／`excluded_scanned`／`excluded_tag_hits`／`excluded_ff_hits`
   ——卡片「查無」那句要一次講完掃描範圍，不然同一張卡會同時出現 248 與 473 兩個數字、看起來自相矛盾。
   `files` 是 `card/hmi/*.json` 的清單——`tools/verify_encrypted.py` 以它認得這些密文不是孤兒；`extract_db.data_build` 的雜湊也涵蓋 `card/**/*.json`
@@ -309,7 +319,11 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
   `OV.open` 的 `popstate` 處理器本身不看寬度，所以 `force` 推進去的歷史一樣會被正確吃掉。
   ✕ 以 `.hmi-lb .modal-x { position: static; align-self: flex-end }` 排成影像**上方自己的一列**（原本絕對定位壓在影像右上角，會遮住畫面的 UNACKNOWLEDGED／告警列）；
   影像寬度上限由 `card.js` 依該圖長寬比換算成 `min(100%, calc((100dvh - 152px) * <ar>))`（108px 說明列＋✕ 那一列），高度一定塞得進視窗。
-- 無影像的畫面只顯示名稱與路徑，並註明「此畫面檔未內含設計時影像（.cim 沒有 ThumbNail 串流）」。
+- **挑哪一張**：`hmiPick(meta, ex)` 先用 `meta.variants[ex.unit]`（執行時截圖逐選單機組各一張），挑不到才退回 `meta.file`；
+  `hmiShot`／`hmiFrame`（長寬比）／`openHmiLightbox`（影像、寬度上限）**三處都要用它**，只改其中一處會讓佔位框的長寬比對不上真正載進來的圖。
+  `hmiSrcText(meta, ex)` 產生 alt 與燈箱說明列的那句：執行時截圖寫「執行時畫面（YYYY-MM-DD 擷取，選單機組 X），畫面上的值是擷取當時的現值、不是即時值」
+  ——**擷取日期與「不是即時值」這兩件事一定要寫出來**，不然現場人員會把一張舊截圖當成即時畫面；設計時影像維持「設計時影像（值顯示為 ###）」。
+- 無影像的畫面只顯示名稱與路徑，並註明「這張畫面沒有影像（沒拍到執行時畫面，.cim 也沒有 ThumbNail 串流）」。
 - 查無：一次講完掃描範圍（取 `index.hmi.stats`）——FF 設備（`flags.ff`）寫「查無（FF 訊號不在控制器 I/O 索引，位號字串也不出現在任何圖控畫面檔；已掃 248 個操作員畫面，另 225 個子目錄元件面板／函式庫也掃過字串（共 473 個 .cim））」，
   其餘寫「查無（已掃 248 個操作員畫面，…（共 473 個 .cim）：這些畫面都沒有引用此位號）」。
 - `nav_all`：前端以 `.hmi-allnav`「（此畫面全部選單列）」顯示在導覽路徑旁（不只寫在來源字串裡）。`dcdas` 路線帶出 `unit` 之後目前實測為 0 組，前端仍保留這條分支。
@@ -320,7 +334,15 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 ### 已知限制（誠實標註）
 
 - **FF 設備（351 台）完全無法對應**：FF 位號不出現在任何 `.cim` 字串裡（根目錄 248 個與子目錄 225 個都掃過，見上面「掃描範圍」）；這不是解析漏抓。
-- **23 個引用到 AMS 位號的畫面檔沒有 ThumbNail**（量最大的是 `HPOT_HP_OT_Temp_UX.cim` 158 筆、`HRSG_Hot_Reheat_UX.cim` 123、`HRSG_LP_Group_UX.cim` 94、`HRSG_LP_Common_UX.cim` 78），只能顯示畫面名稱與導覽路徑。
+- **執行時截圖是 2026-10-04 的一次性快照，不是即時畫面**：值、告警數、時鐘都停在擷取當下，之後現場改了也不會變；前端每一處（縮圖 alt、燈箱說明列、摘要組與完整資料區的說明）都必須寫出擷取日期與「不是即時值」。要更新只能請使用者重拍、重跑 `hmi_runtime_map.py` 再重建。
+- **同一張畫面只拍到一組選單機組時，另一組就沒有自己的影像**：目前 66 組全部有對應機組的截圖（實測 1298 組卡片區塊 1298 組命中自己那一組，0 次退回），
+  但洞是存在的——`gtHA_Gen2_Gas_Fuel_Module_UX`／`gtHA_Gen2_SIL_FP_UX` 的選單有 G11./G12. 兩列而只拍到 G11.（那兩張是重貼，見步驟 0 的 `dropped`），只是目前沒有 AMS 位號落在那兩列。
+  真的發生時前端會退回 `meta.file`（＝`meta.unit` 那一組）並在說明列與 alt **明寫**「⚠ 這張是選單機組 X 的畫面，沒有 Y 的截圖——位置對得上，數值不是這一組的」：
+  版型相同所以紅圈位置仍然正確，**但數值不是那一組的，絕不可以不出聲**。`hmi_runtime_map.json` 的 `review`／`dropped`／`stats.clash` 就是用來發現「哪些選單列其實沒拍到」。
+- **摘要組一開卡就抓完該台所有畫面影像**（`card.js:1371` 刻意不延後，2026-10-03 修「摘要看不到圖控畫面」時定的）：改成逐選單機組一檔之後，
+  同一張畫面的 H11／H12 不再共用同一個路徑，`D.loadHmiImage` 以路徑為鍵的去重失效。最重的卡（14 組，另有約 7 台同樣）從 3 檔 155 KB 變成 14 檔 1,217 KB；
+  一般的卡 1~3 組、約 100~300 KB。要壓回去只能改成逐區塊 `IntersectionObserver` 延後載入，但那正是 2026-10-03 回報「摘要看不到圖控畫面」的那條路徑，**沒有使用者點頭不要動**。
+- **23 個引用到 AMS 位號的畫面檔沒有 ThumbNail**（量最大的是 `HPOT_HP_OT_Temp_UX.cim` 158 筆、`HRSG_Hot_Reheat_UX.cim` 123、`HRSG_LP_Group_UX.cim` 94、`HRSG_LP_Common_UX.cim` 78）——2026-10-04 起這 23 個全部改用執行時截圖，所以**現行語料沒有任何一個被引用的畫面是沒有影像的**（`.hmi-noimg` 分支 0 筆，前端仍保留這條分支）。
 - **來源裡沒有中文畫面名**，`title_zh` 一律 `null`；要中文只能另建人工對照表。
 - `sec.hmi` 的 `ref` 取自該組排序後第一個命中物件，**不保證屬於某一個座標**（同組多個矩形共用一個 `ref`），不要當成「這個位置的物件屬性」。
   `ref` 裡仍可能留著 `{UNIT1_NO}`、`{Unit_NO}` 這類**未代入的畫面變數**——那是 `.cim` 裡的原文參照字串（設計行為，不是壞資料）。

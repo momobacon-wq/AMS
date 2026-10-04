@@ -1,0 +1,3750 @@
+{
+ "books": {
+  "BOP.xlsx": {
+   "anchors": 51,
+   "bytes": 13798842,
+   "menus": [
+    "BOP"
+   ],
+   "sha1": "d0d1c005d4a9c63fde73652eb89980f7e59946a4"
+  },
+  "BOPE.xlsx": {
+   "anchors": 35,
+   "bytes": 9153754,
+   "menus": [
+    "BOPE",
+    "Performance",
+    "Annunciator",
+    "Alarms"
+   ],
+   "sha1": "d96cfa84b51488bedffbb3e1c49b50c15fcdc734"
+  },
+  "G11.xlsx": {
+   "anchors": 64,
+   "bytes": 16609044,
+   "menus": [
+    "Plant",
+    "G11",
+    "G11S"
+   ],
+   "sha1": "99f6305045fb7245303afb939da35aa6e7a2dd65"
+  },
+  "G12.xlsx": {
+   "anchors": 57,
+   "bytes": 14221016,
+   "menus": [
+    "G12",
+    "G12S"
+   ],
+   "sha1": "24c6f1961dc9a1030d3d2533978c01cd51101fc1"
+  },
+  "H11.xlsx": {
+   "anchors": 20,
+   "bytes": 5847275,
+   "menus": [
+    "HRSG11"
+   ],
+   "sha1": "223a88341609073da713608eb1e2b8a0242d235d"
+  },
+  "H12.xlsx": {
+   "anchors": 20,
+   "bytes": 5867382,
+   "menus": [
+    "HRSG12"
+   ],
+   "sha1": "8710cfd52cdd2f1485f9da52f9820843e853f2c3"
+  },
+  "S1.xlsx": {
+   "anchors": 43,
+   "bytes": 10031537,
+   "menus": [
+    "S1",
+    "S1S"
+   ],
+   "sha1": "a5fd7bb263baeaf6fec90b75a1864335e2d92a4d"
+  }
+ },
+ "captured": "2026-10-04",
+ "cross_book_identical": [],
+ "dropped": [
+  {
+   "anchor": 28,
+   "book": "BOPE.xlsx",
+   "crumb": "Performance :: Gas Turbine 2",
+   "media": "xl/media/image28.png",
+   "ocr": "Performance : Gas Turbine2",
+   "score": 0.981,
+   "sha1": "6256a5dc66a9f80060847b03f3145506a7502078",
+   "why": "同畫面同選單機組（EMAP1SVR.）已經有 BOPE.xlsx#27；兩列選單只差 ScreenVariables，variants 以機組當鍵分不開 → 這張沒被採用"
+  },
+  {
+   "anchor": 30,
+   "book": "BOPE.xlsx",
+   "crumb": "Performance :: HRSG 2",
+   "media": "xl/media/image30.png",
+   "ocr": "Performance : HRSG 2",
+   "score": 1.0,
+   "sha1": "4da4b319db847c37e67ef3e43a965b0ec33da9aa",
+   "why": "同畫面同選單機組（EMAP1SVR.）已經有 BOPE.xlsx#29；兩列選單只差 ScreenVariables，variants 以機組當鍵分不開 → 這張沒被採用"
+  },
+  {
+   "anchor": 17,
+   "book": "G11.xlsx",
+   "crumb": null,
+   "media": "xl/media/image17.png",
+   "ocr": "G11.: compressor : compressor",
+   "score": 0.0,
+   "sha1": "0802b466fed1d7f94fcae8d099f38fa1bb63f6c0",
+   "why": "與 G11.xlsx#18 位元組相同（重貼）；沒有對上任何選單列"
+  },
+  {
+   "anchor": 10,
+   "book": "G12.xlsx",
+   "crumb": "G12 :: Gas Fuel System :: Gas Fuel Module",
+   "media": "xl/media/image9.png",
+   "ocr": "G1 : Gas Fuel system : Gas Fuel Purge",
+   "score": 0.895,
+   "sha1": "7b05bdacc5e39bdabc27faac1a4b5e78277b1c6a",
+   "why": "與 G12.xlsx#9 位元組相同（重貼）；本來要對上的「G12 :: Gas Fuel System :: Gas Fuel Module」其實沒拍到"
+  },
+  {
+   "anchor": 55,
+   "book": "G12.xlsx",
+   "crumb": "G12S :: SIL :: Fire Protection",
+   "media": "xl/media/image53.png",
+   "ocr": "G12 I Ventilation",
+   "score": 0.489,
+   "sha1": "d4468cccee61d9470ea73a77d9d27e83018efd3f",
+   "why": "與 G12.xlsx#54 位元組相同（重貼）；本來要對上的「G12S :: SIL :: Fire Protection」其實沒拍到"
+  }
+ ],
+ "generated_by": "tools/db/hmi_runtime_map.py",
+ "kind": "hmi_runtime_map",
+ "review": [
+  {
+   "anchor": 15,
+   "book": "G12.xlsx",
+   "crumb": "G12 :: Rotor",
+   "ocr": "",
+   "score": 0.0,
+   "screen": "gtHA_Gen2_Rotor_UX.cim",
+   "unit": "G12.",
+   "why": null
+  },
+  {
+   "anchor": 8,
+   "book": "H12.xlsx",
+   "crumb": "HRSG12 :: Reheater",
+   "ocr": "Reheater",
+   "score": 0.64,
+   "screen": "HRSG_Reheater_UX.cim",
+   "unit": "H12.",
+   "why": null
+  },
+  {
+   "anchor": 4,
+   "book": "H12.xlsx",
+   "crumb": "HRSG12 :: HPOT Temp",
+   "ocr": "HPOT Temp",
+   "score": 0.667,
+   "screen": "HPOT_HP_OT_Temp_UX.cim",
+   "unit": "H12.",
+   "why": null
+  },
+  {
+   "anchor": 36,
+   "book": "S1.xlsx",
+   "crumb": "S1S :: HPEV",
+   "ocr": "SISHPEV",
+   "score": 0.706,
+   "screen": "ST_SIL_HPEV_UX.cim",
+   "unit": "S1.",
+   "why": null
+  },
+  {
+   "anchor": 49,
+   "book": "G11.xlsx",
+   "crumb": "G11S :: SIL :: Overview",
+   "ocr": "G1s I overview",
+   "score": 0.8,
+   "screen": "gtHA_Gen2_SIL_Overview_UX.cim",
+   "unit": "G11.",
+   "why": "OCR 最像的是「G11 :: Overview」（0.857），卻被順序綁到「G11S :: SIL :: Overview」（0.800）→ 可能是同一頁拍了兩張"
+  },
+  {
+   "anchor": 42,
+   "book": "G12.xlsx",
+   "crumb": "G12S :: SIL :: Overview",
+   "ocr": "G12 I overview",
+   "score": 0.8,
+   "screen": "gtHA_Gen2_SIL_Overview_UX.cim",
+   "unit": "G12.",
+   "why": "OCR 最像的是「G12 :: Overview」（0.929），卻被順序綁到「G12S :: SIL :: Overview」（0.800）→ 可能是同一頁拍了兩張"
+  }
+ ],
+ "screens": {
+  "BOPE_AOL_LTG.cim": {
+   "BOPE1.": {
+    "anchor": 24,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: AOL LTG",
+    "h": 1080,
+    "media": "xl/media/image24.png",
+    "ocr": "BOPE : AOL LTG",
+    "score": 1.0,
+    "sha1": "9b445754d96863c6dc724bc76714434de2bf6e93",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_1_1.cim": {
+   "BOPE1.": {
+    "anchor": 15,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS G11BPV101",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "BOPE : UP : BMS G11BPV101",
+    "score": 0.98,
+    "sha1": "9397738db2c1bffbf9fd21ad700e5d2870deaf10",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_1_2.cim": {
+   "BOPE1.": {
+    "anchor": 16,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS G11BPV102",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "BOPE : UP : BMS G11BPV102",
+    "score": 0.98,
+    "sha1": "7361391c764daf5b2f25b17e956074e301d5ec1a",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_2_1.cim": {
+   "BOPE1.": {
+    "anchor": 17,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS G12BPV101",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "BOPE : UP : BMS G12BPV101",
+    "score": 0.98,
+    "sha1": "f22dc54dbaa3e3c91c660c0c670f9eddd5142c66",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_2_2.cim": {
+   "BOPE1.": {
+    "anchor": 18,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS G12BPV102",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "BOPE : UP : BMS G12BPV102",
+    "score": 0.98,
+    "sha1": "2f14604b86a376c63a9afeefd846b17ce8c4aca1",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_3_1.cim": {
+   "BOPE1.": {
+    "anchor": 19,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS S10BRV101",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": "BOPE : UP : BMS S10BRV101",
+    "score": 0.98,
+    "sha1": "77f8adb2c182bb86f418356a3f1c9209e273d43a",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_3_2.cim": {
+   "BOPE1.": {
+    "anchor": 20,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS S10BRV102",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": "BOPE : UP : BMS S10BRV102",
+    "score": 0.98,
+    "sha1": "29d2b71864c8379235632e14ed32a1344b3dc4d0",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_4_1.cim": {
+   "BOPE1.": {
+    "anchor": 21,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS S10BQV101",
+    "h": 1080,
+    "media": "xl/media/image21.png",
+    "ocr": "BOPE : UP : BMS S10BQV101",
+    "score": 0.98,
+    "sha1": "c5a4a816ee683d228ada75d88f4e5629b0850c7e",
+    "w": 1920
+   }
+  },
+  "BOPE_BATT_BMS_4_2.cim": {
+   "BOPE1.": {
+    "anchor": 22,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: BMS S10BQV102",
+    "h": 1080,
+    "media": "xl/media/image22.png",
+    "ocr": "BOPE : UP : BMS S10BQV102",
+    "score": 0.98,
+    "sha1": "1c9cba6d6371c0c2901bce31da3858abca3f4cab",
+    "w": 1920
+   }
+  },
+  "BOPE_IMB.cim": {
+   "BOPE1.": {
+    "anchor": 1,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: IMB",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "BOPE IMB",
+    "score": 0.889,
+    "sha1": "3521ebad900e7f53efac53a08bb7e6d354a9858b",
+    "w": 1920
+   }
+  },
+  "BOPE_LV_MCC.cim": {
+   "BOPE1.": {
+    "anchor": 23,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: MCC",
+    "h": 1080,
+    "media": "xl/media/image23.png",
+    "ocr": "BOPE:MCC",
+    "score": 0.889,
+    "sha1": "3c1fc9e1c5573c8a78ad9c4a1448461ae31d05fb",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_C10BBA10.cim": {
+   "BOPE1.": {
+    "anchor": 2,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: MV-GT111",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "BOPE : MV-GT111",
+    "score": 1.0,
+    "sha1": "ff20bf3d31ee3fbe610b35b30db78f71f6e263dc",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_C10BBA30.cim": {
+   "BOPE1.": {
+    "anchor": 6,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: MV-ST11/12",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "BOPE : MV-ST11/12",
+    "score": 1.0,
+    "sha1": "e52cb965b2b15988a3c62600830bdf81d75add7f",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_C10BBB10.cim": {
+   "BOPE1.": {
+    "anchor": 3,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: MV-GT112",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "BOPE : MV-GT112",
+    "score": 1.0,
+    "sha1": "d97e7724c37d9d51e6364c28a5659269feb183b5",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_C10BCA10.cim": {
+   "BOPE1.": {
+    "anchor": 4,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: MV-GT121",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "BOPE : MV-GT121",
+    "score": 1.0,
+    "sha1": "57c70f1f052f5cad1e562fab19056cc3471053ba",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_C10BCB10.cim": {
+   "BOPE1.": {
+    "anchor": 5,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: MV-GT122",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "BOPE : MV-GT122",
+    "score": 1.0,
+    "sha1": "9db643e333294c57d0086845bc0cc58ae9c569e8",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_G11BFA10.cim": {
+   "BOPE1.": {
+    "anchor": 7,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: PC-GT111/112",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "BOPE : PC-GT111/112",
+    "score": 1.0,
+    "sha1": "edfca7eaa677285fd14163af69e829da22b24965",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_G11BKB20.cim": {
+   "BOPE1.": {
+    "anchor": 10,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: EMCC GT11",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": "BOPE : EMCC GT11",
+    "score": 1.0,
+    "sha1": "7df2440779f554073a2cdcf6a094b47d5d38f0ea",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_G11BKB20_1.cim": {
+   "BOPE1.": {
+    "anchor": 13,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: UPS GTEB",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "BOPE : UP : UPS GTEB",
+    "score": 0.976,
+    "sha1": "8305b5e434ba8908a4e2ce6815cab5e0f86987ae",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_G12BFA10.cim": {
+   "BOPE1.": {
+    "anchor": 8,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: PC-GT121/122",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "BOPE : PC-GT12 1/122",
+    "score": 0.974,
+    "sha1": "c8e80a7fefa63cc2802e25015737630bc04cca50",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_G12BKB20.cim": {
+   "BOPE1.": {
+    "anchor": 11,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: EMCC GT12",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "BOPE : EMCC GT12",
+    "score": 1.0,
+    "sha1": "0bb263608add19af6130b0d884dd61993c0650fb",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_HVAC.cim": {
+   "H11.": {
+    "anchor": 25,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: HVAC System",
+    "h": 1080,
+    "media": "xl/media/image25.png",
+    "ocr": "BOPE : HVAC system",
+    "score": 1.0,
+    "sha1": "997a6fb4646a687e9b46b6fd234340c7fa928c6f",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_S10BFT10.cim": {
+   "BOPE1.": {
+    "anchor": 9,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: PC-ST11/12",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "BOPE : PC-ST11/12",
+    "score": 1.0,
+    "sha1": "b6ad5512ad02c4f91f5703def775495afb5566e5",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_S10BKB10.cim": {
+   "BOPE1.": {
+    "anchor": 12,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: EMCC ST10",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "BOPE : EMCC ST1O",
+    "score": 0.938,
+    "sha1": "17a995a777eaabe24f427e96f7c513440b709920",
+    "w": 1920
+   }
+  },
+  "BOPE_MV_S10BKB10_1.cim": {
+   "BOPE1.": {
+    "anchor": 14,
+    "book": "BOPE.xlsx",
+    "crumb": "BOPE :: UPS :: UPS STEB",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": "BOPE : UP : UPS STEB",
+    "score": 0.976,
+    "sha1": "07967f8f69e809338143e3edeeb7bc6974389c28",
+    "w": 1920
+   }
+  },
+  "BOP_Ammonia_Dosing_System.cim": {
+   "SAMP1.": {
+    "anchor": 19,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Dosing Systems :: Ammonia Dosing",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": "BoP : Dosing systems : Ammonia Dosing",
+    "score": 1.0,
+    "sha1": "b1aaff958bc233e380c8401708e093730cc75369",
+    "w": 1920
+   }
+  },
+  "BOP_Anunciator.cim": {
+   "BOPE1.": {
+    "anchor": 35,
+    "book": "BOPE.xlsx",
+    "crumb": "Annunciator :: Annunciator",
+    "h": 1080,
+    "media": "xl/media/image35.png",
+    "ocr": "Annunciator : Annunciator",
+    "score": 1.0,
+    "sha1": "67a15fa4600b73b8ee939349b29602d0f0ce478d",
+    "w": 1920
+   }
+  },
+  "BOP_Aux_Steam.cim": {
+   "WSC1.": {
+    "anchor": 3,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Aux Steam",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "Bo : Aux steam",
+    "score": 0.966,
+    "sha1": "2cb9cf7b189a559d019ec0f9a41a09a11c0b1fa9",
+    "w": 1920
+   }
+  },
+  "BOP_Blowdown_Recovery_System.cim": {
+   "H11.": {
+    "anchor": 2,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Blowdown Recovery",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "Bop : Blowdown Recovery",
+    "score": 1.0,
+    "sha1": "0da5013c3572fadbcbaf7adff32f40a9caecc01c",
+    "w": 1920
+   }
+  },
+  "BOP_CEMS_Data.cim": {
+   "BOPM1A.": {
+    "anchor": 47,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: CEMS",
+    "h": 1080,
+    "media": "xl/media/image47.png",
+    "ocr": "BOP : CEMS",
+    "score": 1.0,
+    "sha1": "373b9c4d7440ae2bdd4209fbaef86c1293af0732",
+    "w": 1920
+   }
+  },
+  "BOP_Circulating_Water1.cim": {
+   "BOPM1A.": {
+    "anchor": 14,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Circulating Water :: Circulating Water 2",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": "BoP : irculating Wate : Circulating Water 2",
+    "score": 0.977,
+    "sha1": "7f247fb1f0c4a70197e590fec4b881cebb1f08c6",
+    "w": 1920
+   },
+   "BOPM1B.": {
+    "anchor": 13,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Circulating Water :: Circulating Water 1",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "BoP : irculating Wate Circulating Water 1",
+    "score": 0.953,
+    "sha1": "68508e7d2f8b5b9ba35b6d31f3ae29745bc0465d",
+    "w": 1920
+   }
+  },
+  "BOP_Circulating_Water2.cim": {
+   "BOPM1B.": {
+    "anchor": 15,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Circulating Water :: Debris Service Wtr",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "BoP : irculating Wate : Debris Service Wtr",
+    "score": 0.977,
+    "sha1": "b7566f1d693487d137e093e0a3dd9510df9f36ea",
+    "w": 1920
+   }
+  },
+  "BOP_Circulating_Water3.cim": {
+   "BOPM1B.": {
+    "anchor": 16,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Circulating Water :: Cond Box Air Removal",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "BoP : irculating Wate : Cond Box Air Removal",
+    "score": 0.978,
+    "sha1": "3883aa76f964812f72a7147232856f467290b3f3",
+    "w": 1920
+   }
+  },
+  "BOP_Clean_Drain_Skid_Hotwell_Sampling.cim": {
+   "SAMP1.": {
+    "anchor": 37,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: HotWell Sampling",
+    "h": 1080,
+    "media": "xl/media/image37.png",
+    "ocr": "Bop : Hotwell sampling",
+    "score": 1.0,
+    "sha1": "51420481cc8abb766696bdb4d70301314241770b",
+    "w": 1920
+   }
+  },
+  "BOP_Clean_Drain_System.cim": {
+   "BOPM1B.": {
+    "anchor": 39,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Clean Drain :: LP Flash Tank",
+    "h": 1080,
+    "media": "xl/media/image39.png",
+    "ocr": "BOP : lean Drain : LP Flash Tank",
+    "score": 0.985,
+    "sha1": "b151919edaa9aa1266e9a3dfbffffe6635e26bb5",
+    "w": 1920
+   }
+  },
+  "BOP_Clean_Drain_System1.cim": {
+   "BOPM1B.": {
+    "anchor": 38,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Clean Drain :: ADV",
+    "h": 1080,
+    "media": "xl/media/image38.png",
+    "ocr": "Bop : lean Drain ADv",
+    "score": 0.93,
+    "sha1": "e95f22c84c9c3c1ea25a543f7a769f8dda0debbd",
+    "w": 1920
+   }
+  },
+  "BOP_Cond_Air_Removal.cim": {
+   "BOPM1B.": {
+    "anchor": 11,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Cond Air Removal",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "BoP : ond Air Removal",
+    "score": 0.977,
+    "sha1": "1f29b8b5e636967c0a7aca3844a4c8d8885b5044",
+    "w": 1920
+   }
+  },
+  "BOP_Condenser_Equalizer.cim": {
+   "WSC1.": {
+    "anchor": 9,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condensate System :: Condenser Equalizer",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "BoP : ondensate system : Condenser Equalizer",
+    "score": 0.989,
+    "sha1": "21c60e9aa2fc8a4e2e9f4a3125e81c550f87ff39",
+    "w": 1920
+   }
+  },
+  "BOP_Condenser_Flashbox.cim": {
+   "WSC1.": {
+    "anchor": 10,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condensate System :: Condenser Flashbox",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": "BoP : ondensate system : Condenser Flashbox",
+    "score": 0.989,
+    "sha1": "6380c67dff14c5d0e9d43d461dc00538658e50fa",
+    "w": 1920
+   }
+  },
+  "BOP_Demin_Water_Distribution1.cim": {
+   "BOPM1A.": {
+    "anchor": 12,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Demin Water sys",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "Bop : Demin water sys",
+    "score": 1.0,
+    "sha1": "8f9755c2c88dec1f82376c5475fa6987ce75fba2",
+    "w": 1920
+   }
+  },
+  "BOP_Feed_Water.cim": {
+   "BOPM1A.": {
+    "anchor": 4,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: HP/IP Feed Water :: Feed Water",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "BOP : HP/IP Feed Water : eed Water",
+    "score": 0.986,
+    "sha1": "4f789b82064d9a839386ce74f70b2dd67eada3d6",
+    "w": 1920
+   }
+  },
+  "BOP_Feed_Water_Pump.cim": {
+   "BOPM1A.": {
+    "anchor": 5,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: HP/IP Feed Water :: Feed Pump 1",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "BOP : HP/IP Feed Water : eed Pump 1",
+    "score": 0.986,
+    "sha1": "7b98a622c81a596f9afbc5057d87102873eb5202",
+    "w": 1920
+   },
+   "BOPM1B.": {
+    "anchor": 6,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: HP/IP Feed Water :: Feed Pump 2",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "BOP : HP/IP Feed Water : eed Pump 2",
+    "score": 0.986,
+    "sha1": "254d399c44fefdfc6bf40a82ad22ef3386857229",
+    "w": 1920
+   },
+   "SAMP1.": {
+    "anchor": 7,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: HP/IP Feed Water :: Feed Pump 3",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "BOP : HP/IP Feed Water : eed Pump 3",
+    "score": 0.986,
+    "sha1": "4117a0cca8ccccd9a5fe0d80197f778167e37f99",
+    "w": 1920
+   }
+  },
+  "BOP_Fuel_Gas_Supply_System_Unit1.cim": {
+   "BOPM1A.": {
+    "anchor": 40,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Fuel Gas Supply :: GT11 Fuel Gas",
+    "h": 1080,
+    "media": "xl/media/image40.png",
+    "ocr": "BOP : uel Gas supply : GT11 Fuel Gas",
+    "score": 0.986,
+    "sha1": "7d95fbb6d0c7181a25b052d044a2486762efb7a9",
+    "w": 1920
+   },
+   "BOPM1B.": {
+    "anchor": 41,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Fuel Gas Supply :: GT12 Fuel Gas",
+    "h": 1080,
+    "media": "xl/media/image41.png",
+    "ocr": "BOP : Fuel Gas supply : GT12 Fuel Gas",
+    "score": 1.0,
+    "sha1": "eaad544353438c380b03adb9d36713a92696fd3d",
+    "w": 1920
+   }
+  },
+  "BOP_Gas_Leakage_Detection.cim": {
+   "BOPM1A.": {
+    "anchor": 46,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Gas :: Gas Leakage",
+    "h": 1080,
+    "media": "xl/media/image46.png",
+    "ocr": "Bop : Service Gas : Gas Leakage",
+    "score": 1.0,
+    "sha1": "99610db2639b66f33297b22ee671366ece4f86db",
+    "w": 1920
+   }
+  },
+  "BOP_Hydrazine_Dosing_System.cim": {
+   "SAMP1.": {
+    "anchor": 20,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Dosing Systems :: Hydrazine Dosing",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": "BoP : Dosing systems : Hydrazine Dosing",
+    "score": 1.0,
+    "sha1": "3f147042265af45d1bc3e5be969afd3d9a429f69",
+    "w": 1920
+   }
+  },
+  "BOP_Liquid_Nitrogen_System.cim": {
+   "BOPM1A.": {
+    "anchor": 45,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Gas :: Liquid Nitrogen",
+    "h": 1080,
+    "media": "xl/media/image45.png",
+    "ocr": "Bop : Service Gas : iquid Nitrogen",
+    "score": 0.986,
+    "sha1": "6190acf6468042e5cce6f637bd92dfd54e11201c",
+    "w": 1920
+   }
+  },
+  "BOP_MSP.cim": {
+   "BOPCM5.": {
+    "anchor": 50,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: TPC :: MSP Status",
+    "h": 1080,
+    "media": "xl/media/image50.png",
+    "ocr": "BOP : PC : MSP Status",
+    "score": 0.977,
+    "sha1": "9469824e56019e0c1acf3ba12d98d237bbe0a034",
+    "w": 1920
+   }
+  },
+  "BOP_MVD_Sys.cim": {
+   "SAMP1.": {
+    "anchor": 51,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: MVD System",
+    "h": 1080,
+    "media": "xl/media/image51.png",
+    "ocr": "Bo : MVD system",
+    "score": 0.968,
+    "sha1": "6c65fc693d27df3d44a3c5b38e8c7d686090c069",
+    "w": 1920
+   }
+  },
+  "BOP_Main_condensate_system.cim": {
+   "WSC1.": {
+    "anchor": 8,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condensate System :: Main condensate",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "BoP : ondensate system Main condensate",
+    "score": 0.962,
+    "sha1": "06b21d748664a3aa1679d46659f495c0905dfc4f",
+    "w": 1920
+   }
+  },
+  "BOP_Overview_UX.cim": {
+   "BOPM1A.": {
+    "anchor": 1,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: BOP Overview",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "Bo : BoP overview",
+    "score": 0.971,
+    "sha1": "6783ea87a56b8d286caeca71ee9015b56bad2c26",
+    "w": 1920
+   }
+  },
+  "BOP_Phosphate_Dosing_System.cim": {
+   "SAMP1.": {
+    "anchor": 21,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Dosing Systems :: Phosphate Dosing",
+    "h": 1080,
+    "media": "xl/media/image21.png",
+    "ocr": "BoP : Dosing systems : hosphate Dosing",
+    "score": 0.987,
+    "sha1": "121a1b769a016e795a913bbb3c0f300869db09b9",
+    "w": 1920
+   }
+  },
+  "BOP_Protection_UX.cim": {
+   "H11.": {
+    "anchor": 17,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Protection :: BOP Protection",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "HRSG1 Protection : BOP Protection",
+    "score": 0.957,
+    "sha1": "f9bfc26ad5e39a9aa29dbd88d927ac705e19e9c1",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 17,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Protection :: BOP Protection",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "HRSG12 : Protection : BOP Protection",
+    "score": 1.0,
+    "sha1": "784635a768a72e43b8ef283cb9f40fd7d3bf4b20",
+    "w": 1920
+   }
+  },
+  "BOP_Sampling_Overview.cim": {
+   "SAMP1.": {
+    "anchor": 22,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Sampling Overview",
+    "h": 1080,
+    "media": "xl/media/image22.png",
+    "ocr": "Bop : ampling overview",
+    "score": 0.978,
+    "sha1": "012f329cff091f59458a10597bc89cec9571141f",
+    "w": 1920
+   }
+  },
+  "BOP_Sampling_System_Cond1.cim": {
+   "SAMP1.": {
+    "anchor": 33,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condenser Sampling :: Cond 1 Zone 1",
+    "h": 1080,
+    "media": "xl/media/image33.png",
+    "ocr": "BoP : Condenser Sampling : Cond 1 one 1",
+    "score": 0.987,
+    "sha1": "b6ed40cae2ecf3aea95f4077e8587306af9f821a",
+    "w": 1920
+   }
+  },
+  "BOP_Sampling_System_Cond2.cim": {
+   "SAMP1.": {
+    "anchor": 34,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condenser Sampling :: Cond 1 Zone 2",
+    "h": 1080,
+    "media": "xl/media/image34.png",
+    "ocr": "BoP : ondenser Sampling : Cond 1 one",
+    "score": 0.947,
+    "sha1": "7037871ce12bb47eed78cfb32e38aa355d318473",
+    "w": 1920
+   }
+  },
+  "BOP_Sampling_System_Cond3.cim": {
+   "SAMP1.": {
+    "anchor": 35,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condenser Sampling :: Cond 2 Zone 1",
+    "h": 1080,
+    "media": "xl/media/image35.png",
+    "ocr": "BoP : Condenser Sampling : Cond 2 Zone 1",
+    "score": 1.0,
+    "sha1": "5ea1c220fb56b7587107524a9c1087ab19990b62",
+    "w": 1920
+   }
+  },
+  "BOP_Sampling_System_Cond4.cim": {
+   "SAMP1.": {
+    "anchor": 36,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Condenser Sampling :: Cond 2 Zone 2",
+    "h": 1080,
+    "media": "xl/media/image36.png",
+    "ocr": "BoP : Condenser Sampling : Cond 2 Zone",
+    "score": 0.974,
+    "sha1": "5c6bcb5fd5996485d44b4f80a75d4c6163cfc53d",
+    "w": 1920
+   }
+  },
+  "BOP_Service_Gas_GT11_H2_GEN.cim": {
+   "BOPM1A.": {
+    "anchor": 42,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Gas :: H2 & CO2 Gen GT11",
+    "h": 1080,
+    "media": "xl/media/image42.png",
+    "ocr": "BOP : Service Gαs : H2 & c02 Gen GT11",
+    "score": 0.943,
+    "sha1": "46a6eb2d3ffa50e0980a0ddb58d5698f98c298dd",
+    "w": 1920
+   },
+   "SAMP1.": {
+    "anchor": 43,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Gas :: H2 & CO2 Gen GT12",
+    "h": 1080,
+    "media": "xl/media/image43.png",
+    "ocr": "BOP : Service Gαs : H2 & c02 Gen GT12",
+    "score": 0.943,
+    "sha1": "704cfbba97245eced9fa4a1d39c6d6b87996361c",
+    "w": 1920
+   }
+  },
+  "BOP_Service_Gas_ST_H2_GEN.cim": {
+   "BOPM1A.": {
+    "anchor": 44,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Gas :: H2 & CO2 Gen ST10",
+    "h": 1080,
+    "media": "xl/media/image44.png",
+    "ocr": "BOP : Service Gas : H2 & c02 Gen sST10",
+    "score": 0.958,
+    "sha1": "fd575424af625caf37c39b597abb7ffbcb888c7a",
+    "w": 1920
+   }
+  },
+  "BOP_Service_Water_Distribution.cim": {
+   "BOPM1B.": {
+    "anchor": 18,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Water Syst :: Service Water Distribution",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "BoOP : Service Water syst Service Water Distribution",
+    "score": 0.971,
+    "sha1": "a7e7ed7bd3b6b5ad841aff5d453591c10a8dc99f",
+    "w": 1920
+   }
+  },
+  "BOP_Service_Water_System.cim": {
+   "BOPM1B.": {
+    "anchor": 17,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: Service Water Syst :: Service Water",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "Service Water syst : Service Water",
+    "score": 0.919,
+    "sha1": "a990e6533b7adfbb0c743371f443008fd7521fd8",
+    "w": 1920
+   }
+  },
+  "BOP_Travelling_Water1.cim": {
+   "WSC1.": {
+    "anchor": 48,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: TPC :: Travelling Wtr 1",
+    "h": 1080,
+    "media": "xl/media/image48.png",
+    "ocr": "BOP : TP Travellin wtr 1",
+    "score": 0.923,
+    "sha1": "c32149ff712ef01bdc7ff827ccff82ff6b29e3f3",
+    "w": 1920
+   }
+  },
+  "BOP_Travelling_Water2.cim": {
+   "WSC1.": {
+    "anchor": 49,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: TPC :: Travelling Wtr 2",
+    "h": 1080,
+    "media": "xl/media/image49.png",
+    "ocr": "BOP : TP Travellin wtr",
+    "score": 0.88,
+    "sha1": "f7fba761ead6a6f01d70fa0e536e18bef5c98674",
+    "w": 1920
+   }
+  },
+  "BOP_WSC_Sampling_System1.cim": {
+   "BOPM1B.": {
+    "anchor": 28,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Water Samp GT12",
+    "h": 1080,
+    "media": "xl/media/image28.png",
+    "ocr": "BOP : Wsc Sampling : Water samp GT12",
+    "score": 1.0,
+    "sha1": "15cb9269ecd48602073b027b006c6a32bc3d33e1",
+    "w": 1920
+   },
+   "SAMP1.": {
+    "anchor": 23,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Water Samp GT11",
+    "h": 1080,
+    "media": "xl/media/image23.png",
+    "ocr": "BOP : Wsc Sampling : Water samp GT11",
+    "score": 1.0,
+    "sha1": "c4885cc3db39b4f36c0b7db5b058dee7c03efedb",
+    "w": 1920
+   }
+  },
+  "BOP_WSC_Sampling_System2.cim": {
+   "BOPM1B.": {
+    "anchor": 29,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Steam Samp GT12",
+    "h": 1080,
+    "media": "xl/media/image29.png",
+    "ocr": "BOP : Wsc Sampling : Steam Samp GT12",
+    "score": 1.0,
+    "sha1": "bd87026c9260e2f9d74c88a7e619b328ea8a6903",
+    "w": 1920
+   },
+   "SAMP1.": {
+    "anchor": 24,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Steam Samp GT11",
+    "h": 1080,
+    "media": "xl/media/image24.png",
+    "ocr": "BOP : Wsc Sampling Steam Samp GT11",
+    "score": 0.971,
+    "sha1": "f4e87360135cf9c26794b3bab290fabc68ed18c7",
+    "w": 1920
+   }
+  },
+  "BOP_WSC_Sampling_System3.cim": {
+   "SAMP1.": {
+    "anchor": 26,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Aux Steam&Mkup Wtr",
+    "h": 1080,
+    "media": "xl/media/image26.png",
+    "ocr": "BOP : Wsc ampling Aux Steam&Mkup Wt",
+    "score": 0.946,
+    "sha1": "b6358453e670dd3934944335f3ff6d1b7ad8a896",
+    "w": 1920
+   }
+  },
+  "BOP_WSC_Sampling_System4.cim": {
+   "SAMP1.": {
+    "anchor": 31,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Cond Disch Samp",
+    "h": 1080,
+    "media": "xl/media/image31.png",
+    "ocr": "BoP : Wsc Sampling : Cond Disch samp",
+    "score": 1.0,
+    "sha1": "3861b1731bb210ec2f1d0db2635ddf3571edd2c7",
+    "w": 1920
+   }
+  },
+  "BOP_WSC_Sampling_System5.cim": {
+   "BOPM1B.": {
+    "anchor": 32,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Chiller Unit",
+    "h": 1080,
+    "media": "xl/media/image32.png",
+    "ocr": "BoP wsc sampling : Chiller unit",
+    "score": 0.969,
+    "sha1": "19bcea0e686d451a1c8afe38d886ead0511fe889",
+    "w": 1920
+   },
+   "SAMP1.": {
+    "anchor": 27,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Chiller Unit",
+    "h": 1080,
+    "media": "xl/media/image27.png",
+    "ocr": "BoP wsc sampling : Chiller unit",
+    "score": 0.969,
+    "sha1": "cbb5086e31a239c9723338652c3cb5b60941e8ea",
+    "w": 1920
+   }
+  },
+  "BOP_WSC_Sampling_System6.cim": {
+   "BOPM1B.": {
+    "anchor": 30,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Hp & Lp Economiser",
+    "h": 1080,
+    "media": "xl/media/image30.png",
+    "ocr": "BoP : Wsc sampling : Hp & Lp Economiser",
+    "score": 1.0,
+    "sha1": "bf3349ce84d08937635054240443b7cf1145f39c",
+    "w": 1920
+   },
+   "SAMP1.": {
+    "anchor": 25,
+    "book": "BOP.xlsx",
+    "crumb": "BOP :: WSC Sampling :: Hp & Lp Economiser",
+    "h": 1080,
+    "media": "xl/media/image25.png",
+    "ocr": "BoP : Wsc sampling : Hp & Lp Economiser",
+    "score": 1.0,
+    "sha1": "0694281f573ae8c6c51743ca39a14d51d4134a3e",
+    "w": 1920
+   }
+  },
+  "CC_Perf.cim": {
+   "EMAP1SVR.": {
+    "anchor": 26,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: CC Overview",
+    "h": 1080,
+    "media": "xl/media/image26.png",
+    "ocr": "Performance :cc overview",
+    "score": 0.98,
+    "sha1": "b852c9d377d6a5e2b102e48ed645d489a0e0ca5b",
+    "w": 1920
+   }
+  },
+  "CR_CT_Perf.cim": {
+   "EMAP1SVR.": {
+    "anchor": 32,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: Cooling System",
+    "h": 1080,
+    "media": "xl/media/image32.png",
+    "ocr": "Performance : cooling system",
+    "score": 1.0,
+    "sha1": "eb0a836f1d7a09e43cb9a33249c361d114753297",
+    "w": 1920
+   }
+  },
+  "Common_Tur_Gen_H2_Monitoring_UX.cim": {
+   "S1.": {
+    "anchor": 23,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Generator :: Hydrogen System",
+    "h": 1080,
+    "media": "xl/media/image23.png",
+    "ocr": ": Generator : ydrogen system",
+    "score": 0.933,
+    "sha1": "86dd37b56cc0d9df645f0645d3a3c8a6d64e6852",
+    "w": 1920
+   }
+  },
+  "Controllable_Parameters_Pri_UX.cim": {
+   "EMAP1SVR.": {
+    "anchor": 33,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: Control Parameters :: Control Parameters Pri",
+    "h": 1080,
+    "media": "xl/media/image33.png",
+    "ocr": "Performance : Control Parameters : Control Parameters Pri",
+    "score": 1.0,
+    "sha1": "18e575a10561367b898329b7dd17340d168428cd",
+    "w": 1920
+   }
+  },
+  "Controllable_Parameters_Sec_UX.cim": {
+   "EMAP1SVR.": {
+    "anchor": 34,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: Control Parameters :: Control Parameters Sec",
+    "h": 1080,
+    "media": "xl/media/image34.png",
+    "ocr": "Performance : Control Parameters : Control Parameters Sec",
+    "score": 1.0,
+    "sha1": "61ecc2c3d3420e32262fd859cdf6695d950cb30d",
+    "w": 1920
+   }
+  },
+  "GT_Perf.cim": {
+   "EMAP1SVR.": {
+    "anchor": 27,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: Gas Turbine 1",
+    "h": 1080,
+    "media": "xl/media/image27.png",
+    "ocr": "Performance : Gas Turbine1",
+    "score": 0.981,
+    "sha1": "377302c3d003ab3a33da0656f4bcab729bd43bc4",
+    "w": 1920
+   }
+  },
+  "HPOT_HP_OT_Temp_UX.cim": {
+   "H11.": {
+    "anchor": 4,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HPOT Temp",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "HRSG11 : HPOT Temp",
+    "score": 1.0,
+    "sha1": "0d571ad103e5cec9607eee91deef8e9f161ecb95",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 4,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HPOT Temp",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "HPOT Temp",
+    "score": 0.667,
+    "sha1": "15e2403af34d038de8e8d7e5241ed7a5ad877bf4",
+    "w": 1920
+   }
+  },
+  "HRSG_Blowdown_UX.cim": {
+   "H11.": {
+    "anchor": 12,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Blowdown",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "HRSG11 Blowdown",
+    "score": 0.938,
+    "sha1": "5866f589ff101f580279b901f1dfa0c2056d905e",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 12,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Blowdown",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "HRSG12 : Blowdown",
+    "score": 1.0,
+    "sha1": "54e997ef2e31d527c02a5ac0c315aa469ec42515",
+    "w": 1920
+   }
+  },
+  "HRSG_Flash_Tank_UX.cim": {
+   "H11.": {
+    "anchor": 13,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Flash Tank",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "HRSG11 : Flash Tank",
+    "score": 1.0,
+    "sha1": "a39803ffc74e901b1649380ab4e7369217de8bed",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 13,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Flash Tank",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "HRSG12 : Flash Tank",
+    "score": 1.0,
+    "sha1": "9a910b429c1edf6369c94841f2899dbca080231c",
+    "w": 1920
+   }
+  },
+  "HRSG_HP_Bypass_UX.cim": {
+   "H11.": {
+    "anchor": 5,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HP Bypass",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "HRSG11 : HP Bypass",
+    "score": 1.0,
+    "sha1": "759c9bd4c00f53a3ad0b7c7ec82e24109a7160ec",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 5,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HP Bypass",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "HRSG12 : HP Bypass",
+    "score": 1.0,
+    "sha1": "41c5145cb6d6ccf6cddf0906f04f1933cd0c7241",
+    "w": 1920
+   }
+  },
+  "HRSG_HP_Group_UX.cim": {
+   "H11.": {
+    "anchor": 2,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HP Group",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "HRSG11 : HP Group",
+    "score": 1.0,
+    "sha1": "32be1245eb02006d3e71f0b1f4bbe30be2aef8ab",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 2,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HP Group",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "HRSG12 : HP Group",
+    "score": 1.0,
+    "sha1": "da1d7615f2652d98e7bfd9ec3459dc934560d7ae",
+    "w": 1920
+   }
+  },
+  "HRSG_HP_Steam_UX.cim": {
+   "H11.": {
+    "anchor": 18,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HRSG Common :: HP Steam",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "HRSG11 : HRSG Common : HP Steam",
+    "score": 1.0,
+    "sha1": "ad6ebfb406ceec7c655aa6de1ab1caf776199095",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 18,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HRSG Common :: HP Steam",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "HRSG12 : HRSG Common : HP Steam",
+    "score": 1.0,
+    "sha1": "e95ae3c5769f2a584158eaf920c126eee4c5520e",
+    "w": 1920
+   }
+  },
+  "HRSG_HP_Superheater_UX.cim": {
+   "H11.": {
+    "anchor": 3,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HP Superheater",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "HRSG1 : HP superheater",
+    "score": 0.978,
+    "sha1": "71d1966f00c073c52cf7e30092bfb635c852f3b2",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 3,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HP Superheater",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "HRSG12 : HP superheater",
+    "score": 1.0,
+    "sha1": "1ec2c17550dcbedf9cbcdc6ced8e54e2fdb5b374",
+    "w": 1920
+   }
+  },
+  "HRSG_HRH_Steam_UX.cim": {
+   "H11.": {
+    "anchor": 19,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HRSG Common :: HRH Steam",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": "HRSG11 : HRSG Common : HRH Steam",
+    "score": 1.0,
+    "sha1": "5fb844fda8c15a0a85cd6059141a85de2fdb8352",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 19,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HRSG Common :: HRH Steam",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": "HRSG12 : HRSG Common : HRH Steam",
+    "score": 1.0,
+    "sha1": "35c6c16fa10c871500e3b542a88758e94e8075e0",
+    "w": 1920
+   }
+  },
+  "HRSG_Hot_Reheat_UX.cim": {
+   "H11.": {
+    "anchor": 9,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Hot Reheat",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "HRSG1 : Hot Reheat",
+    "score": 0.973,
+    "sha1": "34417c68d6b2268a3321d3795512d703877efc83",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 9,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Hot Reheat",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "HRSG12 : Hot Reheat",
+    "score": 1.0,
+    "sha1": "a9a46a65a891e6377fd577a244b7f4f286c9d56a",
+    "w": 1920
+   }
+  },
+  "HRSG_IP_Cold_Reheat_UX.cim": {
+   "H11.": {
+    "anchor": 7,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Cold Reheat",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "HRSG1 Cold Reheat",
+    "score": 0.919,
+    "sha1": "711806b3a3a6ec753633c92d97cf905e32057f04",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 7,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Cold Reheat",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "HRSG12 : Cold Reheat",
+    "score": 1.0,
+    "sha1": "5ee539be10a14f75a04a0eb1847419fcd166c577",
+    "w": 1920
+   }
+  },
+  "HRSG_IP_Group_UX.cim": {
+   "H11.": {
+    "anchor": 6,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: IP Group",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "HRSG11 IP Group",
+    "score": 0.938,
+    "sha1": "3d3b82ef98e0760ce8e869e49414cd22b6025d1f",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 6,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: IP Group",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "HRSG12 : IP Group",
+    "score": 1.0,
+    "sha1": "2929fbc79d07db21f271049475511da925ef7de7",
+    "w": 1920
+   }
+  },
+  "HRSG_LP_Common_UX.cim": {
+   "H11.": {
+    "anchor": 20,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: HRSG Common :: LP Common & Bypass",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": "HRSG11 : HRSG Common : LP Common & Bypass",
+    "score": 1.0,
+    "sha1": "74591583358ba6009a096fbf34c6b25498933eed",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 20,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: HRSG Common :: LP Common & Bypass",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": "HRSG12 : HRSG Common : LP Common & Bypass",
+    "score": 1.0,
+    "sha1": "76fad6f617b946a5c3d3681d8364155a35a143d6",
+    "w": 1920
+   }
+  },
+  "HRSG_LP_Group_UX.cim": {
+   "H11.": {
+    "anchor": 10,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: LP Group",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": "HRSG11 : LP Group",
+    "score": 1.0,
+    "sha1": "96153827c274b3a2b723adeca730b0f59c5bf3d9",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 10,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: LP Group",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": "HRSG12 : LP Group",
+    "score": 1.0,
+    "sha1": "d551d6f7479e9b231a80535f7363cbe8ffa8a97b",
+    "w": 1920
+   }
+  },
+  "HRSG_LP_Steam_UX.cim": {
+   "H11.": {
+    "anchor": 11,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: LP Steam",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "HRSG11 : LP steam",
+    "score": 1.0,
+    "sha1": "054b21c8580d6a5047f0e2e33446cbb6dc256c64",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 11,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: LP Steam",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "HRSG12 : LP steam",
+    "score": 1.0,
+    "sha1": "3fb1142080a3563fb4dfd088769e525eb4582187",
+    "w": 1920
+   }
+  },
+  "HRSG_Overview_UX.cim": {
+   "H11.": {
+    "anchor": 1,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Overview",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "HRSG11 overview",
+    "score": 0.938,
+    "sha1": "afe3e389065e395002d3ee4b5ad30e9605397e35",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 1,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Overview",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "HRSG12 : overview",
+    "score": 1.0,
+    "sha1": "422030e71aad30f534ee6ac957184a7b1b437faa",
+    "w": 1920
+   }
+  },
+  "HRSG_Perf.cim": {
+   "EMAP1SVR.": {
+    "anchor": 29,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: HRSG 1",
+    "h": 1080,
+    "media": "xl/media/image29.png",
+    "ocr": "Performance : HRSG1",
+    "score": 0.974,
+    "sha1": "e8894b3db01c8479fdf30874a6d7a717be7c12ee",
+    "w": 1920
+   }
+  },
+  "HRSG_Protection_UX.cim": {
+   "H11.": {
+    "anchor": 16,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Protection :: HRSG Protection",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "HRSG1 Protection : HRSG Protection",
+    "score": 0.958,
+    "sha1": "6b4e02042f78a141cc85180159139191fd15d498",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 16,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Protection :: HRSG Protection",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "HRSG12 : Protection : HRSG Protection",
+    "score": 1.0,
+    "sha1": "8a465e4ff5a71d1bc9c56c42860f78356f9e237d",
+    "w": 1920
+   }
+  },
+  "HRSG_Reheater_UX.cim": {
+   "H11.": {
+    "anchor": 8,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Reheater",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "HRSG1 : Reheater",
+    "score": 0.97,
+    "sha1": "91de5569430ad7db7a8d915cdac732990d9678a0",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 8,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Reheater",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "Reheater",
+    "score": 0.64,
+    "sha1": "8f13e62321acd46b987bb48bcf0f4a2e73edd561",
+    "w": 1920
+   }
+  },
+  "HRSG_SCR_UX.cim": {
+   "H11.": {
+    "anchor": 14,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: SCR",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": "HRSG11 SCR",
+    "score": 0.909,
+    "sha1": "9cf06bde177025497a9a6fb7d8c89a71cf62108a",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 14,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: SCR",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": "HRSG12 : SCR",
+    "score": 1.0,
+    "sha1": "f73ac093e649c5f2261e56aa5ae44cf1119d20d5",
+    "w": 1920
+   }
+  },
+  "HRSG_Stack_Damper_UX.cim": {
+   "H11.": {
+    "anchor": 15,
+    "book": "H11.xlsx",
+    "crumb": "HRSG11 :: Stack Damper",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "HRSG1 stack Damper",
+    "score": 0.923,
+    "sha1": "ea0e555936e2bdf5faa656837a4f9c67917d16ee",
+    "w": 1920
+   },
+   "H12.": {
+    "anchor": 15,
+    "book": "H12.xlsx",
+    "crumb": "HRSG12 :: Stack Damper",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "HRSG12 : stack Damper",
+    "score": 1.0,
+    "sha1": "461f4622ee4e46c19bcaec659b01d808695582e2",
+    "w": 1920
+   }
+  },
+  "Plant_Coupling_UX.cim": {
+   "H11.": {
+    "anchor": 5,
+    "book": "G11.xlsx",
+    "crumb": "Plant :: Hrsg Coupling",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "lant : Hrsg coupling",
+    "score": 0.976,
+    "sha1": "77532a645d3e61cde1b8f239b1add36dce4ee8ad",
+    "w": 1920
+   }
+  },
+  "Plant_Load_Control.cim": {
+   "AGC1.": {
+    "anchor": 3,
+    "book": "G11.xlsx",
+    "crumb": "Plant :: Load Control-1",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "lant : Load control-1",
+    "score": 0.977,
+    "sha1": "0c17126a8800a6aa270d718396b60f66a6f1efb0",
+    "w": 1920
+   }
+  },
+  "Plant_Load_Control_Meas_UX.cim": {
+   "AGC1.": {
+    "anchor": 4,
+    "book": "G11.xlsx",
+    "crumb": "Plant :: Load Control-2",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "lant : Load control-2",
+    "score": 0.977,
+    "sha1": "496690075d8f67cc3e3c9dc8e120d823e96c18c6",
+    "w": 1920
+   }
+  },
+  "Plant_Overview_UX.cim": {
+   "G11.": {
+    "anchor": 1,
+    "book": "G11.xlsx",
+    "crumb": "Plant :: Plant Overview",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "lant : Plant overview",
+    "score": 0.977,
+    "sha1": "15fc23cfe1e66740060cbacbdc10f3deb4cdadf4",
+    "w": 1920
+   }
+  },
+  "Plant_Sequence.cim": {
+   "G11.": {
+    "anchor": 2,
+    "book": "G11.xlsx",
+    "crumb": "Plant :: Auto Sequence",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "lant Auto equence",
+    "score": 0.895,
+    "sha1": "670ab6b6e6fc8ad02a83a9258b319edeebf0caed",
+    "w": 1920
+   }
+  },
+  "Pump_Running_Hours.cim": {
+   "WSC1.": {
+    "anchor": 6,
+    "book": "G11.xlsx",
+    "crumb": "Plant :: Pump Running Hours",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "Plant : Pump Running Hours",
+    "score": 1.0,
+    "sha1": "5a21343221003b0e89b86d7458b13337fbde4a4e",
+    "w": 1920
+   }
+  },
+  "ST_Aux_Motors_UX.cim": {
+   "S1.": {
+    "anchor": 25,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Tasks :: Aux Motors",
+    "h": 1080,
+    "media": "xl/media/image25.png",
+    "ocr": "s : Tasks : Aux Motors",
+    "score": 0.978,
+    "sha1": "effce2eab4f20174bbf617d0b14ed61125eeec96",
+    "w": 1920
+   }
+  },
+  "ST_Auxiliary_Sys_UX.cim": {
+   "S1.": {
+    "anchor": 3,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Auxiliary Systems",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "1 ST Auxiliaries Auiliary systems",
+    "score": 0.917,
+    "sha1": "a838967bd2a93e8c3814e5871bc7904b7d9335e3",
+    "w": 1920
+   }
+  },
+  "ST_Bearing_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 12,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Bearing Temperatures",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "1  ST Monitoring : Bearing Temperatures",
+    "score": 0.962,
+    "sha1": "f2f7fbc1926692112e034e70073bd984e3567b1c",
+    "w": 1920
+   }
+  },
+  "ST_Control_UX.cim": {
+   "S1.": {
+    "anchor": 2,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Controls",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "s.:controls",
+    "score": 0.917,
+    "sha1": "7402a28184ea1c12d877bb8a1ed193bb3cb34e44",
+    "w": 1920
+   }
+  },
+  "ST_Drains_UX.cim": {
+   "S1.": {
+    "anchor": 8,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Drains",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "ST Auxiliaries : Drains",
+    "score": 0.902,
+    "sha1": "385262e5e941b97916ed58d1ed35f03fac9f01e4",
+    "w": 1920
+   }
+  },
+  "ST_Gen_CapabilityCurves_UX.cim": {
+   "S1.": {
+    "anchor": 21,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Generator :: Capability Curve",
+    "h": 1080,
+    "media": "xl/media/image21.png",
+    "ocr": "s Generator : apability curve",
+    "score": 0.935,
+    "sha1": "b26ac8de9b8bd0430900cdd1ec8a97216e981e56",
+    "w": 1920
+   }
+  },
+  "ST_Gen_Exciter_UX.cim": {
+   "S1.": {
+    "anchor": 19,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Generator :: Generator / Exciter",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": ": Generator : Generator / Exciter",
+    "score": 0.954,
+    "sha1": "967cf34484a109361363b854d54b11960c53ed4e",
+    "w": 1920
+   }
+  },
+  "ST_Gen_Overview_UX.cim": {
+   "S1.": {
+    "anchor": 18,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Generator :: Overview",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "s : Generator : overview",
+    "score": 0.98,
+    "sha1": "1138db6ad952dcba1cd89509223c6bc99256b4ee",
+    "w": 1920
+   }
+  },
+  "ST_Gen_SealOil_Level_Test_UX.cim": {
+   "S1.": {
+    "anchor": 9,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Gen Seal Oil",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "ST Auxiliaries : Gen Seal oil",
+    "score": 0.921,
+    "sha1": "d5aa6b72f8ae0cbd2117e3d6ea77fae609f075a6",
+    "w": 1920
+   }
+  },
+  "ST_Gen_Synch_UX.cim": {
+   "S1.": {
+    "anchor": 20,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Generator :: Synchronization",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": ".: Generator : ynchronization",
+    "score": 0.933,
+    "sha1": "a0fda805fbe0e4b60e26ba34e9c54e891326b5e7",
+    "w": 1920
+   }
+  },
+  "ST_Gen_Temperatures_UX.cim": {
+   "S1.": {
+    "anchor": 22,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Generator :: Temperature",
+    "h": 1080,
+    "media": "xl/media/image22.png",
+    "ocr": ". : Generator : emperature",
+    "score": 0.923,
+    "sha1": "5c491856ce1f52058b6b0a14296aa547068eb8ac",
+    "w": 1920
+   }
+  },
+  "ST_HPExh_Monitoring_UX.cim": {
+   "S1.": {
+    "anchor": 15,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: HPExh Monitoring",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "ST Monitoring : PExh Monitoring",
+    "score": 0.912,
+    "sha1": "cbecb58afb28ba39d7154ab6e2a2587b664445d9",
+    "w": 1920
+   }
+  },
+  "ST_HP_IP_Turbine_Shell_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 16,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Valve & Shell Temp",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "1  ST Monitoring : alve & hell Temp",
+    "score": 0.928,
+    "sha1": "bb6070f9d4f952baf8e9d2a0381fd49caa650a25",
+    "w": 1920
+   }
+  },
+  "ST_Hazard_UX.cim": {
+   "S1.": {
+    "anchor": 17,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Hazardous",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "ST Monitoring : Hazardous",
+    "score": 0.909,
+    "sha1": "f088a616567f569635e56a6bbb85888573d51cd0",
+    "w": 1920
+   }
+  },
+  "ST_Hydraulic_Fluid_UX.cim": {
+   "S1.": {
+    "anchor": 6,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Hydraulic Fluid System",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "1 ST Auxiliaries : Hydrauli Fluid ystem",
+    "score": 0.94,
+    "sha1": "9a4511d186c7ea68129f0a5c95278f7baaedd61c",
+    "w": 1920
+   }
+  },
+  "ST_Lube_Seal_Lift_Oil_UX.cim": {
+   "S1.": {
+    "anchor": 4,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Oil Systems",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "1 ST Auxiliaries : oil ystems",
+    "score": 0.935,
+    "sha1": "ce66c8c4965649f27aa95ced9717f6c0f9f87066",
+    "w": 1920
+   }
+  },
+  "ST_Monitoring_UX.cim": {
+   "S1.": {
+    "anchor": 10,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Monitoring",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": ". ST Monitoring : Monitoring",
+    "score": 0.912,
+    "sha1": "190f32f9eea6031c5e8fffde13e46697f865e404",
+    "w": 1920
+   }
+  },
+  "ST_Overview_UX.cim": {
+   "S1.": {
+    "anchor": 1,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Overview",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "si.:overview",
+    "score": 0.88,
+    "sha1": "8eb408f98745e19d3e1d4f6f79999b0dc94a51e2",
+    "w": 1920
+   }
+  },
+  "ST_Perf.cim": {
+   "EMAP1SVR.": {
+    "anchor": 31,
+    "book": "BOPE.xlsx",
+    "crumb": "Performance :: Steam Turbine",
+    "h": 1080,
+    "media": "xl/media/image31.png",
+    "ocr": "Performance Steam Turbine",
+    "score": 0.962,
+    "sha1": "d8a6b531a3a9f13e6829d29be2eb864e39f248d0",
+    "w": 1920
+   }
+  },
+  "ST_Rotor_Stress_UX.cim": {
+   "S1.": {
+    "anchor": 14,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Rotor Stress",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": ". ST Monitoring : Rotor Stress",
+    "score": 0.918,
+    "sha1": "518999d1b86e86f8c52eaac72fa54935efb12659",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Axial_Position_UX.cim": {
+   "S1.": {
+    "anchor": 30,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Axial position",
+    "h": 1080,
+    "media": "xl/media/image30.png",
+    "ocr": "sis : Axial position",
+    "score": 0.95,
+    "sha1": "b9faf96ceaa9cec3585788a27882983e61928e53",
+    "w": 1920
+   }
+  },
+  "ST_SIL_EStop_UX.cim": {
+   "S1.": {
+    "anchor": 28,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: EStop",
+    "h": 1080,
+    "media": "xl/media/image28.png",
+    "ocr": "sis :Estop",
+    "score": 0.857,
+    "sha1": "55a9a590a7534feef71765afd0db361189e222f5",
+    "w": 1920
+   }
+  },
+  "ST_SIL_External_UX.cim": {
+   "S1.": {
+    "anchor": 29,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: External Trip",
+    "h": 1080,
+    "media": "xl/media/image29.png",
+    "ocr": "sis : External Trip",
+    "score": 0.947,
+    "sha1": "2ad815f797a732621f914623778b34f3ea65b207",
+    "w": 1920
+   }
+  },
+  "ST_SIL_H2_Seal_Oil_DP_UX.cim": {
+   "S1.": {
+    "anchor": 43,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: H2 Seal Oil DP",
+    "h": 1080,
+    "media": "xl/media/image43.png",
+    "ocr": "s1 : H2 Seal oil DP",
+    "score": 0.974,
+    "sha1": "929dd8ee9cf8cb717410d179a8ee819e2e80d619",
+    "w": 1920
+   }
+  },
+  "ST_SIL_HPEV_UX.cim": {
+   "S1.": {
+    "anchor": 36,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: HPEV",
+    "h": 1080,
+    "media": "xl/media/image36.png",
+    "ocr": "SISHPEV",
+    "score": 0.706,
+    "sha1": "7faf4040230fb57d23ea8ca08462664767855930",
+    "w": 1920
+   }
+  },
+  "ST_SIL_HP_Ex_Pressure_UX.cim": {
+   "S1.": {
+    "anchor": 41,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: HP Exhaust Press",
+    "h": 1080,
+    "media": "xl/media/image41.png",
+    "ocr": "si : HP Exhaust Press",
+    "score": 0.93,
+    "sha1": "657975f2e416eaea39d34fa75a253a49bb5491d0",
+    "w": 1920
+   }
+  },
+  "ST_SIL_HRH_Steam_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 34,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: HRH Steam Temp",
+    "h": 1080,
+    "media": "xl/media/image34.png",
+    "ocr": "s1s : HRH steam Temp",
+    "score": 1.0,
+    "sha1": "9cd3003b3d51b41c4af5973bffecbd32af595652",
+    "w": 1920
+   }
+  },
+  "ST_SIL_LP_Ex_Press_UX.cim": {
+   "S1.": {
+    "anchor": 37,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: LP Exhaust Press",
+    "h": 1080,
+    "media": "xl/media/image37.png",
+    "ocr": "si : P Exhaust Press",
+    "score": 0.905,
+    "sha1": "0257807d4975fec74e60d02aea61183761dca2dd",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Lube_Oil_UX.cim": {
+   "S1.": {
+    "anchor": 31,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Lube Oil",
+    "h": 1080,
+    "media": "xl/media/image31.png",
+    "ocr": "sis : ube oil",
+    "score": 0.889,
+    "sha1": "c9ac4c7bd49eb667664eec41717082f0bc2800fa",
+    "w": 1920
+   }
+  },
+  "ST_SIL_MS_Vibration_UX.cim": {
+   "S1.": {
+    "anchor": 40,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Vibration",
+    "h": 1080,
+    "media": "xl/media/image40.png",
+    "ocr": "sis : vibration",
+    "score": 0.933,
+    "sha1": "d077afb122e3a80c66fb1265424d9f1bbb66af6b",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Main_Steam_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 32,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Main Steam Temp",
+    "h": 1080,
+    "media": "xl/media/image32.png",
+    "ocr": "si : Main steam Temp",
+    "score": 0.927,
+    "sha1": "1acf0fa66e2e9a4eb871bd23346a9d5f75824a7b",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Off_Frequency_UX.cim": {
+   "S1.": {
+    "anchor": 38,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Off Frequency",
+    "h": 1080,
+    "media": "xl/media/image38.png",
+    "ocr": "sis : of Frequency",
+    "score": 0.919,
+    "sha1": "b9b4b40ef65622c88b6f77386fbde93c2f5b1e82",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Overspeed_UX.cim": {
+   "S1.": {
+    "anchor": 39,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Overspeed",
+    "h": 1080,
+    "media": "xl/media/image39.png",
+    "ocr": "sis : overspeed",
+    "score": 0.933,
+    "sha1": "1420cd320667c54e2998963d09bf66a436812043",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Overview_UX.cim": {
+   "S1.": {
+    "anchor": 27,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Overview",
+    "h": 1080,
+    "media": "xl/media/image27.png",
+    "ocr": "sis :overview",
+    "score": 0.889,
+    "sha1": "d9b25fe04bee9a2752b61556ec39f99639ebc843",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Vent_Of_HP_exhaust_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 33,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Vent of HPT Exhaust",
+    "h": 1080,
+    "media": "xl/media/image33.png",
+    "ocr": "s1 : ent of HPT Exhaust",
+    "score": 0.958,
+    "sha1": "dd039fa50ff092828e5eae01e57609dd39896d38",
+    "w": 1920
+   }
+  },
+  "ST_SIL_Vent_Of_LP_exhaust_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 35,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Vent of LPT Exhaust",
+    "h": 1080,
+    "media": "xl/media/image35.png",
+    "ocr": "si : ent of LPT Exhaust",
+    "score": 0.917,
+    "sha1": "1d6113a66a4c0fac2e9c4702978e2f49190cfd9c",
+    "w": 1920
+   }
+  },
+  "ST_SIL_motoring_UX.cim": {
+   "S1.": {
+    "anchor": 42,
+    "book": "S1.xlsx",
+    "crumb": "S1S :: Gen Protection",
+    "h": 1080,
+    "media": "xl/media/image42.png",
+    "ocr": "sis : Gen Protection",
+    "score": 0.95,
+    "sha1": "3bf112897b6945f1ddefc21fbe0e2cbdcc2e8bb7",
+    "w": 1920
+   }
+  },
+  "ST_Steam_Seal_UX.cim": {
+   "S1.": {
+    "anchor": 7,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Steam Seal",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "ST Auxiliaries : Steam Seal",
+    "score": 0.915,
+    "sha1": "16440623195159e300d97e646528de774dba1bae",
+    "w": 1920
+   }
+  },
+  "ST_Test_Mx_UX.cim": {
+   "S1.": {
+    "anchor": 24,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Tasks :: Test & Maintenance",
+    "h": 1080,
+    "media": "xl/media/image24.png",
+    "ocr": ". Tasks Test & Maintenance",
+    "score": 0.863,
+    "sha1": "ebb1527475d4007a20625aacf032659db1a93d9b",
+    "w": 1920
+   }
+  },
+  "ST_Timer_Counter_UX.cim": {
+   "S1.": {
+    "anchor": 26,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: Tasks :: Timers & Counters",
+    "h": 1080,
+    "media": "xl/media/image26.png",
+    "ocr": ". Tasks Timers & counters",
+    "score": 0.857,
+    "sha1": "02ba32905ea40d8fc2314eb6db573e1f420d0064",
+    "w": 1920
+   }
+  },
+  "ST_Turbine_Supervisory_UX.cim": {
+   "S1.": {
+    "anchor": 11,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Turbine Supervisory",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "ST Monitoring : urbine supervisory",
+    "score": 0.919,
+    "sha1": "2f193be12d525b61d6f9945659078c5786067047",
+    "w": 1920
+   }
+  },
+  "ST_Turbine_Temp_UX.cim": {
+   "S1.": {
+    "anchor": 13,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Monitoring :: Turbine Temp & Press",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "1  ST Monitoring : urbine Temp & Press",
+    "score": 0.946,
+    "sha1": "95854a7c529c22e8350264be3258b594835f54bc",
+    "w": 1920
+   }
+  },
+  "ST_Turn_Gear_UX.cim": {
+   "S1.": {
+    "anchor": 5,
+    "book": "S1.xlsx",
+    "crumb": "S1 :: ST Auxiliaries :: Turning Gear",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "ST Auxiliaries Turning Gear",
+    "score": 0.885,
+    "sha1": "e45045391962d54e083f11b6578cdd1aea4c7af7",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Aux_UX.cim": {
+   "G11.": {
+    "anchor": 28,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Auxiliaries :: Auxiliaries",
+    "h": 1080,
+    "media": "xl/media/image27.png",
+    "ocr": "11 Auxiliaries Auxiliaries",
+    "score": 0.912,
+    "sha1": "256fa65111f12ac38a5f3055b7462d30ea57f63a",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 21,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Auxiliaries :: Auxiliaries",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": "G1 Auxiliaries Auxiliaries",
+    "score": 0.912,
+    "sha1": "b6c12203ba91c202ef51bcbc279facc280857f0c",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Combustion_Dynamics_UX.cim": {
+   "G11.": {
+    "anchor": 24,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Combustion :: Combustion Dynamics",
+    "h": 1080,
+    "media": "xl/media/image23.png",
+    "ocr": "G11 : Combustion Combustion Dynamics",
+    "score": 0.973,
+    "sha1": "03aecce5993ca127a87346e8710ccbe39782a73d",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 17,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Combustion :: Combustion Dynamics",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "G1 : Combustion Combustion Dynamics",
+    "score": 0.959,
+    "sha1": "108725ab83c89a2ed0a3b919da47caf979bd0276",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Compressor_UX.cim": {
+   "G11.": {
+    "anchor": 18,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Compressor :: Compressor",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "G11.: compressor : compressor",
+    "score": 1.0,
+    "sha1": "0802b466fed1d7f94fcae8d099f38fa1bb63f6c0",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 11,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Compressor :: Compressor",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": "G1 : compressor : compressor",
+    "score": 0.982,
+    "sha1": "1803c918f986e1a9d1cbd6932d34d49108b8cf13",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Compressor_eIGV_eVSV_UX.cim": {
+   "G11.": {
+    "anchor": 19,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Compressor :: Compressor eIGV & eVSV",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "G11 : Compressor : Compressor elG & evsv",
+    "score": 0.961,
+    "sha1": "08696e32de4cbf98fe95f618f3a605ac023b6b47",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 12,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Compressor :: Compressor eIGV & eVSV",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "G1 : Compressor : Compressor elG & evsv",
+    "score": 0.947,
+    "sha1": "ad16272e06fd35ad517575340b4cc42318feb571",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Compt_Vent_Hazard_UX.cim": {
+   "G11.": {
+    "anchor": 29,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Auxiliaries :: Compt Vent & Hazard",
+    "h": 1080,
+    "media": "xl/media/image28.png",
+    "ocr": "G11 Auxiliaries : Compt Vent & Hazard",
+    "score": 0.972,
+    "sha1": "b991eeffb50a3e69e49a7ebd5a2bd26575f265b7",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 22,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Auxiliaries :: Compt Vent & Hazard",
+    "h": 1080,
+    "media": "xl/media/image21.png",
+    "ocr": "G1  Auxiliaries : Compt Vent & Hazard",
+    "score": 0.958,
+    "sha1": "22c93d41e261d88224d3820b49c61b08b367f870",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Dynamics_Data_UX.cim": {
+   "G11.": {
+    "anchor": 25,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Combustion :: Dynamics Data",
+    "h": 1080,
+    "media": "xl/media/image24.png",
+    "ocr": "G11 : Combustion : ynamics Data",
+    "score": 0.984,
+    "sha1": "7f19f31c4c42ae997c039617eceeaf755518e99f",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 18,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Combustion :: Dynamics Data",
+    "h": 1080,
+    "media": "xl/media/image17.png",
+    "ocr": "G1 : Combustion : ynamics Data",
+    "score": 0.968,
+    "sha1": "2d670b9bdb77312060e0b18186bb77302bcd4350",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Exhaust_UX.cim": {
+   "G11.": {
+    "anchor": 27,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Exhaust",
+    "h": 1080,
+    "media": "xl/media/image26.png",
+    "ocr": "G11 : Exhaust",
+    "score": 1.0,
+    "sha1": "cf7290e75c573c02bca85b5ce3e91c1529d6d505",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 20,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Exhaust",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": "G12 : Exhaust",
+    "score": 1.0,
+    "sha1": "f42e3ce1fa72d0f9d4bd56ff5b239bf8b83166f6",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Freq_Ctrl_UX.cim": {
+   "G11.": {
+    "anchor": 33,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Auxiliaries :: Frequency Control",
+    "h": 1080,
+    "media": "xl/media/image32.png",
+    "ocr": "G11 Auxiliaries Frequency Control",
+    "score": 0.943,
+    "sha1": "b88f6fa4e6fab2bb6505a04cba99fe70805834e6",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 26,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Auxiliaries :: Frequency Control",
+    "h": 1080,
+    "media": "xl/media/image25.png",
+    "ocr": "G1 Auxiliaries Frequency Control",
+    "score": 0.928,
+    "sha1": "7da687ee5105155654819443d1bd3c368796d19f",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gas_Fuel_Filtering_UX.cim": {
+   "G11.": {
+    "anchor": 13,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Gas Fuel System :: Gas Fuel Filtering",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "G11 : Gas Fuel system Gas Fuel Filtering",
+    "score": 0.976,
+    "sha1": "3925c1ad376ccfb5c9ed0a3e1967b9c55c0626c9",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 7,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Gas Fuel System :: Gas Fuel Filtering",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "G1 : Gas Fuel system : Gas Fuel Filtering",
+    "score": 0.988,
+    "sha1": "35936d120cdd6157c7c5b1d2402a41f13e439b93",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gas_Fuel_Heating_UX.cim": {
+   "G11.": {
+    "anchor": 14,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Gas Fuel System :: Gas Fuel Heating",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": "G11 : Gas Fuel system Gas Fuel Heating",
+    "score": 0.974,
+    "sha1": "cdd944974127222d2e556b3cc4376cfe717c7d5e",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 8,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Gas Fuel System :: Gas Fuel Heating",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "G1 : Gas Fuel system : Gas Fuel Heating",
+    "score": 0.987,
+    "sha1": "bf4116c3d46e82096fcf5538dd497ba77c960e5b",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gas_Fuel_Module_UX.cim": {
+   "G11.": {
+    "anchor": 16,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Gas Fuel System :: Gas Fuel Module",
+    "h": 1080,
+    "media": "xl/media/image16.png",
+    "ocr": "G11 : Gas Fuel system : Gas Fuel Module",
+    "score": 1.0,
+    "sha1": "d5ab74fb860c133c1b892f5f2c9c7d97cae47453",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gas_Fuel_Purge_UX.cim": {
+   "G11.": {
+    "anchor": 15,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Gas Fuel System :: Gas Fuel Purge",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "G11 : Gas Fuel system : Gas Fuel Purge",
+    "score": 1.0,
+    "sha1": "ade7aed3b71b5af7860b4b107ea536d6cebd8605",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 9,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Gas Fuel System :: Gas Fuel Purge",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "G1 : Gas Fuel system : Gas Fuel Purge",
+    "score": 0.987,
+    "sha1": "7b05bdacc5e39bdabc27faac1a4b5e78277b1c6a",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gas_Fuel_System_UX.cim": {
+   "G11.": {
+    "anchor": 12,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Gas Fuel System :: Gas Fuel Overview",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "G11 : Gas Fuel system : Gas Fuel overview",
+    "score": 1.0,
+    "sha1": "e09ee97f0c933a845774e9e8f280973bf8a29257",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 6,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Gas Fuel System :: Gas Fuel Overview",
+    "h": 1080,
+    "media": "xl/media/image6.png",
+    "ocr": "G1 : Gas Fuel system : Gas Fuel overview",
+    "score": 0.988,
+    "sha1": "e9f4dbef53658dd813e0e64f54a1d22c3872dfc8",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_Cap_UX.cim": {
+   "G11.": {
+    "anchor": 46,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Generator :: Capability Curve",
+    "h": 1080,
+    "media": "xl/media/image45.png",
+    "ocr": "G11 : Generator : apability curve",
+    "score": 0.985,
+    "sha1": "05b2a2ac0934ad4abccc1c387c973b847ba1ecb8",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 39,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Generator :: Capability Curve",
+    "h": 1080,
+    "media": "xl/media/image38.png",
+    "ocr": "G1 : Generator : apability curve",
+    "score": 0.97,
+    "sha1": "e51fa926edca5f056e45f3dcc500f5ebe6cf0ced",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_EX_LCI_UX.cim": {
+   "G11.": {
+    "anchor": 45,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Generator :: EX - LCI",
+    "h": 1080,
+    "media": "xl/media/image44.png",
+    "ocr": "G11 : Generator :  - cl",
+    "score": 0.864,
+    "sha1": "90d0b314bf0aac39985e5895dfcef473490932a8",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 38,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Generator :: EX - LCI",
+    "h": 1080,
+    "media": "xl/media/image37.png",
+    "ocr": "G12 : Generator :  - cl",
+    "score": 0.864,
+    "sha1": "da48edf582fbe815e31d56e3a74d9c631d20f1e2",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_H2_Monitoring_UX.cim": {
+   "G11.": {
+    "anchor": 48,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Generator :: H2 Monitoring",
+    "h": 1080,
+    "media": "xl/media/image47.png",
+    "ocr": "G11 : Generator : H2 Monitoring",
+    "score": 1.0,
+    "sha1": "ffbfbc1fac56b2292949785d11bea5fb54c54a8c",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 41,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Generator :: H2 Monitoring",
+    "h": 1080,
+    "media": "xl/media/image40.png",
+    "ocr": "G1 : Generator : H2 Monitoring",
+    "score": 0.984,
+    "sha1": "9afa7a7af60eb74474c409e013682232af2b2cd8",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_Overview_UX.cim": {
+   "G11.": {
+    "anchor": 44,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Generator :: Overview",
+    "h": 1080,
+    "media": "xl/media/image43.png",
+    "ocr": "G11 : Generator : overview",
+    "score": 1.0,
+    "sha1": "7e77728ccaa89ddd967aa9511859df3e9af0bdb9",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 37,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Generator :: Overview",
+    "h": 1080,
+    "media": "xl/media/image36.png",
+    "ocr": "G1 : Generator : overview",
+    "score": 0.98,
+    "sha1": "f046ecd3774bf87303fc9f8490ce1af16fd4bd15",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_SealOil_UX.cim": {
+   "G11.": {
+    "anchor": 42,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: GT - Tests & Maint :: Seal Oil Test",
+    "h": 1080,
+    "media": "xl/media/image41.png",
+    "ocr": "G11 : GT - ests & Maint : eal oil Tes",
+    "score": 0.957,
+    "sha1": "1691bab386dc587bc5d5ea4e3bfdf3829b1cb553",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 35,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: GT - Tests & Maint :: Seal Oil Test",
+    "h": 1080,
+    "media": "xl/media/image34.png",
+    "ocr": "G1 : GT - ests & Maint : eal oil Tes",
+    "score": 0.941,
+    "sha1": "89374e3dda8472ea03159f715ebff5c287ca82b3",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_Synch_UX.cim": {
+   "G11.": {
+    "anchor": 34,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Tasks :: Synch",
+    "h": 1080,
+    "media": "xl/media/image33.png",
+    "ocr": "G11 : Tasks : synch",
+    "score": 1.0,
+    "sha1": "ffe1b0592266be932e4fd45cbdac6cd0aad7cfb0",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 27,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Tasks :: Synch",
+    "h": 1080,
+    "media": "xl/media/image26.png",
+    "ocr": "G12 : Tasks : synch",
+    "score": 1.0,
+    "sha1": "3bfc3a38602be746c691b5a41cc557e3f573d4b9",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Gen_Temps_UX.cim": {
+   "G11.": {
+    "anchor": 47,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Generator :: Temperature",
+    "h": 1080,
+    "media": "xl/media/image46.png",
+    "ocr": "G11 : Generator : Temperature",
+    "score": 1.0,
+    "sha1": "958c9330193cb7e074131a91280756c6f1d24af3",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 40,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Generator :: Temperature",
+    "h": 1080,
+    "media": "xl/media/image39.png",
+    "ocr": "G1 : Generator : Temperature",
+    "score": 0.982,
+    "sha1": "7ceb56a87bbe9b493f84f1b42e1e71b5dfe853ad",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Governor_Response_UX.cim": {
+   "G11.": {
+    "anchor": 41,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: GT - Tests & Maint :: Governor Response",
+    "h": 1080,
+    "media": "xl/media/image40.png",
+    "ocr": "G11 : GT - ests & Maint : Governor Response",
+    "score": 0.987,
+    "sha1": "e9b33ddaa579aea29377afc4a775b1e2f6204366",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 34,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: GT - Tests & Maint :: Governor Response",
+    "h": 1080,
+    "media": "xl/media/image33.png",
+    "ocr": "G1 : GT - ests & Maint : Governor Response",
+    "score": 0.974,
+    "sha1": "9a611b1ef3bd0c4cbf0e0eccd4984bd22c3b886c",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_HDAS_UX.cim": {
+   "G11.": {
+    "anchor": 20,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Compressor :: HDAS",
+    "h": 1080,
+    "media": "xl/media/image19.png",
+    "ocr": "G11 : compressor : HDAs",
+    "score": 1.0,
+    "sha1": "561a2f6478a42ede17406628b030f4f32a7a2e80",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 13,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Compressor :: HDAS",
+    "h": 1080,
+    "media": "xl/media/image12.png",
+    "ocr": "G1 : compressor : HDAS",
+    "score": 0.978,
+    "sha1": "e3e6c488c2da447b46ca2358a241b57521462e31",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Heater_Blanket_System_UX.cim": {
+   "G11.": {
+    "anchor": 32,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Auxiliaries :: Heater Blanket System",
+    "h": 1080,
+    "media": "xl/media/image31.png",
+    "ocr": "G11 Auxiliaries : Heater Blanket system",
+    "score": 0.975,
+    "sha1": "f9e225ccacefa5dfc1d9f036516b26dcac41286b",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 25,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Auxiliaries :: Heater Blanket System",
+    "h": 1080,
+    "media": "xl/media/image24.png",
+    "ocr": "G1 Auxiliaries : Heater Blanket system",
+    "score": 0.962,
+    "sha1": "eb09cfc3de94a183ac0033f039e343ca0d447262",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Hot_Restart_UX.cim": {
+   "G11.": {
+    "anchor": 9,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Controls :: Start Restrictions",
+    "h": 1080,
+    "media": "xl/media/image9.png",
+    "ocr": "G11.: Controls Start Restrictions",
+    "score": 0.971,
+    "sha1": "56812869c87e197e317b7722783b5fb05c276bef",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 3,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Controls :: Start Restrictions",
+    "h": 1080,
+    "media": "xl/media/image3.png",
+    "ocr": "G1 : Controls Start Restrictions",
+    "score": 0.955,
+    "sha1": "bb884ac6af07c4b2ba201c76c5803a062ef70579",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Inlet_System_UX.cim": {
+   "G11.": {
+    "anchor": 21,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Inlet System",
+    "h": 1080,
+    "media": "xl/media/image20.png",
+    "ocr": "G11 inlet system",
+    "score": 0.941,
+    "sha1": "c913bca05a11c1642f92754f017ea40a2a8fefc2",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 14,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Inlet System",
+    "h": 1080,
+    "media": "xl/media/image13.png",
+    "ocr": "G1  inlet system",
+    "score": 0.909,
+    "sha1": "b389a748c2b630dde5a1c6479358fa006515efe1",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_LS2100e_Cooling_System_UX.cim": {
+   "G11.": {
+    "anchor": 38,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: LCI :: LCI Cooling System",
+    "h": 1080,
+    "media": "xl/media/image37.png",
+    "ocr": "G11 : Lc : ci Cooling system",
+    "score": 0.966,
+    "sha1": "3394cb98085bcec04eea4cb1d917919e1be0bb19",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 31,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: LCI :: LCI Cooling System",
+    "h": 1080,
+    "media": "xl/media/image30.png",
+    "ocr": "G1 : Lc : cI Cooling system",
+    "score": 0.947,
+    "sha1": "55fdd689fbee95b9cd00061ca3a392658ee6d2ba",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Load_Rejection_UX.cim": {
+   "G11.": {
+    "anchor": 11,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Controls :: Load Rejection",
+    "h": 1080,
+    "media": "xl/media/image11.png",
+    "ocr": "G11 : ontrols : Load Rejection",
+    "score": 0.984,
+    "sha1": "ca8f8c66f94cc6dc82b7245622c9ba7d769f66c6",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 5,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Controls :: Load Rejection",
+    "h": 1080,
+    "media": "xl/media/image5.png",
+    "ocr": "G1 : Controls : Load Rejection",
+    "score": 0.984,
+    "sha1": "461704d4d8371eb7bdee695bb8b4b17c6098e504",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Lube_Seal_Lift_Oil_UX.cim": {
+   "G11.": {
+    "anchor": 31,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Auxiliaries :: Lube & Seal Oil Systems",
+    "h": 1080,
+    "media": "xl/media/image30.png",
+    "ocr": "G11 Auxiliaries : Lube & Seal il ystems",
+    "score": 0.949,
+    "sha1": "6a96cbebda70331d9d89ac86aaab2be991d2e449",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 24,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Auxiliaries :: Lube & Seal Oil Systems",
+    "h": 1080,
+    "media": "xl/media/image23.png",
+    "ocr": "G1  Auxiliaries : Lube & Seal il ystems",
+    "score": 0.935,
+    "sha1": "7992a20b93f80d86dba893ccb6f8dc5c1a19701c",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_MBC_UX.cim": {
+   "G11.": {
+    "anchor": 35,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Tasks :: MBC",
+    "h": 1080,
+    "media": "xl/media/image34.png",
+    "ocr": "G11 : Tasks : MBC",
+    "score": 1.0,
+    "sha1": "cdc2b3bfba5352eb1b37e0271dbed0b6b9827cd8",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 28,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Tasks :: MBC",
+    "h": 1080,
+    "media": "xl/media/image27.png",
+    "ocr": "G12 : Tasks : MBC",
+    "score": 1.0,
+    "sha1": "bd9ae8ea6086455412f42ab914d8390afbef6666",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_OpFlex_Autotune_UX.cim": {
+   "G11.": {
+    "anchor": 26,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Combustion :: OpFlex Autotune",
+    "h": 1080,
+    "media": "xl/media/image25.png",
+    "ocr": "G11 : Combustion : oplex Autotune",
+    "score": 0.985,
+    "sha1": "4c707d50a2bc091b757eee32dfa57dd5d8dd12fb",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 19,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Combustion :: OpFlex Autotune",
+    "h": 1080,
+    "media": "xl/media/image18.png",
+    "ocr": "G1 : Combustion : oplex Autotune",
+    "score": 0.97,
+    "sha1": "56068dd6b709b3d28eccce849f9d5142c33f214f",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Overview_UX.cim": {
+   "G11.": {
+    "anchor": 7,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Overview",
+    "h": 1080,
+    "media": "xl/media/image7.png",
+    "ocr": "G1 : overview",
+    "score": 0.963,
+    "sha1": "af6e051571763efc17262a6e97515673883ae87a",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 1,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Overview",
+    "h": 1080,
+    "media": "xl/media/image1.png",
+    "ocr": "G12 : overview",
+    "score": 1.0,
+    "sha1": "d7a9bcc47a8d60a1d65f08e15fc4d5a2c146a718",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Periodic_Tests_UX.cim": {
+   "G11.": {
+    "anchor": 39,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: GT - Tests & Maint :: Periodic Tests",
+    "h": 1080,
+    "media": "xl/media/image38.png",
+    "ocr": "G11 : GT - ests & Maint : eriodic Tests",
+    "score": 0.972,
+    "sha1": "5afefb9085c93a76aa47b04fd76050e15eb2d9a3",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 32,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: GT - Tests & Maint :: Periodic Tests",
+    "h": 1080,
+    "media": "xl/media/image31.png",
+    "ocr": "G1 : GT - ests & Maint : eriodic Tests",
+    "score": 0.958,
+    "sha1": "b9c971627fe7419b185c30a08e52af610e9ee070",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Prestart_Tests_UX.cim": {
+   "G11.": {
+    "anchor": 40,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: GT - Tests & Maint :: Prestart Tests",
+    "h": 1080,
+    "media": "xl/media/image39.png",
+    "ocr": "G11 : GT - ests & Maint : Prestart Tests",
+    "score": 0.986,
+    "sha1": "22d3235866cfe94a46c19064365cbd3fbfadd33b",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 33,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: GT - Tests & Maint :: Prestart Tests",
+    "h": 1080,
+    "media": "xl/media/image32.png",
+    "ocr": "G1 : GT - ests & Maint : Prestart Tests",
+    "score": 0.972,
+    "sha1": "e421f5f4738fa9530072b294a602e19eec04b399",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Prox_Vibs_UX.cim": {
+   "G11.": {
+    "anchor": 23,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Prox Vibs",
+    "h": 1080,
+    "media": "xl/media/image22.png",
+    "ocr": "G11 : Prox vibs",
+    "score": 1.0,
+    "sha1": "ce9d57741aac9df2c054aa7852778afb3492a8bc",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 16,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Prox Vibs",
+    "h": 1080,
+    "media": "xl/media/image15.png",
+    "ocr": "G12 : Prox vibs",
+    "score": 1.0,
+    "sha1": "374d1d41ca0572b46f0b41b600bc42d915a74661",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Rotor_UX.cim": {
+   "G11.": {
+    "anchor": 22,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Rotor",
+    "h": 1080,
+    "media": "xl/media/image21.png",
+    "ocr": "G1 : Rotor",
+    "score": 0.952,
+    "sha1": "eefd1b3f6399571efbaca3c4c89874512cc7b509",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 15,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Rotor",
+    "h": 1080,
+    "media": "xl/media/image14.png",
+    "ocr": "",
+    "score": 0.0,
+    "sha1": "c8e946f35ea81575d79d8b9404bec1a4d924c953",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_EFFF_UX.cim": {
+   "G11.": {
+    "anchor": 57,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Excess Firing Fuel Flow",
+    "h": 1080,
+    "media": "xl/media/image56.png",
+    "ocr": "G1s I Excess Firing Fuel Flow",
+    "score": 0.892,
+    "sha1": "b51efb3455d92aea81ec11317d9d8e67f459dfc8",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 50,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Excess Firing Fuel Flow",
+    "h": 1080,
+    "media": "xl/media/image49.png",
+    "ocr": "G12s I Excess Firing Fuel Flow",
+    "score": 0.909,
+    "sha1": "7738fc226b2a2cf38711dd7352458380d53ac147",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_EStop_UX.cim": {
+   "G11.": {
+    "anchor": 51,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Emergency Stop",
+    "h": 1080,
+    "media": "xl/media/image50.png",
+    "ocr": "G1s I Emergency stop",
+    "score": 0.851,
+    "sha1": "e7098763a9d8a69188c71022e8d4c36ae98a031e",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 44,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Emergency Stop",
+    "h": 1080,
+    "media": "xl/media/image43.png",
+    "ocr": "G12 I Emergency stop",
+    "score": 0.851,
+    "sha1": "afdd40f63f19987364d23e1dd8968530a114996b",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_ET_UX.cim": {
+   "G11.": {
+    "anchor": 50,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: External Trip",
+    "h": 1080,
+    "media": "xl/media/image49.png",
+    "ocr": "G1s I External Trip",
+    "score": 0.844,
+    "sha1": "c77d89d00d42cc92a2a6645d65d7df3c405dfaed",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 43,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: External Trip",
+    "h": 1080,
+    "media": "xl/media/image42.png",
+    "ocr": "G12 I External Trip",
+    "score": 0.844,
+    "sha1": "40e537d06a41becd67b26a2bd6be96f24e84297b",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_ExPurge_UX.cim": {
+   "G11.": {
+    "anchor": 56,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Exhaust Purge",
+    "h": 1080,
+    "media": "xl/media/image55.png",
+    "ocr": "G1s I Exhaust Purge",
+    "score": 0.844,
+    "sha1": "b73eea4e93dc9144599f26886cb0c2f341a51eef",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 49,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Exhaust Purge",
+    "h": 1080,
+    "media": "xl/media/image48.png",
+    "ocr": "G12 I : Exhaust Purge",
+    "score": 0.894,
+    "sha1": "217d08391a8d1498b5c55d2779e8891534ee4f87",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_FP_UX.cim": {
+   "G11.": {
+    "anchor": 62,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Fire Protection",
+    "h": 1080,
+    "media": "xl/media/image61.png",
+    "ocr": "G1s I Fire Protection",
+    "score": 0.857,
+    "sha1": "0a327a10b08e11cd50ebe2a2d1cb3a7056b12119",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_FtI_UX.cim": {
+   "G11.": {
+    "anchor": 58,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Failure to Ignite",
+    "h": 1080,
+    "media": "xl/media/image57.png",
+    "ocr": "G1s I ailure to Ignite",
+    "score": 0.846,
+    "sha1": "beca7600e855b18bf51e7e5a312992ba9a29033a",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 51,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Failure to Ignite",
+    "h": 1080,
+    "media": "xl/media/image50.png",
+    "ocr": "G12 I ailure to Ignite",
+    "score": 0.846,
+    "sha1": "72ebe3f1afc0870e5eff55ceb4aaaee4ed23e354",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_GENVib_UX.cim": {
+   "G11.": {
+    "anchor": 54,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Generator Vibration",
+    "h": 1080,
+    "media": "xl/media/image53.png",
+    "ocr": "G1s I Generator vibration",
+    "score": 0.877,
+    "sha1": "ec06415ca8623e4c8449354397a90875c57395d0",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 47,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Generator Vibration",
+    "h": 1080,
+    "media": "xl/media/image46.png",
+    "ocr": "G12 I Generator vibration",
+    "score": 0.877,
+    "sha1": "1964e45ee7010e405562b5556618dbc687b1f942",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_GTVib_UX.cim": {
+   "G11.": {
+    "anchor": 53,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: GT Vibration",
+    "h": 1080,
+    "media": "xl/media/image52.png",
+    "ocr": "G1 I GT vibration",
+    "score": 0.81,
+    "sha1": "19dfd870786df96f8709b7379388f65521a2a367",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 46,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: GT Vibration",
+    "h": 1080,
+    "media": "xl/media/image45.png",
+    "ocr": "G12 I GT vibration",
+    "score": 0.837,
+    "sha1": "0d67f63584d011fe850bc08356ce9616852e8286",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_HGD_UX.cim": {
+   "G11.": {
+    "anchor": 60,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Haz Gas Detection",
+    "h": 1080,
+    "media": "xl/media/image59.png",
+    "ocr": "G1s I Haz Gas etection",
+    "score": 0.846,
+    "sha1": "4dadc80a300179979f75855ce673a73cb17ef507",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 53,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Haz Gas Detection",
+    "h": 1080,
+    "media": "xl/media/image52.png",
+    "ocr": "G12 I Haz Gas etection",
+    "score": 0.846,
+    "sha1": "6d32511d26378ca1bfe8b9655e364da221804f7b",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_InletA_UX.cim": {
+   "G11.": {
+    "anchor": 63,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Inlet Air Protection",
+    "h": 1080,
+    "media": "xl/media/image62.png",
+    "ocr": "G1s I nlet Air Protection",
+    "score": 0.862,
+    "sha1": "0c1a11b09a192c40f0ac2bc311bc99ba7f778398",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 56,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Inlet Air Protection",
+    "h": 1080,
+    "media": "xl/media/image54.png",
+    "ocr": "G12 I nlet Air Protection",
+    "score": 0.828,
+    "sha1": "e29685d6d5f86d8aa40519b982addfc020c27112",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_LF_UX.cim": {
+   "G11.": {
+    "anchor": 59,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Loss of Flame",
+    "h": 1080,
+    "media": "xl/media/image58.png",
+    "ocr": "G1s I Loss of Flame",
+    "score": 0.844,
+    "sha1": "520f51a52e17a6d88f9fe50f7b5bf525c9f75942",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 52,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Loss of Flame",
+    "h": 1080,
+    "media": "xl/media/image51.png",
+    "ocr": "G12 I : Loss of Flame",
+    "score": 0.894,
+    "sha1": "9e117b39eb69108ae37b01e2ee3c2c9b26bef815",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_OV_UX.cim": {
+   "G11.": {
+    "anchor": 52,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Overspeed",
+    "h": 1080,
+    "media": "xl/media/image51.png",
+    "ocr": "G1s I overspeed",
+    "score": 0.811,
+    "sha1": "0619d85bcb3acd448470d799024771e7736bd1d7",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 45,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Overspeed",
+    "h": 1080,
+    "media": "xl/media/image44.png",
+    "ocr": "G12 I overspeed",
+    "score": 0.811,
+    "sha1": "5045461ed7ecdc8d0d766222ee2cbd7a79d6e388",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_Overview_UX.cim": {
+   "G11.": {
+    "anchor": 49,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Overview",
+    "h": 1080,
+    "media": "xl/media/image48.png",
+    "ocr": "G1s I overview",
+    "score": 0.8,
+    "sha1": "1bc3ebee34258dfaf9194d4d6e7f258f5d60ed14",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 42,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Overview",
+    "h": 1080,
+    "media": "xl/media/image41.png",
+    "ocr": "G12 I overview",
+    "score": 0.8,
+    "sha1": "6604180496c8c6a82aa4cc8c523d2a9a2143748f",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_Prooftest_UX.cim": {
+   "G11.": {
+    "anchor": 64,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Proof Test",
+    "h": 1080,
+    "media": "xl/media/image63.png",
+    "ocr": "G1s I Proof Test",
+    "score": 0.821,
+    "sha1": "e24e763f53671e0fd585182462fb8e61c3e437e7",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 57,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Proof Test",
+    "h": 1080,
+    "media": "xl/media/image55.png",
+    "ocr": "G12s I Proof Test",
+    "score": 0.85,
+    "sha1": "db973d8ed2c5b921c02d159f3b1040c58cb6d96a",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_Vent_UX.cim": {
+   "G11.": {
+    "anchor": 61,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Ventilation",
+    "h": 1080,
+    "media": "xl/media/image60.png",
+    "ocr": "G1s I Ventilation",
+    "score": 0.829,
+    "sha1": "658100a94b26979b40ea68cf393183b307f7e18f",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 54,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Ventilation",
+    "h": 1080,
+    "media": "xl/media/image53.png",
+    "ocr": "G12 I Ventilation",
+    "score": 0.829,
+    "sha1": "d4468cccee61d9470ea73a77d9d27e83018efd3f",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_SIL_VibProx_UX.cim": {
+   "G11.": {
+    "anchor": 55,
+    "book": "G11.xlsx",
+    "crumb": "G11S :: SIL :: Proximity Vibration",
+    "h": 1080,
+    "media": "xl/media/image54.png",
+    "ocr": "G1s I Proximity vibration",
+    "score": 0.877,
+    "sha1": "45e5a7ac5973c61cd756f582cf300a755ca3827f",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 48,
+    "book": "G12.xlsx",
+    "crumb": "G12S :: SIL :: Proximity Vibration",
+    "h": 1080,
+    "media": "xl/media/image47.png",
+    "ocr": "G12 I Proximity vibration",
+    "score": 0.877,
+    "sha1": "5137b63c091defc91cefc94cfd23cfd2db873f8f",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_StartCheck_UX.cim": {
+   "G11.": {
+    "anchor": 8,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Controls :: Start Checks",
+    "h": 1080,
+    "media": "xl/media/image8.png",
+    "ocr": "G11. : controls start checks",
+    "score": 0.964,
+    "sha1": "509d9468f6ee0b47b938d3153c362933bc2c040a",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 2,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Controls :: Start Checks",
+    "h": 1080,
+    "media": "xl/media/image2.png",
+    "ocr": "G1 : controls start checks",
+    "score": 0.945,
+    "sha1": "d32dd8cbcc747057a6fd9b76511c4cf7596b3299",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Staticstarter_LS2100_UX.cim": {
+   "G11.": {
+    "anchor": 37,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: LCI :: Static Starter & LCI",
+    "h": 1080,
+    "media": "xl/media/image36.png",
+    "ocr": "G11 : LCI : tatic starter & LCl",
+    "score": 0.949,
+    "sha1": "e79ba1ecff41fe167fd9a5429213994bc1b4a466",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 30,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: LCI :: Static Starter & LCI",
+    "h": 1080,
+    "media": "xl/media/image29.png",
+    "ocr": "G1 : LCI : tatic starter & LC",
+    "score": 0.947,
+    "sha1": "ce80128b067f7767ca164c1a2bc2644070e53049",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Temp_Matching_UX.cim": {
+   "G11.": {
+    "anchor": 36,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Tasks :: Temp Matching",
+    "h": 1080,
+    "media": "xl/media/image35.png",
+    "ocr": "Task : Temp Matching",
+    "score": 0.851,
+    "sha1": "e910f9736512618eb19d87be94d25867979034a8",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 29,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Tasks :: Temp Matching",
+    "h": 1080,
+    "media": "xl/media/image28.png",
+    "ocr": "G1 : Tasks : Temp Matching",
+    "score": 0.981,
+    "sha1": "241c6cebdd0dbb7efe7cdd088a0842bc754e6bd5",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Timers_Counters_UX.cim": {
+   "G11.": {
+    "anchor": 43,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: GT - Tests & Maint :: Timers & Counters",
+    "h": 1080,
+    "media": "xl/media/image42.png",
+    "ocr": "G11 : GT - Tests & Maint : Timers & Counters",
+    "score": 1.0,
+    "sha1": "208e7c87e2295ea432d5576b60b745ba137102dc",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 36,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: GT - Tests & Maint :: Timers & Counters",
+    "h": 1080,
+    "media": "xl/media/image35.png",
+    "ocr": "G12 : GT - Tests & Maint : Timers & Counters",
+    "score": 1.0,
+    "sha1": "bdf0491f8a8f2444bd521760ea18fedda38e8a40",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Trips_Shutdown_UX.cim": {
+   "G11.": {
+    "anchor": 10,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Controls :: Trips & Shutdown",
+    "h": 1080,
+    "media": "xl/media/image10.png",
+    "ocr": "G11 : Controls : Trips & hutdown",
+    "score": 0.984,
+    "sha1": "f501b5ffa4127e6decc14d22a8061a4e938d2a74",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 4,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Controls :: Trips & Shutdown",
+    "h": 1080,
+    "media": "xl/media/image4.png",
+    "ocr": "G1 : Controls : Trips & hutdown",
+    "score": 0.967,
+    "sha1": "fe8909ebb7a0ec7c1c0d8bf7fc91a53becf0d512",
+    "w": 1920
+   }
+  },
+  "gtHA_Gen2_Waterwash_UX.cim": {
+   "G11.": {
+    "anchor": 30,
+    "book": "G11.xlsx",
+    "crumb": "G11 :: Auxiliaries :: Water Wash",
+    "h": 1080,
+    "media": "xl/media/image29.png",
+    "ocr": "G11 Auxiliaris ater Wash",
+    "score": 0.889,
+    "sha1": "a82b18c049e90fc1beaaaa92cd2818d65956936b",
+    "w": 1920
+   },
+   "G12.": {
+    "anchor": 23,
+    "book": "G12.xlsx",
+    "crumb": "G12 :: Auxiliaries :: Water Wash",
+    "h": 1080,
+    "media": "xl/media/image22.png",
+    "ocr": "G1 Auxiliaris ater Wash",
+    "score": 0.868,
+    "sha1": "ae1e6b19e6f21aa7a403cee81b8b9f791d69b0ee",
+    "w": 1920
+   }
+  }
+ },
+ "stats": {
+  "books": 7,
+  "clash": [
+   [
+    "GT_Perf.cim",
+    "EMAP1SVR.",
+    27,
+    28
+   ],
+   [
+    "HRSG_Perf.cim",
+    "EMAP1SVR.",
+    29,
+    30
+   ]
+  ],
+  "dropped": 5,
+  "low_score": 6,
+  "mapped": 285,
+  "pairs": 285,
+  "screens": 201,
+  "shots": 290,
+  "unmatched": 0
+ },
+ "subdir": "圖控",
+ "unmatched": []
+}

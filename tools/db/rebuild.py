@@ -76,13 +76,16 @@ def hmi_flags(a):
 
 def run_hmi(a):
     """圖控 HMI 三步，順序固定：縮圖（hmi_shots）→ 選單路徑／標題（hmi_nav）→ 位號座標索引（hmi_index 會讀前兩者的輸出）。
+    **執行時截圖的對應表不在這裡**：`tools/db/hmi_runtime_map.py` 是離線工具（唯一需要 rapidocr），輸出 `tools/db/hmi_runtime_map.json`
+    已 commit 進 repo，hmi_shots 只讀它；只有使用者重拍／補拍畫面（`Screens\\圖控\\*.xlsx` 換過）時才要手動重跑那支。
     輸入是唯讀的 .cim 畫面檔目錄 paths.HMI_SCREENS（不修改），輸出全在 cardwork；必須在 build_card_aux 之前跑完。"""
     if a.skip_hmi:
         print('\n== 略過圖控 HMI（--skip-hmi）：沿用 cardwork 裡上次的 hmi.json／hmi_shots ==', flush=True); return
     if not os.path.isdir(paths.HMI_SCREENS):
         raise SystemExit('沒有圖控畫面檔目錄 %s（設 AMS_HMI_SCREENS，或用 --skip-hmi）' % paths.HMI_SCREENS)
     db = os.path.join('tools', 'db')
-    run('圖控畫面縮圖（hmi_shots：.cim 的 ThumbNail EMF → %s，約 30 秒）' % paths.HMI_SHOTS, PY, os.path.join(db, 'hmi_shots.py'))
+    run('圖控畫面影像（hmi_shots：執行時截圖〔hmi_runtime_map.json〕＋.cim 的 ThumbNail EMF → %s，約 70 秒）' % paths.HMI_SHOTS,
+        PY, os.path.join(db, 'hmi_shots.py'))
     run('圖控畫面選單路徑與標題（hmi_nav → cardwork/hmi_nav.json）', PY, os.path.join(db, 'hmi_nav.py'))
     run('圖控位號定位索引（hmi_index → %s）' % paths.HMI_JSON, PY, os.path.join(db, 'hmi_index.py'))
 

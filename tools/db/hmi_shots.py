@@ -18,7 +18,8 @@ r"""tools/db/hmi_shots.py — 把圖控 HMI 畫面（GE CIMPLICITY／ActivePoint
 （Controllable_Parameters_Pri_UX／Sec_UX = 1898x974、tp_actPt_objects_Hsinta = 1920x1200），
 前兩張的 rclBounds 明明是 1921x1080 的滿版畫面，照 szlDevice 裁會砍掉右 23px 與底 106px（含底部 ActivePoint HMI 狀態列），
 而且影像座標系會與真正的畫面座標系對不上。這 3 張在 index.json 標 `device_mismatch: true`。
-index.json 內記下 bounds／canvas／device（原始 szlDevice）／scale 供回推。
+index.json 內記下 bounds／canvas／device（原始 szlDevice）／scale 供回推（**這是設計時那一筆**；有執行時截圖的畫面，
+那一筆會整包搬到 `emf` 子物件下，頂層換成執行時那張的欄位——見下面「輸出」）。
 
 **為什麼要遮掉畫面邊框（chrome）**：縮圖看起來「很多殘影」——左側導覽樹整片文字疊在一起、左上角三組 ### 錶框互疊、
 紅字「Screen was not found in navigation.」壓在「Loading...」上、選單列 `Block1` 疊著 `Plant`。
@@ -35,20 +36,42 @@ index.json 內記下 bounds／canvas／device（原始 szlDevice）／scale 供�
 也不做 EMF+ 記錄外科手術：+ 圖示與錶框是 FillPolygon／DrawLines／FillRects 一樣在疊，改完還是得遮。
 **逐張判斷才遮**（見 mask_rects）：只對全畫面型、且真的數到堆疊的畫面套用；faceplate 小圖與沒有 chrome 的樣板頁一律不遮。
 
+**執行時截圖優先（2026-10-04 起）**：設計時快照再怎麼塗平，值還是 ###、標題還是 CAPTION 佔位。使用者 2026-10-04
+在機組上逐頁拍了執行時畫面（`Screens\圖控\*.xlsx` 內嵌 PNG，290 張、全部 1920x1080），對應表由 `hmi_runtime_map.py`
+離線產生並 commit 成 `tools/db/hmi_runtime_map.json`（本工具只讀表、不做 OCR）。**截圖的解析度正好就是標記所用的裝置
+座標系**，實測把 hmi.json 的標記疊到執行時截圖與疊到同一張設計時縮圖，落點像素級一致，所以是原位替換、不動任何換算。
+有截圖的畫面：`file`／`w`／`h`／`bytes`／`source` 改指執行時那張，原本的設計時那筆**整包**搬到 `emf`（不丟）；
+`runtime.variants` 逐「選單機組」各一張（同一張畫面在 HRSG11／HRSG12 是兩份不同的現值，不可共用一張）。
+`--no-runtime` 完全不碰，輸出與沒有這段程式時逐位元組相同。
+
 用法：
   py tools/db/hmi_shots.py                                   # 全部，輸出到 %LOCALAPPDATA%\AMS\cardwork\hmi_shots
   py tools/db/hmi_shots.py --width 1280 --format webp
   py tools/db/hmi_shots.py --only list.txt                   # 每行一個檔名（可含子目錄；大小寫不拘）
   py tools/db/hmi_shots.py --screens D:\Screens --out D:\out
   py tools/db/hmi_shots.py --no-mask --out D:\before         # 不遮（回溯比對用）
+  py tools/db/hmi_shots.py --no-runtime --out D:\emfonly     # 只出設計時縮圖（回溯比對用）
 
 輸出：
-  <out>/<slug>.webp|png
-  <out>/index.json  {"<檔名.cim>":{"file","w","h","bytes","source","bounds","canvas","device","scale","dup_of","flags",
+  <out>/<slug>.webp|png                     設計時（ThumbNail EMF）縮圖
+  <out>/<slug>__<選單機組>.webp|png          執行時截圖（有對應表的畫面才有；機組去掉結尾的點，如 H11.→H11）
+  <out>/index.json  {"<檔名.cim>":{"file","w","h","bytes","source","canvas","device","scale","flags",…}}
+                   **每一筆的 file／w／h／bytes／source 一律是「這個畫面要發布的那張影像」**：
+                     有執行時截圖 → source="runtime capture"，另有
+                                    "runtime":{"captured","primary","variants":{選單機組:{file,w,h,bytes,book,anchor,src_sha1,crumb,…}},
+                                               "skipped":{選單機組:原因}（只有真的被閘門擋掉時才有）}，
+                                    而設計時那筆（含 bounds／cropped／sha1／masked／mask_metrics／device_mismatch）原封不動搬進 "emf"；
+                                    **頂層的 device 是截圖解析度（＝螢幕矩形），不是 EMF 標頭的 szlDevice**，
+                                    bounds／cropped／sha1／device_mismatch 只存在於 "emf" 子物件（上面第 17~21 行講的那三張就是這種）。
+                                    **primary ＝對應表裡 (book, anchor) 最前、而且通過 sha1／尺寸閘門的那個選單機組**，
+                                    `file` 指著它；前端挑不到自己那一列的機組時會退到它，所以被閘門擋掉而讓 primary 往後滑的那些
+                                    一定要記在 "skipped" 裡（不然 index.json 看不出少了誰）。
+                     沒有          → source="ThumbNail EMF"，欄位同 2026-10-03 版，沒有 "runtime"／"emf" 鍵。
+                   設計時那筆的欄位：{"file","w","h","bytes","source","bounds","canvas","device","scale","dup_of","flags",
                                    "masked":{"nav":[l,t,r,b],"loading":…,"menubar":…,"banner":…}
                                              （原生裝置座標、只列真的塗掉的矩形；沒遮就是 {}）,
                                    "mask_metrics":{nav_pairs,nav_strings,banner_pairs,banner_strings,
-                                                   nav_bottom,nav_vocab_ignored}}}
+                                                   nav_bottom,nav_vocab_ignored}}
                    mask_metrics 的鍵**是條件性的**，讀的時候一律用 .get()：
                      只有評估過遮罩的全畫面型才有這個鍵（faceplate 根本沒有，2026-10-03 語料 112/156）；
                      nav_pairs／nav_strings 一定有；banner_pairs／banner_strings／nav_bottom 只在過了 nav 門檻的那幾張（109）；
@@ -56,6 +79,7 @@ index.json 內記下 bounds／canvas／device（原始 szlDevice）／scale 供�
 """
 import argparse
 import hashlib
+import io
 import json
 import math
 import os
@@ -64,6 +88,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import zipfile
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -78,6 +103,7 @@ try:
 except ImportError:
     sys.exit('缺 Pillow：py -m pip install pillow')
 
+RUNTIME_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hmi_runtime_map.json')   # hmi_runtime_map.py 的輸出（commit 進 repo）
 FULL_MIN_W, FULL_MIN_H = 1600, 900      # bounds 大於這個就當「全畫面」，改用固定螢幕矩形當畫布
 SCREEN_W, SCREEN_H = 1920, 1080         # ActivePoint 全畫面的螢幕矩形（--screen 可改）；不可用 szlDevice 代替，見模組說明
 BLANK_NONBG = 0.02                      # 非背景像素比例低於此 → 標記 blank
@@ -202,6 +228,102 @@ def content_stats(im):
         flags.append('dark')
     return dict(nonbg=round(nonbg, 4), colors=len(cnt), luma=round(luma, 1),
                 bg=[bg[0] * 17, bg[1] * 17, bg[2] * 17], flags=flags)
+
+
+# ---------------------------------------------------------------- 執行時截圖（hmi_runtime_map.json → webp）
+def unit_slug(unit):
+    """選單機組 'H11.' → 'H11'（檔名用；結尾的點是 CIMPLICITY 的前綴寫法，不是副檔名）。"""
+    return re.sub(r'[^0-9A-Za-z._-]+', '_', (unit or '').rstrip('.')) or 'x'
+
+
+def runtime_shots(map_path, screens_root, allow_keys, out_dir, width, fmt, quality, scr_w, scr_h):
+    """讀 hmi_runtime_map.json，把活頁簿裡的執行時截圖縮成 webp，回傳 {cim_key: runtime 區塊}。
+
+    每張都核對 PNG 的 sha1 與尺寸：活頁簿被重拍／重排過就會對不上，寧可少一張也不默默貼錯圖。
+    **截圖必須是 scr_w x scr_h**（＝標記的裝置座標系）；不是就跳過，因為縮圖的 x/y 比例會對不上標記。
+    allow_keys＝這次要處理的畫面 key（大小寫原樣）；None 代表不限制。"""
+    if not os.path.exists(map_path):
+        print('※ 沒有執行時截圖對應表 %s → 只出設計時縮圖' % map_path)
+        return {}, []
+    with open(map_path, encoding='utf-8') as f:
+        rm = json.load(f)
+    if rm.get('kind') != 'hmi_runtime_map':
+        print('※ %s 不是 hmi_runtime_map（kind=%r）→ 只出設計時縮圖' % (map_path, rm.get('kind')))
+        return {}, []
+    sdir = os.path.join(screens_root, rm.get('subdir') or '圖控')
+    if not os.path.isdir(sdir):
+        print('※ 對應表指的截圖目錄不存在：%s → 只出設計時縮圖' % sdir)
+        return {}, []
+    allow = {k.lower() for k in allow_keys} if allow_keys is not None else None
+    books, out, notes = {}, {}, []
+    captured = rm.get('captured')
+    for key in sorted(rm.get('screens') or {}):
+        if allow is not None and key.lower() not in allow:
+            continue
+        # skipped_units＝對應表裡有、但這次沒產出來的機組（閘門擋掉）。一定要留下來：
+        # 少一組時 primary 會順勢滑到下一個機組，那張圖就會被拿去配別台機組的位號，而 index.json 看不出少了誰
+        variants, primary, skipped_units = {}, None, {}
+        for unit, v in sorted((rm['screens'][key]).items(), key=lambda kv: (kv[1].get('book', ''), kv[1].get('anchor', 0))):
+            bk = v['book']
+            if bk not in books:
+                bp = os.path.join(sdir, bk)
+                if not os.path.exists(bp):
+                    books[bk] = None
+                else:
+                    books[bk] = zipfile.ZipFile(bp)
+            zf = books[bk]
+            if zf is None:
+                # 逐 (畫面, 機組) 各記一則：只在「第一個用到這本」的畫面名下記一則，
+                # 等於一本活頁簿不見時整批截圖默默消失，而訊息還掛在不相干的畫面上
+                skipped_units[unit] = '活頁簿 %s 不在' % bk
+                notes.append((key, '%s 的 %s 不在 → 這一組沒有影像' % (unit, bk)))
+                continue
+            try:
+                raw = zf.read(v['media'])
+            except KeyError:
+                skipped_units[unit] = '%s 裡沒有 %s' % (bk, v['media'])
+                notes.append((key, '%s：%s' % (unit, skipped_units[unit])))
+                continue
+            got = hashlib.sha1(raw).hexdigest()
+            if got != v['sha1']:
+                skipped_units[unit] = ('%s#%d sha1 不符（表 %s、檔 %s）→ 活頁簿換過了，請重跑 hmi_runtime_map.py'
+                                       % (bk, v['anchor'], v['sha1'][:10], got[:10]))
+                notes.append((key, '%s：%s' % (unit, skipped_units[unit])))
+                continue
+            im = Image.open(io.BytesIO(raw))
+            im.load()
+            if im.size != (scr_w, scr_h):
+                skipped_units[unit] = ('%s#%d 是 %dx%d，不是 %dx%d（座標基準會對不上）'
+                                       % (bk, v['anchor'], im.width, im.height, scr_w, scr_h))
+                notes.append((key, '%s：%s' % (unit, skipped_units[unit])))
+                continue
+            im = im.convert('RGB')
+            if width and im.width > width:
+                im = im.resize((width, max(1, round(im.height * width / im.width))), Image.LANCZOS)
+            name = '%s__%s.%s' % (slug(key), unit_slug(unit), fmt)
+            if name in {x['file'] for x in variants.values()}:
+                # 兩個不同的選單機組被 unit_slug 洗成同一個檔名 → 後者會蓋掉前者，等於把別的機組的現值端出去
+                skipped_units[unit] = '檔名與既有變體相撞（%s）；unit_slug 要能分開這兩個機組' % name
+                notes.append((key, '%s：%s' % (unit, skipped_units[unit])))
+                continue
+            dst = os.path.join(out_dir, name)
+            if fmt == 'webp':
+                im.save(dst, 'WEBP', quality=quality, method=5)
+            else:
+                im.save(dst, 'PNG', optimize=True)
+            variants[unit] = dict(file=name, w=im.width, h=im.height, bytes=os.path.getsize(dst),
+                                  book=bk, anchor=v['anchor'], src_sha1=v['sha1'], crumb=v.get('crumb'),
+                                  **{k: val for k, val in content_stats(im).items()})
+            if primary is None:
+                primary = unit
+        if variants:
+            out[key] = {'captured': captured, 'primary': primary, 'variants': variants}
+            if skipped_units:
+                out[key]['skipped'] = skipped_units
+    for zf in books.values():
+        if zf is not None:
+            zf.close()
+    return out, notes
 
 
 # ---------------------------------------------------------------- 設計時堆疊遮罩（chrome）
@@ -559,6 +681,10 @@ def main():
                     help='全畫面型的螢幕矩形 WxH（預設 1920x1080；固定值，不隨 szlDevice 變）')
     ap.add_argument('--no-mask', action='store_true',
                     help='不遮設計時堆疊的 chrome（導覽樹／錶框／Loading 紅字／選單下拉）；回溯比對用，見模組說明')
+    ap.add_argument('--runtime-map', default=RUNTIME_MAP,
+                    help='執行時截圖對應表（hmi_runtime_map.py 的輸出；預設 tools/db/hmi_runtime_map.json）')
+    ap.add_argument('--no-runtime', action='store_true',
+                    help='不出執行時截圖，只出設計時縮圖；輸出與沒有這段程式時逐位元組相同（回溯比對用）')
     ap.add_argument('--keep-tmp', action='store_true')
     args = ap.parse_args()
 
@@ -631,32 +757,42 @@ def main():
     for j in jobs:
         if j['dups']:
             print('  重複 sha1：%s == %s' % (j['key'], ', '.join(j['dups'])))
-    if not jobs:
-        sys.exit('沒有可渲染的畫面')
+    # 1.5) 執行時截圖（使用者在機組上拍的）。**一定要在「沒有可渲染的畫面」那道早退之前**：
+    # 201 張執行時畫面裡有 101 張本來就沒有 ThumbNail（其中 23 張是網站真的發布的），
+    # 早退擺前面的話 `--only` 只挑這種畫面時會一個檔都不產、index.json 也不寫。
+    rt, rt_notes = ({}, [])
+    if not args.no_runtime:
+        rt, rt_notes = runtime_shots(args.runtime_map, root, set(keys[p] for p in cims),
+                                     args.out, args.width, args.format, args.quality, scr_w, scr_h)
+    else:
+        print('※ --no-runtime：只出設計時縮圖')
+    if not jobs and not rt:
+        sys.exit('沒有可產出的影像（這批畫面既沒有 ThumbNail，也沒有執行時截圖）')
 
     # 2) 一次 PowerShell 批次渲染（每次啟動 PowerShell 很慢，絕不逐檔啟動）
-    ps1 = os.path.join(tmp, 'render.ps1')
-    with open(ps1, 'w', encoding='utf-8') as f:
-        f.write(PS1)
-    jobs_tsv = os.path.join(tmp, 'jobs.tsv')
-    with open(jobs_tsv, 'w', encoding='utf-8') as f:
-        for j in jobs:
-            f.write('%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n'
-                    % (j['emf'], j['png'], j['canvas'][2], j['canvas'][3],
-                       j['dest'][0], j['dest'][1], j['dest'][2], j['dest'][3]))
-    log = os.path.join(tmp, 'render.log')
-    print('渲染中（GDI+，%d 張）…' % len(jobs))
-    r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
-                        '-File', ps1, '-Jobs', jobs_tsv, '-Log', log],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        print(r.stdout[-2000:], r.stderr[-2000:])
-        sys.exit('PowerShell 渲染失敗 rc=%d' % r.returncode)
     res = {}
-    with open(log, encoding='utf-8') as f:
-        for line in f:
-            c = line.rstrip('\n').split('\t')
-            res[c[1]] = c
+    if jobs:          # --only 只挑到「沒有 ThumbNail、只有執行時截圖」的畫面時整段跳過（不白啟動 PowerShell）
+        ps1 = os.path.join(tmp, 'render.ps1')
+        with open(ps1, 'w', encoding='utf-8') as f:
+            f.write(PS1)
+        jobs_tsv = os.path.join(tmp, 'jobs.tsv')
+        with open(jobs_tsv, 'w', encoding='utf-8') as f:
+            for j in jobs:
+                f.write('%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n'
+                        % (j['emf'], j['png'], j['canvas'][2], j['canvas'][3],
+                           j['dest'][0], j['dest'][1], j['dest'][2], j['dest'][3]))
+        log = os.path.join(tmp, 'render.log')
+        print('渲染中（GDI+，%d 張）…' % len(jobs))
+        r = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                            '-File', ps1, '-Jobs', jobs_tsv, '-Log', log],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(r.stdout[-2000:], r.stderr[-2000:])
+            sys.exit('PowerShell 渲染失敗 rc=%d' % r.returncode)
+        with open(log, encoding='utf-8') as f:
+            for line in f:
+                c = line.rstrip('\n').split('\t')
+                res[c[1]] = c
 
     # 3) 堆疊 chrome 遮罩 + PIL 縮圖 + 內容檢查 + index.json
     # 遮罩矩形是寫死的裝置座標，只有在畫布真的是 1920x1080 時才對得上；--screen 改過就不遮（不要縮放矩形硬套）
@@ -726,6 +862,24 @@ def main():
         for d in j['dups']:
             index[d] = dict(entry, dup_of=j['key'])
 
+    # 4) 執行時截圖（步驟 1.5 已經產好）併進 index：有對應表就蓋過設計時那張，設計時那筆整包搬進 'emf'
+    rt_new = 0
+    for key in sorted(rt):
+        blk = rt[key]
+        v = blk['variants'][blk['primary']]
+        # 內容統計直接沿用 primary 那張的（runtime_shots 已經算過），不要再開檔重算：
+        # 重算是對 webp 解碼後的像素算，會跟 variants 裡的數字差一點點，同一筆 index 出現兩組 nonbg 只會讓人懷疑哪個才對
+        top = dict(file=v['file'], w=v['w'], h=v['h'], bytes=v['bytes'], source='runtime capture',
+                   canvas=[0, 0, scr_w, scr_h], device=[scr_w, scr_h], scale=round(v['w'] / float(scr_w), 6),
+                   masked={}, runtime=blk,
+                   **{k: v[k] for k in ('nonbg', 'colors', 'luma', 'bg', 'flags')})
+        old = index.get(key)
+        if old is not None:
+            top['emf'] = old       # 設計時那筆原封不動（含 bounds／masked／mask_metrics／sha1／dup_of），不丟
+        else:
+            rt_new += 1            # 這張畫面本來沒有 ThumbNail，現在第一次有影像
+        index[key] = top
+
     with open(os.path.join(args.out, 'index.json'), 'w', encoding='utf-8') as f:
         json.dump(index, f, ensure_ascii=False, indent=1, sort_keys=True)
 
@@ -735,33 +889,50 @@ def main():
     else:
         print('暫存保留：%s' % tmp)
 
-    uniq = {e['file'] for e in index.values()}
-    total = sum(os.path.getsize(os.path.join(args.out, f)) for f in uniq)
-    big = max(((e['bytes'], k) for k, e in index.items()), default=(0, ''))
+    # 遮罩／EMF 相關的統計一律看「設計時那一筆」：被執行時截圖蓋過的畫面，那筆在 e['emf'] 裡
+    # （不這樣做，換了執行時截圖的 43 張就會從遮罩統計裡悄悄消失）
+    emf_ix = {k: (e.get('emf') or e) for k, e in index.items() if e.get('emf') or e.get('source') == 'ThumbNail EMF'}
+    # 三種都要算進去，否則「實體檔 N 個／總位元組」會漏掉非 primary 的執行時變體（實測漏 84 個、低估 29%）：
+    # 每筆要發布的那張 ∪ 設計時那張 ∪ 每個選單機組的執行時變體
+    uniq = ({e['file'] for e in index.values()} | {e['file'] for e in emf_ix.values()}
+            | {v['file'] for e in index.values() for v in ((e.get('runtime') or {}).get('variants') or {}).values()})
+    gone = sorted(f for f in uniq if not os.path.exists(os.path.join(args.out, f)))
+    total = sum(os.path.getsize(os.path.join(args.out, f)) for f in uniq if f not in gone)
+    big = max(((os.path.getsize(os.path.join(args.out, f)), f) for f in uniq if f not in gone), default=(0, ''))
     print('\n完成：%d 個畫面有影像（實體檔 %d 個）' % (len(index), len(uniq)))
     print('  總位元組 %.1f MB、單檔最大 %d bytes（%s）、平均 %d bytes'
           % (total / 1048576.0, big[0], big[1], total // max(1, len(uniq))))
+    if gone:      # index 指到卻不在磁碟上的檔案要出聲，不能靜默當成 0 bytes
+        print('  ※ index 指到但檔案不在 %d 個：%s' % (len(gone), ', '.join(gone[:5]) + ('…' if len(gone) > 5 else '')))
     flagged = {k: e['flags'] for k, e in index.items() if e['flags']}
     print('  內容可疑（blank/flat/dark）%d：%s' % (len(flagged), json.dumps(flagged, ensure_ascii=False)))
-    print('  裁切過（內容超出可視區）%d' % sum(1 for e in index.values() if e['cropped']))
+    print('  裁切過（內容超出可視區）%d' % sum(1 for e in emf_ix.values() if e.get('cropped')))
+    if rt:
+        nvar = sum(len(e['runtime']['variants']) for e in index.values() if e.get('runtime'))
+        rtb = sum(v['bytes'] for e in index.values() if e.get('runtime') for v in e['runtime']['variants'].values())
+        print('  執行時截圖（%s 擷取）：%d 個畫面、%d 組（畫面, 選單機組），共 %.1f MB；'
+              '其中 %d 個畫面本來沒有 ThumbNail、現在第一次有影像'
+              % (rt[next(iter(rt))]['captured'], len(rt), nvar, rtb / 1048576.0, rt_new))
+    for k, nt in rt_notes:
+        print('    ※ %s：%s' % (k, nt))
     if can_mask:
-        ev = [k for k, e in index.items() if 'mask_metrics' in e and 'dup_of' not in e]
-        no = [k for k in ev if not index[k]['masked']]
+        ev = [k for k, e in emf_ix.items() if 'mask_metrics' in e and 'dup_of' not in e]
+        no = [k for k in ev if not emf_ix[k]['masked']]
         cmb = Counter(tuple(v) for v in mask_log.values())
         print('  堆疊 chrome 遮罩：評估 %d 張全畫面型，遮了 %d 張（矩形組合 %s）'
               % (len(ev), len(mask_log), '；'.join('%s x%d' % ('+'.join(k), n) for k, n in cmb.most_common())))
         print('    沒遮 %d（nav 配對數未過門檻，或矩形全被取樣不可信跳過）：%s'
               % (len(no), ', '.join(sorted(no)) or '無'))
         # 一律以**具名鍵**讀，不可用 masked[0]／masked[3]（矩形組合會變，見 apply_mask）
-        clamped = [(k, e['masked']['nav'][3]) for k, e in index.items()
+        clamped = [(k, e['masked']['nav'][3]) for k, e in emf_ix.items()
                    if e['masked'].get('nav') and e['masked']['nav'][3] != MASK_NAV[3]]
         print('    nav 底緣夾限（畫面自己的按鈕）%d：%s'
               % (len(clamped), ', '.join('%s→%d' % c for c in sorted(clamped)[:4]) + ('…' if len(clamped) > 4 else '')))
-        bclam = [(k, e['masked']['banner'][2]) for k, e in index.items()
+        bclam = [(k, e['masked']['banner'][2]) for k, e in emf_ix.items()
                  if e['masked'].get('banner') and e['masked']['banner'][2] != MASK_BANNER[2]]
         print('    banner 右緣夾限 %d：%s' % (len(bclam), ', '.join('%s→%d' % c for c in sorted(bclam)[:4])
                                               + ('…' if len(bclam) > 4 else '')))
-        ign = sorted((k, e['mask_metrics']['nav_vocab_ignored']) for k, e in index.items()
+        ign = sorted((k, e['mask_metrics']['nav_vocab_ignored']) for k, e in emf_ix.items()
                      if 'dup_of' not in e and (e.get('mask_metrics') or {}).get('nav_vocab_ignored'))
         print('    ※ nav 夾限樓地板（y<%d）忽略的畫面內容詞 %d：%s'
               % (MASK_NAV_FLOOR, len(ign),
@@ -771,7 +942,7 @@ def main():
                   '若是原廠換了版型，要回來重訂 MASK_NAV／MASK_NAV_FLOOR，不要直接放寬樓地板。')
         print('    填色取樣不可信（flat 跳過不塗／rows 該列退回預設）%d：%s'
               % (len(bg_notes), bg_notes[:3] or '無（全部採用逐張取樣色）'))
-    dm = sorted(k for k, e in index.items() if e.get('device_mismatch'))
+    dm = sorted(k for k, e in emf_ix.items() if e.get('device_mismatch'))
     print('  szlDevice ≠ 螢幕矩形 %dx%d（已改用螢幕矩形）%d：%s' % (scr_w, scr_h, len(dm), ', '.join(dm) or '無'))
     if mismatch:
         print('  GDI+ 與 EMF 標頭 bounds 不一致 %d：%s' % (len(mismatch), mismatch[:10]))
