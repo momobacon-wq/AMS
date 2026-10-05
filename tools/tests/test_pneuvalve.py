@@ -71,9 +71,13 @@ def run(ctx):
             ck('card: 氣動閥 group has fields', v['n'] >= 10, v)
             ck('card: fields carry sources', v['src'] >= 5, v)
             ck('card: link to list row', v['row'], v)
-            ck('card: after_stock 兩組仍在最後（文件全文檢索 → 圖控 HMI）',
-               page.evaluate("(s => !s || s.nextElementSibling === document.querySelector('.sum-hmi'))(document.querySelector('.sum-search'))")
-               and page.evaluate("(h => !h || h === h.parentElement.lastElementChild)(document.querySelector('.sum-hmi'))"))
+            # 氣動閥組插在 dev 之後，不影響尾端順序：圖控 HMI（不收合）→ 備品庫存 → 文件全文檢索（after_stock，最後一組）
+            ck('card: 尾端順序仍是 圖控 HMI → 備品庫存 → 文件全文檢索',
+               # 先要求三組都在，再比序：findIndex 的 -1 短路會讓這條在任一組消失時永遠綠燈
+               page.evaluate("""(() => { const p = document.querySelector('.sum-groups'); if (!p) return false;
+                 const kids = [...p.children], i = (c) => kids.findIndex(e => e.classList.contains(c));
+                 const h = i('sum-hmi'), s = i('sum-stock'), d = i('sum-search');
+                 return h >= 0 && d === kids.length - 1 && (s < 0 ? h === kids.length - 2 : h === s - 1); })()"""))
             shot(page, ctx, 'pneu_card')
         # ---- 非氣動閥設備：沒有氣動閥組
         load_card(page, ctx, 'G12HAP70BT001')

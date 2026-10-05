@@ -1056,23 +1056,19 @@ table.mini.stk.full th.sortable.desc::after { content: " ▼"; font-size: 10px; 
 .hmi-mk.pri { border-width: 4px; }
 .hmi-box:not(.pri) { border-style: dashed; background: rgba(224, 32, 32, 0.06); }
 .hmi-head .hmi-allnav { color: var(--muted); font-size: 12px; }
-/* 摘要組（.sum-hmi，整列寬）：容器 ≥ 1150px 時一塊畫面左右並排——左邊四個欄位、右邊縮圖（原本圖在上欄位在下，右半格是空的）。
-   斷點看 .hmi-list 自己的寬度（container query），不是視窗寬度；窄容器與沒有縮圖的區塊（.hmi-screen 無 .sum-has-shot）維持上下排列。
-   斷點是 1150 不是 900：容器 900–1100（視窗約 942–1150，含 iPad 橫向 1024）時左欄只剩 374–440px，而 .cq-body 此時仍是 src-full
-   ——.cf 是「標籤｜數據｜來源」三欄，數據欄只剩 131–145px，中文值被切成 7–10 行、位號也在 token 中間硬斷，比它所取代的上下排版更難讀；
-   1150 起左欄 ≥ 479px，1280 筆電（容器 1238、左欄 515px）仍然左右並排。
-   完整資料區（.aux-hmi）不套用：那裡縮圖是主角，維持整列寬的大圖。 */
-.sum-hmi .hmi-list { container-type: inline-size; container-name: hmilist; }
-@container hmilist (min-width: 1150px) {
-  .hmi-screen.sum-has-shot { display: grid; grid-template-columns: minmax(430px, 1fr) minmax(0, 1.4fr); }
-  .hmi-screen.sum-has-shot > .hmi-head { grid-column: 1 / -1; grid-row: 1; }
-  /* align-self: start：縮圖比四個欄位高時，欄位不要被拉開（.cfields 會把多出來的高度分給每一列） */
-  .hmi-screen.sum-has-shot > .hmi-f { grid-column: 1; grid-row: 2; align-self: start; grid-template-columns: 1fr; }
-  .hmi-screen.sum-has-shot > .hmi-f .cf:nth-child(odd):not(.span2) { border-right: 0; }
-  .hmi-screen.sum-has-shot > .hmi-shot { grid-column: 2; grid-row: 2; align-self: start; padding: 8px 12px 8px 10px; }
-  /* 右欄已經限寬，再留 920px 上限就又多出一條空白；但不能給 none——超寬螢幕會把 1280×720 的原生縮圖放大失真 */
-  .hmi-screen.sum-has-shot > .hmi-shot .hmi-frame { max-width: 1280px; }
-}
+/* 摘要組（.sum-hmi，整列寬）2026-10-05 起只有「畫面標頭＋影像」：原本寬容器時左欄四個欄位、右欄縮圖（@container hmilist
+   ＋ .sum-has-shot）的左右並排已經沒有意義——欄位都移到完整資料區了，圖直接吃滿 .hmi-frame 的 920px 上限。
+   .hmi-cap＝標頭上的影像來源短籤（擷取日期·非即時值）；.warn 是「這張不是這一列機組的截圖」那種退回，要紅字。 */
+.hmi-head .hmi-cap { color: var(--muted); font-size: 12px; }
+.hmi-head .hmi-cap.warn { color: var(--cmp-bad); font-weight: 700; }
+/* 畫面超過 3 張時摘要組只先展開第一張（card.js HMI_FOLD）：每塊畫面是 <details>、標頭就是 <summary>（點一下展開，影像才開始抓）。
+   .hmi-head 是 flex，瀏覽器在非 list-item 的 summary 不畫三角標記，所以自己掛一個 .hmi-exp 當可點的提示。 */
+.hmi-screen > summary.hmi-head { cursor: pointer; list-style: none; }
+.hmi-screen > summary.hmi-head::-webkit-details-marker { display: none; }
+.hmi-screen > summary.hmi-head:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.hmi-exp { margin-left: auto; color: var(--accent-2); font-size: 12px; white-space: nowrap; }
+.hmi-exp::after { content: "▸ 顯示畫面"; }
+details.hmi-screen[open] > .hmi-head .hmi-exp::after { content: "▾ 收合"; }
 @media (prefers-reduced-motion: no-preference) {
   .hmi-mk { animation: hmi-pulse 1.8s ease-in-out 3; }
   @keyframes hmi-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.22); } }
@@ -1102,6 +1098,8 @@ table.mini.stk.full th.sortable.desc::after { content: " ▼"; font-size: 10px; 
   .hmi-frame { max-width: 100%; border-color: #c3cad5; }
   .hmi-img { max-width: 100%; }
   .hmi-mk, .hmi-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; animation: none !important; }
-  /* 影像是展開才載（card.js whenDetailsOpen）：beforeprint 強制展開時來不及載完，佔位框要講原因、不要印一個空框 */
-  .hmi-frame.loading::after { content: '（畫面縮圖尚未載入：請先在螢幕上展開本組，等縮圖出現再列印）'; }
+  /* 收起來的畫面是展開才載（card.js whenDetailsOpen）：beforeprint 強制展開時來不及載完，佔位框要講原因、不要印一個空框。
+     摘要組已經不收合（展開中的那幾張渲染時就載），所以那裡的佔位只會是「還在解密」；完整資料區才要叫使用者先展開。 */
+  .hmi-frame.loading::after { content: '（畫面縮圖還在解密：等縮圖出現再列印）'; }
+  .cq-more .hmi-frame.loading::after { content: '（畫面縮圖尚未載入：請先在螢幕上展開「完整資料」，等縮圖出現再列印）'; }
 }

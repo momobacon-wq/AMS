@@ -14,6 +14,7 @@ HMI_UNIT = 'G12HAP70BT001'     # 圖控：HRSG_Blowdown_UX.cim **以選單機組
 HMI_FF = 'G11_90LT-1'          # FF：圖控畫面檔完全查無
 HMI_TMPL = '1-LI-CW101-1'      # 曾顯示未代入樣板 aliasSignal={device}（74 列）→ 現在必須是 device=1-LI-CW101-1_XQ01
 HMI_MULTI = 'C10LAB40BP001'    # 多點簡寫 caption=…LAB40BP001\002 → 卡片要有白話說明
+HMI_MANY = 'C10MAG10BL001'     # 14 組（畫面, 選單機組）＝全廠最多：摘要組只先展開第一張（card.js HMI_FOLD=3）
 
 
 def run(ctx):
@@ -29,8 +30,9 @@ def run(ctx):
         ck('docsearch group exists', bool(info))
         if info:
             ck('docsearch is <details>, closed', info['tag'] == 'DETAILS' and not info['open'])
-            # after_stock 的組依 summary_spec 順序排在備品庫存之後：…→ 文件全文檢索 → 圖控 HMI 畫面（最後一組）
-            ck('docsearch after stock, 圖控 HMI last', info['stockIdx'] >= 0 and info['idx'] > info['stockIdx'] and info['hmiIdx'] == info['idx'] + 1 and info['hmiIdx'] == info['n'] - 1,
+            # after_stock 的組（文件全文檢索）排在備品庫存之後且是最後一組；圖控 HMI 2026-10-05 起改排在備品庫存**之前**（使用者要求）
+            ck('docsearch after stock（最後一組），圖控 HMI 緊接在備品庫存之前',
+               info['stockIdx'] >= 0 and info['idx'] > info['stockIdx'] and info['idx'] == info['n'] - 1 and info['hmiIdx'] == info['stockIdx'] - 1,
                (info['idx'], info['stockIdx'], info['hmiIdx'], info['n']))
             ck('docsearch filled while closed', info['cf'] > 0 and len(info['links']) > 0)
             ck('drive links well-formed', all(h.startswith('https://drive.google.com/open?id=') and t == '_blank' and 'noopener' in (r or '') for h, t, r in info['links']))
@@ -66,12 +68,10 @@ def run(ctx):
         # ---- 參數現值連結帶 rn=（分塊表只載 r..rn 所在的分塊）
         ck('param quick link carries rn=', page.locator('.cq-more .clinks a[href*="rn="]').count() >= 1)
         page.locator('.cq-more > summary').click(); page.wait_for_timeout(200)
-        # ---- 圖控 HMI 畫面位置（CONTRACT.md v5）：摘要組與完整資料都有縮圖＋標記，但影像延後到展開才抓；摘要組整列寬、寬容器時左欄位右縮圖
+        # ---- 圖控 HMI 畫面位置（CONTRACT.md v5）：摘要組（2026-10-05 起不收合、排在備品庫存之前、只有畫面標頭＋影像）與完整資料區都有縮圖＋標記
         page.evaluate('performance.clearResourceTimings()')
         load_card(page, ctx, HMI_TAG)
-        # 摘要組的縮圖在渲染時就載：延後到展開才載行不通——點開摘要組會觸發重新渲染並把它恢復成收合，
-        # toggle 監聽留在被換掉的舊 <details> 上，縮圖永遠停在 loading（2026-10-03 使用者回報「沒有看到圖控畫面」）。
-        # 完整資料區（.cq-more 預設收合、展開是明確動作）仍延後載入，所以同一張圖只抓一次。
+        # 摘要組的縮圖在渲染時就載（完整資料區 .cq-more 預設收合、展開是明確動作，仍延後載入，所以同一張圖只抓一次）。
         page.wait_for_function("(() => { const i = document.querySelector('.sum-hmi .hmi-img'); return i && i.complete && i.naturalWidth > 0; })()", timeout=30000)
         pre = page.evaluate("""(() => ({ req: performance.getEntriesByType('resource').filter(e => /\\/card\\/hmi\\//.test(e.name)).length,
           sumImg: document.querySelectorAll('.sum-hmi .hmi-img').length, auxImg: document.querySelectorAll('.cq-more .hmi-img').length,
@@ -79,28 +79,42 @@ def run(ctx):
           moreOpen: document.querySelector('details.cq-more').open }))()""")
         ck('摘要組渲染時就載縮圖、完整資料區仍延後（同一張圖最多抓 1 次；命中快取時 0 次）',
            pre['req'] <= 1 and pre['sumImg'] >= 1 and pre['auxImg'] == 0 and pre['auxPh'] >= 1 and not pre['moreOpen'], pre)
-        page.evaluate("document.querySelector('details.sum-hmi').open = true")
-        page.wait_for_function("(() => { const i = document.querySelector('.sum-hmi .hmi-img'); return i && i.complete && i.naturalWidth > 0; })()", timeout=30000)
         sum_hmi = page.inner_text('.sum-hmi')
+        ck('摘要圖控組不收合（一開卡就看到圖，不是 <details>）',
+           page.evaluate("(() => { const g = document.querySelector('.sum-hmi'); return g ? g.tagName : ''; })()") == 'SECTION')
         ck('摘要圖控組：畫面名稱＋導覽路徑', 'BOP_Feed_Water.cim' in sum_hmi and '›' in sum_hmi, sum_hmi[:80])
-        ck('摘要圖控組展開即顯示縮圖與標記', page.locator('.sum-hmi .hmi-img').count() >= 1 and page.locator('.sum-hmi .hmi-mk').count() == 2)
+        ck('摘要圖控組顯示縮圖與標記', page.locator('.sum-hmi .hmi-img').count() >= 1 and page.locator('.sum-hmi .hmi-mk').count() == 2)
+        # 版面精簡（2026-10-05 使用者要求）：摘要只留標頭＋圖，「所在位置／對應方式」與那段來源說明都只留在完整資料區
+        # 一格都不能留（.cf）：'所在位置' 不可用文字判定——多處標記的 .sr-only 本來就會提到那一列在完整資料區哪裡
+        ck('摘要圖控組不再印欄位與來源說明（只有標頭＋影像）',
+           page.locator('.sum-hmi .hmi-f').count() == 0 and page.locator('.sum-hmi .cf').count() == 0
+           and page.locator('.sum-hmi .aux-note').count() == 0 and '對應方式' not in sum_hmi, sum_hmi[:160])
+        cap = page.inner_text('.sum-hmi .hmi-cap')
+        ck('標頭短籤仍寫出擷取日期與「非即時值」（說明拿掉之後只剩這裡在講）', '2026-10-04' in cap and '非即時值' in cap, cap)
         lay = page.evaluate("""(() => { const g = document.querySelector('.sum-hmi'), s = g.querySelector('.hmi-screen');
-          const f = s.querySelector('.hmi-f').getBoundingClientRect(), sh = s.querySelector('.hmi-shot').getBoundingClientRect();
           const im = s.querySelector('img.hmi-img').getBoundingClientRect(), fr = s.querySelector('.hmi-frame').getBoundingClientRect();
           return {gap: Math.round(g.getBoundingClientRect().width - g.parentElement.getBoundingClientRect().width),
-                  cols: getComputedStyle(s).gridTemplateColumns, fLeft: Math.round(f.left), shotLeft: Math.round(sh.left), fW: Math.round(f.width),
-                  listW: Math.round(g.querySelector('.hmi-list').clientWidth), dw: Math.round(im.width - fr.width),
-                  split: s.classList.contains('sum-has-shot'), auxN: document.querySelectorAll('.aux-hmi .hmi-screen').length,
-                  auxSplit: document.querySelectorAll('.aux-hmi .hmi-screen.sum-has-shot').length}; })()""")
+                  imW: Math.round(im.width), dw: Math.round(im.width - fr.width),
+                  auxN: document.querySelectorAll('.aux-hmi .hmi-screen').length,
+                  auxF: document.querySelectorAll('.aux-hmi .hmi-f .cf').length,
+                  auxSrc: document.querySelectorAll('.aux-hmi .hmi-f .src-dot').length}; })()""")
         ck('摘要圖控組佔整列寬（不是半格，右半不留空）', abs(lay['gap']) <= 1, lay)
-        ck('寬容器：左邊欄位、右邊縮圖（容器查詢兩欄，斷點 1150）',
-           ' ' in lay['cols'] and lay['shotLeft'] > lay['fLeft'] and lay['listW'] >= 1150 and lay['split'], lay)
-        # 左欄不能窄到讓 src-full 的三欄把中文值切成 7 行以上（斷點 900 時左欄只有 374–440px，比不並排還難讀）
-        ck('並排時左欄仍讀得下去（≥ 430px）', lay['fW'] >= 430, lay)
-        ck('完整資料區不掛 .sum-has-shot（容器查詢只給摘要組）', lay['auxN'] >= 1 and lay['auxSplit'] == 0, lay)
+        ck('摘要縮圖夠大（≥ 600px 寬，不是原本右半欄的小圖）', lay['imW'] >= 600, lay)
+        # 數到真正的格子與來源點，不是只數 .hmi-f 這個容器（每塊畫面一個，永遠 >= 1 等於什麼都沒守到）
+        ck('完整資料區仍有四個欄位與逐格來源', lay['auxN'] >= 1 and lay['auxF'] >= 4 and lay['auxSrc'] >= 1, lay)
         ck('縮圖貼齊標記框（標記位置才對得上）', abs(lay['dw']) <= 3, lay)
+        ck('3 張以內不折疊（這台 1 張，整塊是 <div> 直接展開）', page.locator('.sum-hmi details.hmi-screen').count() == 0)
+        # hmiCapText 另外兩條路徑現行語料走不到（43 個畫面全有執行時截圖、1298 組 0 次退回），直接打 prototype 守住文案
+        cap_d = page.evaluate("AMS.CardView.prototype.hmiCapText({source: 'ThumbNail EMF'}, {})")
+        ck('設計時影像的短籤講明是設計時、值是 ###', cap_d == '設計時影像（值＝###）', cap_d)
+        cap_m = page.evaluate("AMS.CardView.prototype.hmiCapText({source: 'runtime', captured: '2026-10-04'}, {unit: 'H11.', mismatch: 'H12.'})")
+        ck('挑不到本列機組時短籤要出聲（⚠＋是哪一組＋缺哪一組）',
+           all(x in cap_m for x in ('⚠', '2026-10-04', '非即時值', 'H11.', '沒有 H12.')), cap_m)
+        warn_css = page.evaluate("""(() => { let n = 0; for (const ss of document.styleSheets) { try {
+          for (const r of ss.cssRules) if (r.selectorText && r.selectorText.includes('.hmi-cap.warn')) n++; } catch (e) {} } return n; })()""")
+        ck('.hmi-cap.warn 有紅字樣式（出聲要看得出來）', warn_css >= 1, warn_css)
         page.locator('.sum-hmi .hmi-shot').first.click(); page.wait_for_timeout(500)
-        ck('摘要縮圖也能點開燈箱（容器查詢祖先不影響）', page.locator('.hmi-lb').count() == 1 and page.locator('.hmi-lb .hmi-mk').count() == 2)
+        ck('摘要縮圖也能點開燈箱', page.locator('.hmi-lb').count() == 1 and page.locator('.hmi-lb .hmi-mk').count() == 2)
         page.keyboard.press('Escape'); page.wait_for_timeout(300)
         ck('燈箱 Esc 關得掉', page.locator('.hmi-lb').count() == 0)
         page.evaluate("document.querySelector('details.cq-more').open = true")
@@ -135,6 +149,21 @@ def run(ctx):
         page.locator('.aux-hmi .hmi-shot').first.click(); page.wait_for_timeout(400)
         page.keyboard.press('Escape'); page.wait_for_timeout(300)
         ck('Esc 關燈箱且不留 modal-open', page.locator('.hmi-lb').count() == 0 and not page.evaluate("document.body.classList.contains('modal-open')"))
+        # 畫面多的卡只先展開第一張（2026-10-05 使用者指定「超過 3 張」）：其餘收成 <details>，影像跟著延後到展開才抓
+        page.evaluate('performance.clearResourceTimings()')
+        load_card(page, ctx, HMI_MANY)
+        page.wait_for_function("(() => { const i = document.querySelector('.sum-hmi .hmi-img'); return i && i.complete && i.naturalWidth > 0; })()", timeout=30000)
+        many = page.evaluate("""(() => ({ n: document.querySelectorAll('.sum-hmi details.hmi-screen').length,
+          open: document.querySelectorAll('.sum-hmi details.hmi-screen[open]').length,
+          img: document.querySelectorAll('.sum-hmi .hmi-img').length,
+          req: performance.getEntriesByType('resource').filter(e => /\/card\/hmi\//.test(e.name)).length,
+          note: (document.querySelector('.sum-hmi .aux-note') || {}).textContent || '' }))()""")
+        ck('超過 3 張：每塊畫面都是 <details>、只有第一張展開，影像也只抓第一張',
+           many['n'] >= 4 and many['open'] == 1 and many['img'] == 1 and many['req'] <= 1, many)
+        ck('有一句話說明為什麼只展開第一張', '先展開第 1 張' in many['note'], many['note'][:90])
+        page.locator('.sum-hmi details.hmi-screen:not([open]) > summary.hmi-head').first.click()
+        page.wait_for_function("document.querySelectorAll('.sum-hmi .hmi-img').length >= 2", timeout=30000)
+        ck('點畫面標題才展開並抓那一張（延後載入有效）', page.locator('.sum-hmi .hmi-img').count() == 2)
         # 對應方式：未代入樣板（aliasSignal={device}）必須已被真正的位號取代；多點簡寫要有白話說明
         load_card(page, ctx, HMI_TMPL)
         page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1500)
@@ -149,6 +178,10 @@ def run(ctx):
         ck('FF 設備：圖控查無並說明原因', 'FF' in ff_txt, ff_txt[:90])
         # 掃描範圍一次講完（不會同一張卡出現 248 與 473 兩個數字卻沒解釋）
         ck('查無文案講清楚掃了哪些、排除了哪些', '248' in ff_txt and '225' in ff_txt and '473' in ff_txt, ff_txt[:220])
+        # 摘要組不收合又緊貼備品庫存：沒有圖控畫面的設備只能印一句短的，掃描範圍留在完整資料區（2026-10-05 版面精簡）
+        sum_ff = page.inner_text('.sum-hmi .cl-empty')
+        ck('摘要的查無只印一句短的（掃描範圍留給完整資料）',
+           len(sum_ff) <= 30 and '248' not in sum_ff and '473' not in sum_ff, (len(sum_ff), sum_ff))
         load_card(page, ctx, DOC_TAG)     # 還原「最近查過」的順序（下面的「← 上一個」chip 預期上一台是 DOC_TAG）
         load_card(page, ctx, HMI_UNIT)    # ＝FLAG_TAG：順便把卡片還原成下一段（摘要標頭）預期的那一台
         page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1200)

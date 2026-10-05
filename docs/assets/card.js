@@ -63,6 +63,8 @@
   const STORE_MODE = 'card.srcMode';
   // near＝同單位但數值不完全相同（±0.5% span 內）：黃色「請確認」，不併入紅色 ⚠
   const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', near: '≈ 近似（請確認）', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ref_only: '序號不符未比較', ok: '✓ 與 DCS 一致' };
+  // 一目了然的圖控組超過這個張數時只先展開第一張（2026-10-05 使用者指定 3）：其餘收成 <details>，影像也延後到展開才抓
+  const HMI_FOLD = 3;
   const cmpCls = (st) => (st === 'mismatch' ? 'bad' : st === 'near' ? 'warn' : st === 'ok' ? 'ok' : 'soft');
   const CMP_KIND = { ams: 'AMS 量程（資料庫快照）', dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', dcs_write: 'DCS 寫入事件', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' };
   let uid = 0;
@@ -944,7 +946,7 @@
       const mode = this.currentMode();
       const empty = (txt) => { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, txt)); };
       if (sa.key === 'compare') { this.fillCompare(aux, grid); return; }
-      if (sa.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, false); return; }   // false＝完整資料區段（整列寬的大圖，不掛 .sum-has-shot）
+      if (sa.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, false); return; }   // false＝完整資料區段（整列寬的大圖＋四個欄位與逐格來源）
       if (sa.kind) { // 工程文件
         if (!sec) {
           const used = this.searchedList(ix, sa.kind);
@@ -1284,7 +1286,7 @@
       grid.innerHTML = '';
       const sec = (aux && aux.sec && aux.sec[g.kind]) || null;
       const used = ix ? this.searchedList(ix, g.kind) : [];
-      if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }   // true＝摘要組（寬容器時左欄位右縮圖）
+      if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }   // true＝摘要組（不收合、只有畫面標頭＋影像；四個欄位與逐格來源在完整資料區）
       if (g.kind === 'docindex' || g.kind === 'docsearch') {
         if (!sec || !(sec.rows || []).length) {
           grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
@@ -1317,8 +1319,9 @@
     /** 圖控 HMI 畫面位置（card aux `sec.hmi`，CONTRACT.md「圖控 HMI 畫面位置」）：
      *  rows 每（畫面, 選單機組）一組 4 列（圖控畫面／導覽路徑／所在位置／對應方式），以 extra.g 分組，
      *  第一列的 extra 帶 nav／img／marks。摘要組與完整資料區段都有縮圖＋紅圈（標記以百分比疊上去，不燒進影像，
-     *  所以同一張圖可給多個位號共用）；`inSum` 只決定版面——摘要組的畫面塊掛 `.sum-has-shot`，寬容器（容器查詢 ≥ 1150px）時
-     *  左欄四個欄位、右欄縮圖；完整資料區段維持整列寬的大圖。影像本身延後到祖先 <details> 展開才抓（whenDetailsOpen）。 */
+     *  所以同一張圖可給多個位號共用）；`inSum` 只決定版面——摘要組（2026-10-05 起不收合、排在備品庫存之前）只給
+     *  「畫面標頭＋影像」，標頭多一個 `.hmi-cap` 短籤寫擷取日期與「非即時值」；四個欄位與逐格來源只在完整資料區段，
+     *  那裡維持整列寬的大圖。完整資料區的影像延後到祖先 <details> 展開才抓（whenDetailsOpen）。 */
     fillHmi(sec, ix, grid, mode, inSum) {
       grid.innerHTML = '';
       grid.classList.remove('cfields', 'sumgrid');   // 每個畫面一塊（內含自己的 .cfields），不是一格一欄
@@ -1327,6 +1330,14 @@
       const rows = (sec && sec.rows) || [];
       if (!rows.length) {
         const ff = !!(this.aux && this.aux.flags && this.aux.flags.ff);
+        // 摘要組不收合、又就排在備品庫存上面：沒有圖控畫面的設備（約 809 台）不能在這裡被塞一段 60–75 字的掃描範圍說明
+        // （2026-10-05「力求版面精簡」）。完整那句留給完整資料區，兩邊講的是同一件事、字數不同而已。
+        if (inSum) {
+          grid.appendChild(U.h('p', { class: 'muted cl-empty' }, ff
+            ? '查無（FF 訊號不出現在任何圖控畫面檔）'
+            : '查無（這些畫面都沒有引用此位號）'));
+          return;
+        }
         const st = (hx.stats) || {};
         const n = st.screens_total || 0;
         // 掃描範圍要一次講完，不然同一張卡會出現「已掃 248」與來源說明的「473 個 .cim」兩個數字（CONTRACT v5）
@@ -1338,7 +1349,7 @@
         return;
       }
       const list = U.h('div', { class: 'hmi-list' });
-      const loaders = [];   // 每張縮圖的影像載入函式；收合中先不跑（見下方 whenDetailsOpen）
+      const loaders = [];   // 完整資料區每張縮圖的影像載入函式；.cq-more 收合中先不跑（見下方 whenDetailsOpen）
       const groups = [];
       for (const r of rows) {
         const ex = (r.length > 4 && r[4]) || {};
@@ -1346,48 +1357,64 @@
         if (g) g.rows.push(r);
         else groups.push({ g: ex.g, head: ex, rows: [r] });
       }
-      for (const grp of groups) {
+      // 畫面多的時候摘要組只先展開第一張（2026-10-05 使用者指定「超過 3 張」）：其餘每塊畫面收成 <details>，
+      // 標頭就是 <summary>，影像跟著延後到真的展開才抓。870 台有圖控的設備平均 1.5 張、九成 ≤ 2 張（不受影響），
+      // 但最重的卡有 14 張：原本一開卡就解 14 檔 1,217 KB 的密文，現在只解第一張。
+      const fold = inSum && groups.length > HMI_FOLD;
+      groups.forEach((grp, gi) => {
         const ex = grp.head;
         const title = U.cardValue(grp.rows[0][1]);
         const meta = (hx.screens && hx.screens[ex.s]) || {};
         const navTxt = (ex.nav || []).map((p) => p.filter(Boolean).join(' › ')).join('；');
-        const block = U.h('div', { class: 'hmi-screen' });
+        const open = !fold || gi === 0;
+        const block = U.h(fold ? 'details' : 'div', { class: 'hmi-screen', open: open ? true : null });
         // ex.unit 是「開啟這張畫面的那一列選單項的機組欄」，不是儀器所屬機組（同一張畫面會被兩列選單以兩組畫面變數開啟）；
         // ex.nav_all=1 代表選單列與這台儀器對不起來，列出的是該畫面全部選單列（審查意見 8／10a）
-        const head = U.h('div', { class: 'hmi-head' },
+        // 摘要組的影像來源短籤（.hmi-cap）：那段來源說明 2026-10-05 拿掉了，擷取日期與「非即時值」只剩標頭在講（hmiCapText）
+        const pick = ex.img && meta.file ? this.hmiPick(meta, ex) : null;
+        const head = U.h(fold ? 'summary' : 'div', { class: 'hmi-head' },
           U.h('span', { class: 'hmi-t' }, title),
           navTxt ? U.h('span', { class: 'hmi-nav' }, navTxt) : null,
           ex.nav_all ? U.h('span', { class: 'hmi-allnav', title: '這張畫面的全部選單列（無法判定這台儀器是從哪一列開啟）' }, '（此畫面全部選單列）') : null,
           ex.unit ? U.h('span', { class: 'hmi-unit', title: '開啟這張畫面的選單項所屬機組，不是這台儀器所屬機組' }, '以選單機組 ' + ex.unit + ' 開啟') : null,
-          U.h('span', { class: 'hmi-file mono' }, ex.s));
+          inSum && pick ? U.h('span', { class: 'hmi-cap' + (pick.mismatch ? ' warn' : ''), title: this.hmiSrcText(meta, pick) }, this.hmiCapText(meta, pick)) : null,
+          U.h('span', { class: 'hmi-file mono' }, ex.s),
+          fold ? U.h('span', { class: 'hmi-exp', 'aria-hidden': 'true' }) : null);
         block.appendChild(head);
-        // sum-has-shot：摘要組裡有縮圖的區塊才在寬容器下左右並排（左欄位右縮圖，app.css 的 @container hmilist）。
-        // class 只在摘要路徑掛：完整資料區沒有宣告 container-name 的祖先，掛了目前無害但是日後的陷阱。
         if (ex.img && meta.file) {
-          // 摘要組：渲染時就載圖。延後到展開才載行不通——點開摘要組會觸發重新渲染並把它恢復成收合，
-          // toggle 監聽留在被換掉的舊 <details> 上，縮圖永遠停在 loading（2026-10-03 使用者回報「沒有看到圖控畫面」）。
-          // 完整資料區（.cq-more）仍延後：那一區預設收合，展開是明確動作，不會被重新渲染重置。
-          if (inSum) block.classList.add('sum-has-shot');
-          block.appendChild(this.hmiShot(meta, ex, title, inSum ? null : loaders));
+          // 摘要組展開中的那幾張：渲染時就載圖（2026-10-03 使用者回報「沒有看到圖控畫面」——當時摘要組自己是 <details>，
+          // 延後到 toggle 才載會永遠停在 loading：點開會觸發重新渲染並恢復成收合，監聽留在被換掉的舊 <details> 上。
+          // 現在摘要組不收合，展開中的畫面一律直接載）。收起來的那幾張（fold）與完整資料區（.cq-more）才延後——
+          // 那兩種都是「使用者自己點開」的明確動作，不會被重新渲染重置。每張影像是 70–105 KB 的密文（抓 → AES-GCM → gunzip → base64 → blob）。
+          const defer = open ? null : [];
+          const shot = this.hmiShot(meta, ex, title, defer || (inSum ? null : loaders));
+          block.appendChild(shot);
+          if (defer) this.whenDetailsOpen(shot, () => defer.forEach((f) => f()));   // 要掛在 <summary> 裡面的元素上：<details> 自己就算收合也看得見（IntersectionObserver 會立刻觸發）
         } else block.appendChild(U.h('p', { class: 'muted small hmi-noimg' }, '這張畫面沒有影像（沒拍到執行時畫面，.cim 也沒有 ThumbNail 串流），只能顯示畫面名稱與導覽路徑。'));
-        const fields = U.h('div', { class: 'cfields hmi-f' });
-        for (const r of grp.rows) {
-          fields.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: r[0] === '導覽路徑' || r[0] === '對應方式' ? 2 : undefined,
-            src: r[3] ? { lvl: r[2], text: r[3] } : null }, mode));
+        // 摘要組只留「畫面標頭＋影像」（2026-10-05 使用者要求版面精簡）：四個欄位（圖控畫面／導覽路徑／所在位置／對應方式）
+        // 與逐格來源都在下方「完整資料 › 圖控 HMI 畫面位置」，而且前兩列與標頭完全重複、「所在位置」講的就是圖上那個紅圈。
+        if (!inSum) {
+          const fields = U.h('div', { class: 'cfields hmi-f' });
+          for (const r of grp.rows) {
+            fields.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: r[0] === '導覽路徑' || r[0] === '對應方式' ? 2 : undefined,
+              src: r[3] ? { lvl: r[2], text: r[3] } : null }, mode));
+          }
+          block.appendChild(fields);
         }
-        block.appendChild(fields);
         list.appendChild(block);
-      }
+      });
       grid.appendChild(list);
-      // 收合中不抓影像：摘要組與完整資料區段都是「卡片一渲染就填好」（不是展開才填），而每張畫面影像是 70–105 KB 的密文
-      // （抓 → AES-GCM 解密 → gunzip → base64 → blob）。同 line 346「完整資料收合時不載變更歷程」的作法，等真的展開再載。
-      this.whenDetailsOpen(grid, () => loaders.forEach((f) => f()));
+      // 完整資料區（.cq-more）收合中不抓影像：那一區是「卡片一渲染就填好」而不是展開才填，不延後的話只要位號有圖控畫面，
+      // 每次開卡都會白抓 70–105 KB／張。同 line 346「完整資料收合時不載變更歷程」的作法，等真的展開再載。
+      if (loaders.length) this.whenDetailsOpen(grid, () => loaders.forEach((f) => f()));
+      if (fold) grid.appendChild(U.h('p', { class: 'muted small aux-note' },
+        `這台設備有 ${groups.length} 張畫面，先展開第 1 張；其餘點畫面標題展開（展開才會下載該張影像）。`));
       // 計數與上面「要不要畫縮圖」用**同一個條件**：ex.img 只代表縮圖索引裡有這張畫面，
       // 真正有沒有發布影像是 meta.file（縮圖快取缺檔時兩者會不一致，頁尾就會說 0 個沒有影像、區塊卻印著沒有影像）
       const noimg = groups.filter((g) => !(g.head.img && ((hx.screens && hx.screens[g.head.s]) || {}).file)).length;
       if (noimg && groups.length > noimg) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, `其中 ${noimg} 個畫面沒有影像。`));
     }
-    /** el 位在收合的 <details>（摘要組預設收起、完整資料區 .cq-more）內時，等祖先全部展開才跑 load，而且只跑一次；
+    /** el 位在收合的 <details>（完整資料區 .cq-more、摘要組裡收起來的那幾張畫面）內時，等祖先全部展開才跑 load，而且只跑一次；
      *  都已經展開就立刻跑。注意 beforeprint 會強制展開全部 <details>，但 load 是非同步的，沒展開過的組第一次列印
      *  可能只印到 .hmi-frame.loading 佔位框（與「參數現值」同一個已知取捨；佔位文字在列印時會說明原因）。 */
     whenDetailsOpen(el, load) {
@@ -1435,6 +1462,14 @@
       else if (p.unit) bits.push('選單機組 ' + p.unit);
       return '執行時畫面' + (bits.length ? `（${bits.join('，')}）` : '') + '，畫面上的值是擷取當時的現值、不是即時值';
     }
+    /** 摘要組畫面標頭的影像來源短籤：2026-10-05 把那段來源說明從摘要組拿掉之後，「擷取日期」與「不是即時值」
+     *  在摘要只剩這裡在講（CONTRACT.md 已知限制要求每一處都寫出來）。完整那句仍在 title／alt／燈箱說明列（hmiSrcText）。 */
+    hmiCapText(meta, pick) {
+      if (!meta || meta.source !== 'runtime') return '設計時影像（值＝###）';
+      const p = pick || {};
+      const t = (meta.captured ? meta.captured + ' 擷取' : '執行時畫面') + '·非即時值';
+      return p.mismatch ? `⚠ ${t}，這張是選單機組 ${p.unit || '其他機組'} 的（沒有 ${p.mismatch} 的截圖）` : t;
+    }
     /** 一張畫面縮圖＋標記（按鈕：點開燈箱放大）。影像 JSON 解密後轉 blob URL（core.js D.loadHmiImage）。
      *  loaders 有給就把載入函式推進去（由 whenDetailsOpen 在展開後才跑），沒給就立刻載。 */
     hmiShot(meta, ex, title, loaders) {
@@ -1479,7 +1514,7 @@
             CIRCLED[i] || String(i + 1)));
         }
       });
-      if (marks.length > 1) frame.appendChild(U.h('span', { class: 'sr-only' }, `此位號在這張畫面有 ${marks.length} 處標記，標記 ① 是「所在位置」那列描述的那處。`));
+      if (marks.length > 1) frame.appendChild(U.h('span', { class: 'sr-only' }, `此位號在這張畫面有 ${marks.length} 處標記，標記 ① 是「完整資料 › 圖控 HMI 畫面位置」的「所在位置」那列描述的那處。`));
       return frame;
     }
     /** 放大：全螢幕疊層（Esc／點背景／✕ 關閉、手機返回鍵也關；標記同步縮放，因為是百分比定位）。 */
@@ -1491,7 +1526,7 @@
       const cap = U.h('div', { class: 'hmi-lb-cap' }, U.h('span', { class: 'hmi-t' }, title),
         U.h('span', { class: 'hmi-file mono' }, ex.s),
         U.h('span', { class: 'muted small' }, this.hmiSrcText(meta, pick) + '；紅圈＝此位號的物件位置'
-          + ((ex.marks || []).length > 1 ? `，共 ${ex.marks.length} 處，① 是「所在位置」那列描述的那處` : '')));
+          + ((ex.marks || []).length > 1 ? `，共 ${ex.marks.length} 處，① 是「所在位置」（完整資料）描述的那處` : '')));
       const frame = this.hmiFrame(meta, ex);
       frame.classList.add('big');
       const ar = (Number(pick.w) || 1280) / (Number(pick.h) || 720);
