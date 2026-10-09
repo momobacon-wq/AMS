@@ -574,28 +574,54 @@
     return { ix: ixm, aux: (j.by_alias && j.by_alias[alias]) || null };
   };
 
-  /* 圖控 HMI 畫面縮圖（card/hmi/<畫面>.json ＝ {w,h,mime,b64}；CONTRACT.md「圖控 HMI 畫面位置」）：
-   * 走與其他資料檔同一條解密路徑（D.fetchJSON → AES-GCM → gunzip），再把 base64 轉成 blob URL
-   * （index.html 的 CSP img-src 要含 blob:）。同一張圖多處共用一個 URL；離開查詢卡時 revokeHmiImages() 收掉，
-   * 連 D.cache 裡的影像 JSON（單張可達 150 KB base64）一起丟，不留在記憶體。 */
+  /* 查詢卡的影像檔：圖控 HMI 畫面縮圖（card/hmi/<畫面>.json）與 P&ID 圖紙（card/pid/<圖紙鍵>.json），都是 {w,h,mime,b64}
+   * （CONTRACT.md「圖控 HMI 畫面位置」「P&ID 圖面位置」）：走與其他資料檔同一條解密路徑（D.fetchJSON → AES-GCM → gunzip），
+   * 再把 base64 轉成 blob URL（index.html 的 CSP img-src 要含 blob:）。同一張圖多處共用一個 URL；離開查詢卡時
+   * revokeHmiImages() 收掉，連 D.cache 裡的影像 JSON（圖控單張可達 150 KB、P&ID 圖紙可達 400 KB 的 base64）一起丟，不留在記憶體。
+   * D.loadHmiImage 是舊名，留著當別名（card.js 的圖控那一段照舊呼叫它）。
+   * P&ID 圖紙另外兩件事（2026-10-10；連看 15 張卡之後 D.cache 裡還留著 16 份圖紙 JSON、共 224 萬個 base64 字元）：
+   *   (1) blob 一建好就把那一份影像 JSON 從 D.cache 拿掉——之後同一張圖由 hmiImgs 裡的 blob URL 供應，base64 沒有再用到的地方
+   *       （圖控的不動：畫面影像小，而且測試以 D.cache 的鍵核對「抓的是哪一個選單機組的那一張」）；
+   *   (2) D.revokeImages(dir, keep)：換到另一台設備時，查詢卡把新卡用不到的圖紙 blob 收掉（keep＝新卡還要的那幾張，G11／G12 共用
+   *       同一張典型圖時就不必重抓）。D.imagesHeld(dir) 回目前還握著 blob 的路徑（給測試與除錯看）。 */
+  const IMG_DIRS = ['card/hmi/', 'card/pid/'];
+  const IMG_DROP_JSON = 'card/pid/';   // 這個目錄的影像 JSON 在 blob 建好之後不留在 D.cache
   const hmiImgs = new Map();   // path → Promise<{url, w, h}>
-  D.loadHmiImage = function (path) {
+  const revokeLater = (p) => p.then((o) => { try { URL.revokeObjectURL(o.url); } catch (e) { /* ignore */ } }, () => {});
+  D.loadImage = function (path) {
     if (hmiImgs.has(path)) return hmiImgs.get(path);
     const p = (async () => {
       const j = await D.fetchJSON(path);
       const bin = atob(String(j.b64 || ''));
       const u8 = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-      return { url: URL.createObjectURL(new Blob([u8], { type: j.mime || 'image/webp' })), w: j.w, h: j.h };
+      const o = { url: URL.createObjectURL(new Blob([u8], { type: j.mime || 'image/webp' })), w: j.w, h: j.h };
+      if (path.indexOf(IMG_DROP_JSON) === 0) D.cache.delete(path);
+      return o;
     })();
     hmiImgs.set(path, p);
     p.catch(() => hmiImgs.delete(path));
     return p;
   };
+  D.loadHmiImage = D.loadImage;
+  D.imagesHeld = (dir) => Array.from(hmiImgs.keys()).filter((k) => !dir || k.indexOf(dir) === 0);
+  /** 收掉 dir 底下、不在 keep（路徑陣列）裡的影像：blob URL 撤銷（還在抓的等抓完再撤）、D.cache 裡的影像 JSON 一起丟。回傳收掉幾張。 */
+  D.revokeImages = function (dir, keep) {
+    const ks = new Set(keep || []);
+    let n = 0;
+    for (const [k, p] of Array.from(hmiImgs.entries())) {
+      if (k.indexOf(dir) !== 0 || ks.has(k)) continue;
+      revokeLater(p);
+      hmiImgs.delete(k);
+      D.cache.delete(k);
+      n++;
+    }
+    return n;
+  };
   D.revokeHmiImages = function () {
-    for (const p of hmiImgs.values()) p.then((o) => { try { URL.revokeObjectURL(o.url); } catch (e) { /* ignore */ } }, () => {});
+    for (const p of hmiImgs.values()) revokeLater(p);
     hmiImgs.clear();
-    for (const k of Array.from(D.cache.keys())) if (k.indexOf('card/hmi/') === 0) D.cache.delete(k);
+    for (const k of Array.from(D.cache.keys())) if (IMG_DIRS.some((d) => k.indexOf(d) === 0)) D.cache.delete(k);
   };
 
   /* ------------------------------------------------------------------ 密語 → 金鑰（PBKDF2-HMAC-SHA-256 → AES-256-GCM） */

@@ -6,8 +6,8 @@
 Written without importing encrypt_data's crypto (only its key-file reader): re-derives the key from the passphrase, opens
 meta.check, decrypts EVERY .bin with AAD = its relative path, gunzips, parses JSON; asserts no plaintext *.json besides
 meta.json; every file listed in manifest (sheets[].files, aux.card.index and its files, plus card/index.json's hmi.files
-= the HMI screen images) exists as .bin and vice versa;
-recomputes build from the plaintext the way the generators do (sheets/*.json by basename, then card/*.json by rel path,
+= the HMI screen images and pid.files = the P&ID sheet images) exists as .bin and vice versa;
+recomputes build from the plaintext the way the generators do (sheets/*.json by basename, then card/**/*.json by rel path,
 plus manifest without build) and requires meta.build == manifest.build == version.json.build == index.html's
 <meta name="ams-build"> == the meta.json preload ?v=; total size < 900 MB; no local absolute paths.  Exit 0 only with 0 errors.
 """
@@ -107,6 +107,9 @@ def verify_site(docs, pw):
                 refs.add(f)
             # card/index.json 的 hmi.files = 圖控畫面影像（card/hmi/<slug>.json；CONTRACT.md「圖控 HMI 畫面位置」）
             for f in ((ix.get("hmi") or {}).get("files")) or []:
+                refs.add(f)
+            # card/index.json 的 pid.files = P&ID 圖紙影像（card/pid/<slug>.json；CONTRACT.md「P&ID 圖面位置」）
+            for f in ((ix.get("pid") or {}).get("files")) or []:
                 refs.add(f)
     missing = sorted(r for r in refs if r not in texts)
     orphan = sorted(r for r in texts if r != "manifest.json" and r not in refs)

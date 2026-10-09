@@ -11,7 +11,8 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
   tools/verify_data.py   ← 主站獨立對帳：xlsx vs docs/data（列數、抽樣儲存格、連結、公式值）
   tools/encrypt_data.py / verify_encrypted.py / rotate_passphrase.py / stamp_assets.py   ← 加密、驗證、密語輪替、版本戳（「加密與封裝」）
   tools/db/              ← db 站：paths.py（repo 外路徑唯一來源）、install.sh／restore.sh（WSL SQL Server → AmsDb.sqlite）、sheets_*.py＋build_workbook.py（Excel）、
-                            extract_db.py（→ docs/db/data）、card_ams_extra／docmap_*／drive_map（cardwork）、build_card_aux.py（card aux）、rebuild.py（一鍵／--sqlite 一條龍）
+                            extract_db.py（→ docs/db/data）、card_ams_extra／docmap_*／drive_map（cardwork）、hmi_*.py（圖控 HMI 畫面位置，v5）、
+                            pid_lib／pid_index／pid_shots／pid_ocr.py＋pid_ocr_map.json（P&ID 圖面位置，v6）、build_card_aux.py（card aux）、rebuild.py（一鍵／--sqlite 一條龍）
   tools/auth/  tools/stock/  tools/tests/  tools/hooks/   ← 登入閘門、備品庫存 Worker、端對端測試、pre-commit（各節）
   docs/index.html        ← 主站單頁 App 殼（vanilla JS，無 build step）；docs/db/index.html ← db 站殼（同一套 assets）
   docs/assets/           ← boot / auth / report / core / table / grid / card / stock / app .js、app.css、chart.umd.min.js（Chart.js 4.x，vendored）
@@ -20,7 +21,7 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
   docs/data/manifest.json.bin
   docs/data/sheets/<id>.json.bin        ← 一般工作表
   docs/data/sheets/<id>-<nnn>.json.bin  ← 大表分塊（21、22，以及任何 > 8 MB 的表）
-  docs/db/data/…                        ← 同上（第二資料集）＋ card/index.json.bin、card/aux-NN.json.bin（card aux）
+  docs/db/data/…                        ← 同上（第二資料集）＋ card/index.json.bin、card/aux-NN.json.bin（card aux）、card/hmi/*.json.bin（圖控畫面影像，v5）、card/pid/*.json.bin（P&ID 圖紙影像，v6）
 ```
 
 ## 關鍵事實（extractor 必須處理）
@@ -163,21 +164,21 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
 以下適用 `docs/db/`（20260912 資料庫站，產生器 `tools/db/extract_db.py`）；舊站 `docs/` 的 02.json 沒有這些鍵，前端維持原行為（不顯示來源切換）。
 
 ### src 契約（欄位來源）
-- 02.json 頂層 `src_defs: {raw|decoded|inferred|doc|factory|ctrl: {label, desc}}`；`src_default: {wide:"full", narrow:"badge", breakpoint:640}`。
+- 02.json 頂層 `src_defs: {raw|decoded|inferred|doc|factory|ctrl|hmi: {label, desc}}`（`hmi` 是 v5 加的）；`src_default: {wide:"full", narrow:"badge", breakpoint:640}`。
 - `sections[].fields[]` 與 `stats.fields[]` 每欄可帶 `src: {lvl, text}`：
-  - `lvl` ∈ `raw`（原始：DB 欄，可經 JOIN；灰）、`decoded`（解碼：時間/切段/int32/float32/UTF-16/FF hex/碼表；藍）、`inferred`（推論：經驗規則、對照表、外部對照檔、機組範本；橙）、`doc`（文件·設計；綠）、`factory`（出廠·EOMR；深綠）、`ctrl`（控制器·ToolboxST checkout 快照經 signal-atlas 索引；紫）。
+  - `lvl` ∈ `raw`（原始：DB 欄，可經 JOIN；灰）、`decoded`（解碼：時間/切段/int32/float32/UTF-16/FF hex/碼表；藍）、`inferred`（推論：經驗規則、對照表、外部對照檔、機組範本；橙）、`doc`（文件·設計；綠）、`factory`（出廠·EOMR；深綠）、`ctrl`（控制器·ToolboxST checkout 快照經 signal-atlas 索引；紫）。v5 另加 `hmi`（圖控 HMI 畫面檔解析；青）。**v6 的 P&ID 圖面位置不新增分級**：`sec.pid` 的列只用既有的 `doc`（PDF 文字層命中，而且圖上畫的就是本台或圖面不分機組）與 `inferred`（典型圖／迴路／同型各台，以及所有 OCR 讀出來的位置）；`src_defs` 仍是七級。
   - `text` 以級別中文名開頭：`「原始 · Devices.Identifier」`、`「解碼 · BlockData {c16} float32 · 最後記錄 {c36}」`、`「文件 · HT1-1-IMI01-A0001-H（推定） IO_Signal!r4514」`、`「出廠 · HT1-1-AQA01-T4739-0 p.1662」`。`{cNN}` 由前端代入同一列（03 或 13）第 NN 欄的值（空白顯示 `—`）。
 - 欄位其他可選鍵：`label_by {col, map, default}`（依同列欄值切換標籤，例：協定 FF → 「裝置ID (FF 裝置識別字串)」）；`col` 為陣列時 `join`＋`prefixes`（R/T/F 區塊數 → `R1 / T1 / F12`）＋`blank_if_zero`；`serial`（0 → 「未寫入」）；`flt`（float32）；`cmp`（`ams_lo`／`ams_hi`＝AMS 量程下限／上限欄（只在該端列入比較且不符時標 ⚠）、`ams_unit`＝AMS 單位欄，DCS 比對不符／未比較時加標記）；`proto`（`HART`｜`FF`：協定專用欄位，設備協定（03 `protocol_col`）不同且值空白時不顯示）。
 - 值顯示規則（前端 `U.cardValue`）：null／全空白字串 → 「—」；float32 FLT_MIN（|v|<1e-30 且 ≠0，1.1754943508222875e-38）→ 「未使用」；非整數以 7 位有效數字（10000.0009765625 → 10000）；`serial` 且值 0 → 「未寫入」。
 - `recent_changes.columns[]` 可帶 `map`（值對照顯示）、`warn_eq`（等於此值時醒目標示）、`title`（表頭說明）、`src {lvl, text}`（欄位來源：徽章模式在表頭顯示分級籤、點開列出；完整模式在表下列出各欄來源）；空白值（含全空白字串，`cols` 的每一段）顯示「—」；「類別」欄＝14 表事件分類：`Change performed by foreign host`（Cat 28）→「DCS·外部主機」，其餘 →「人工 AMS」。
-- `sections_aux: [{key, label, kind?, only_ff?, empty?, note?}]`：附加區段的標題與順序（維護狀態、最後修改、DCS 比對、FF 診斷（僅 FF）、控制系統·控制器現行 I/O 組態（dcdas）、控制系統·端子表、設計規格、出廠紀錄、文件索引、文件全文檢索（docsearch）、位號歷程補充、類比輸出警報、設備補充）；`summary.groups[]` 的 `per_entry` 組（`kind: dcdas|terminal`）每個訊號一塊；`aux: {index:"card/index.json", number_from:5}`：附加區段自第 5 節起連續編號，快速連結與最近變更接在其後。`protocol_col`＝03 協定欄。
+- `sections_aux: [{key, label, kind?, only_ff?, empty?, note?}]`：附加區段的標題與順序（維護狀態、最後修改、DCS 比對、FF 診斷（僅 FF）、控制系統·控制器現行 I/O 組態（dcdas）、控制系統·端子表、設計規格、出廠紀錄、文件索引、文件全文檢索（docsearch）、P&ID 圖面位置（pid，v6）、圖控 HMI 畫面位置（hmi，v5）、位號歷程補充、類比輸出警報、設備補充）；`summary.groups[]` 的 `per_entry` 組（`kind: dcdas|terminal`）每個訊號一塊；`aux: {index:"card/index.json", number_from:5}`：附加區段自第 5 節起連續編號，快速連結與最近變更接在其後。`protocol_col`＝03 協定欄。
 - `summary.groups[]` 可帶 `collapsed: true`（渲染成 `<details class="sum-g">`＋`<summary class="sum-gh">`，預設收合；展開狀態記 localStorage `ams.card.sumOpen[key]`；列印時照既有規則展開）與 `after_stock: true`（排在前端動態加的「備品庫存（倉庫）」組之後；沒有備品庫存時排最後）。
 - `summary.groups[].items[]` 的 `alt`（單一 `{kind,key}` 或陣列）：主來源空白時依序改用的備援；標籤加「（<kind 中文名>）」。`kind` 為 rows 型區段（`docindex`／`docsearch`）時以列名（類別／推定值名）對照，該列自帶 lvl／來源／文件。
 
 ### card aux（`docs/db/data/card/`）
-產生：`py tools/db/build_card_aux.py <cardwork_dir> docs/db/data`（在 extract_db 之後執行；會把 card/*.json 納入 `manifest.build` 並重新 stamp）。輸入為 `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py` 的輸出（不進 repo），加上 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（`--dcdas` 可指定、`--no-dcdas` 略過；不進 repo）、`docmap_docsearch.py` 的輸出 `%LOCALAPPDATA%\AMS\cardwork\docsearch.json`（`--docsearch`／`--no-docsearch`）與 `drive_map.py` 的 `%LOCALAPPDATA%\AMS\drive_map.json`（`--drive-map`／`--no-drive-map`；文件庫相對路徑 → Google 雲端硬碟檔案 ID，由 Drive 桌面版中繼資料庫產生）。`--recompare docs/db/data`：cardwork 不在手邊時讀已發布的 card/*.json 只重算 `sec.dcdas`／`compare`／`flags.cmp`（舊資料無 compare 的設備，儀器清單／EOMR 量程不列入比對），有給 docsearch.json 就換掉 `sec.docsearch`，有 drive_map 就重新對照 `docs[].url`／`url_note`（`file|…` 整批重算）。dcdas／docsearch／drive_map 任一缺席而沒給對應 `--no-*` 旗標時以非 0 結束（印「!! 缺 …，若確定要略過請加 --no-…」），`rebuild.py` 因此中止並走加密回滾——少了它們查詢卡的「控制器組態」／「文件全文檢索」區段或所有 Drive 連結會整個消失，而 build 雜湊與 verify_encrypted 都不會察覺。
-- `manifest.aux.card = {index, desc, parts, bytes}`。`manifest.build` 雜湊涵蓋 `sheets/*.json`＋`card/*.json`＋manifest（不含 build）；前端所有資料請求加 `?v=<build>`。
-- `card/index.json`（v2，只留全廠共用的小東西；密文約 27 KB）：`{version:2, parts, part_width, files:["card/aux-00.json",…], alias:{alias: 塊號}, src_defs, kind_label, doc_cat_order, searched:{dcdas|terminal|instlist|eomr|docindex|docsearch: [{doc_id, rev, ref?, title, folder, used, why, category?}]}, source_stats, stats, compare_rule}`（`dcdas` 那筆＝signal-atlas 索引本身：doc_id `signal-atlas`、rev＝各控制器 checkout 日（`controller.last_mod`）列表、ref 含 checkout 區間與索引建立日；`docsearch` 那筆＝hst-docsearch 索引本身：doc_id `hst-docsearch`、rev＝索引日期）。`stats` 另含 `near`、`dcdas_multi`、`ams_vs_dcdas:{ok,near,mismatch,not_compared}`、`docs_with_url`、`docs_with_url_altrev`、`doc_no_resolved`。
+產生：`py tools/db/build_card_aux.py <cardwork_dir> docs/db/data`（在 extract_db 之後執行；會把 card/*.json 納入 `manifest.build` 並重新 stamp）。輸入為 `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py` 的輸出（不進 repo），加上 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（`--dcdas` 可指定、`--no-dcdas` 略過；不進 repo）、`docmap_docsearch.py` 的輸出 `%LOCALAPPDATA%\AMS\cardwork\docsearch.json`（`--docsearch`／`--no-docsearch`）與 `drive_map.py` 的 `%LOCALAPPDATA%\AMS\drive_map.json`（`--drive-map`／`--no-drive-map`；文件庫相對路徑 → Google 雲端硬碟檔案 ID，由 Drive 桌面版中繼資料庫產生）。`--recompare docs/db/data`：cardwork 不在手邊時讀已發布的 card/*.json 只重算 `sec.dcdas`／`compare`／`flags.cmp`（舊資料無 compare 的設備，儀器清單／EOMR 量程不列入比對），有給 docsearch.json 就換掉 `sec.docsearch`，有 drive_map 就重新對照 `docs[].url`／`url_note`（`file|…` 整批重算）。dcdas／docsearch／hmi／pid／drive_map 任一缺席而沒給對應 `--no-*` 旗標時以非 0 結束（印「!! 缺 …，若確定要略過請加 --no-…」；圖控與 P&ID 的輸入、旗標與各自的關卡見 v5、v6），`rebuild.py` 因此中止並走加密回滾——少了它們查詢卡的「控制器組態」／「文件全文檢索」區段或所有 Drive 連結會整個消失，而 build 雜湊與 verify_encrypted 都不會察覺。
+- `manifest.aux.card = {index, desc, parts, bytes}`。`manifest.build` 雜湊涵蓋 `sheets/*.json`＋`card/**/*.json`（含 `card/hmi/`、`card/pid/` 的影像檔）＋manifest（不含 build）；前端所有資料請求加 `?v=<build>`。
+- `card/index.json`（v2，只留全廠共用的小東西；密文原本約 27 KB；加了 v5 的 `hmi` 之後 git HEAD 是 32,570 bytes，2026-10-10 是 41,466 bytes——多出來的是 v6 的 `pid.sheets` 117 筆與 `pid.note`）：`{version:2, parts, part_width, files:["card/aux-00.json",…], alias:{alias: 塊號}, src_defs, kind_label, doc_cat_order, searched:{dcdas|terminal|instlist|eomr|docindex|docsearch|hmi|pid: [{doc_id, rev, ref?, title, folder, used, why, category?}]}, source_stats, stats, compare_rule, hmi?, pid?}`（頂層的 `hmi` 見 v5、`pid` 見 v6；`kind_label`、`source_stats`、`stats.sections` 也各多了 `hmi`、`pid`）（`dcdas` 那筆＝signal-atlas 索引本身：doc_id `signal-atlas`、rev＝各控制器 checkout 日（`controller.last_mod`）列表、ref 含 checkout 區間與索引建立日；`docsearch` 那筆＝hst-docsearch 索引本身：doc_id `hst-docsearch`、rev＝索引日期）。`stats` 另含 `near`、`dcdas_multi`、`ams_vs_dcdas:{ok,near,mismatch,not_compared}`、`docs_with_url`、`docs_with_url_altrev`、`doc_no_resolved`。
 - 文件中繼資料 `docs` 與 `doc_no` **隨各分塊攜帶**（v1 全放 index，每筆含 33 字元 Drive ID 不可壓縮、占第一張卡下載量近半）：`card/aux-NN.json = {part, by_alias:{alias: {sec, compare, flags}}, docs:{"kind|doc_id|rev": {title, folder, why?, category?, url?, url_note?}}, doc_no:{文件編號: "file|編號|版次"}}`，`docs`／`doc_no` 只含該塊 by_alias 引用到的子集（所有鍵名 `d` 指到的文件＋塊內文字出現的文件編號）；前端 `D.loadAux` 把分塊的 `docs`／`doc_no` 併回 `ix` 再交給卡片，卡片端仍讀 `ix.docs`／`ix.doc_no`（舊版 index 也相容）。`docs[].url`＝`https://drive.google.com/open?id=<Drive 檔案 ID>`（有 drive_map 時；前端把該文件來源的數值變成連結，來源展開列「Google 雲端硬碟」）；`url_note`＝退路只對到同編號、別版次（或檔名版次不明）的檔時的說明「雲端只找到 <檔名>（版次 X，與本站資料來源的版次 Y 不同）」——連結仍給（同編號別版次仍有參考價值），前端列「Google 雲端硬碟（版次不同：檔名）」並併入滑鼠提示，工程師才不會把別版次的值拿去改現場。無編號的檔 key 為 `docsearch|<sha1(路徑)前 12 碼>|`。`doc_no`＝欄位值本身寫的文件編號（P&ID、邏輯圖、Hook-up 圖、位置圖、EOMR 亦見於…）對到文件庫裡那份檔（檔名以編號開頭；值有寫版次取該版，否則最高版次；PDF 優先、排除副本夾；指定版次不在雲端時 why 寫「指定版次 X 不在雲端，改開最高版次 Y」），docs 同 key 給 title/folder/url；前端讓這種值直接開那份圖（來源展開多一列「欄位所指文件」），不是開提到它的來源文件。`folder` 一律是相對工程文件庫根目錄的資料夾名；**任何 JSON 不得含本機絕對路徑**（產生器以 regex 自檢，命中即中止）。
 - `card/aux-NN.json`（依 03 列序分塊，每塊明文 ≤ 約 350 KB／密文 ≤ 約 45 KB，含該塊的 docs 子集）：`{part, by_alias:{alias: {sec, compare, flags}}, docs, doc_no}`。
   - `sec.sync|change|ident|device|alarm|ff = {rows: [[欄位, 值, lvl, 來源字串]]}`（AMS DB 補充）。
@@ -186,6 +187,7 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
   - 儀器清單 HRSG xls 的 RANGE 若為數值儲存格（原文無單位，「0~」與單位只來自整欄數字格式）：`設計量程（原文）` 寫原數值並說明格式，另加 `量程單位來源＝儲存格數字格式（推定）`；比對一律 `unit_unknown`。
   - `sec.docindex = {rows: [[類別, "文件-版次 · p.頁", lvl, 來源字串, {rule, d?}]]}`。
   - `sec.hmi = {rows: [[欄位, 值, "hmi", 來源字串, extra]]}`＝圖控 HMI 畫面位置（每組畫面 4 列；見下方「v5（docs/db 站：圖控 HMI 畫面位置）」）。
+  - `sec.pid = {rows: [[欄位, 值, "doc"|"inferred", 來源字串, extra]]}`＝P&ID 圖面位置（每張圖紙 5 列；見下方「v6（docs/db 站：P&ID 圖面位置）」）。
   - `sec.docsearch = {rows: [[類別 | 推定值名, 值, lvl, 來源字串, {rule, d, hit?, pages?, term?, alt?:[{ref, d, p, why}]}]]}`（`docmap_docsearch.py`）：同家族（HT0/HT1/HT2 同編號、EOMR 的 AQA01-T####／AQP01-Q#### 兩本、noKKS_ 原件副本）只列代表，其餘放 `alt`（前端來源明細列「其他版本／副本」各自可點開）；同類別第 2 個家族的標籤寫「類別（另：編號 標題）」；根目錄 `all instrument list` 個人彙整檔排除。類別列（儀器清單、出廠證書／EOMR、規格表、DCS 端子表、P&ID、Hook-up、位置圖、邏輯圖、接線圖／迴路圖、電纜表、操作說明、手冊、Open Item／查修、教材、其他）的值＝`"文件-版次 p.N｜命中行"`（Office 檔無頁碼），每類別最多 2 份、同編號取最高版次、副本夾與本站匯出排除；推定值列（`序號命中（文件）`、`出廠型號（文件）`、`型號（文件）`、`廠牌（文件）`、`量程（文件）`、`量程（邏輯圖）`）由命中行／命中頁以規則抽出（rule `FTS-…`），lvl `factory`（出廠證書類）或 `doc`；位號不採 OCR 命中，序號的 OCR 命中在來源字串標「需開原圖確認」。不列入 compare。
   - `compare = [{item:"量程", baseline:{kind:"dcs_write"|"dcdas"|"terminal", label, lvl, src, lo, hi, unit, note, bounds:["hi"]|["lo"]|["hi","lo"]}, others:[{kind:"dcdas"|"dcdas_ch"|"terminal"|"ams"|"instlist"|"eomr", label, lvl, src, lo, hi, unit, status:"ok"|"near"|"mismatch"|"unit_mismatch"|"unit_unknown"|"ref_only", note}]}]`。`kind:"dcdas_ch"`＝同位號其餘量程不同的控制器通道（label「控制器組態 · <控制器> <訊號名>」，note 前綴「同位號另一通道；」），各自與基準比對但不寫 `flags.cmp.dcdas`。
     - 基準（以 DCS 為主）依序：(1) 控制器現行 I/O 組態（`sec.dcdas` 有 Low/High 的通道中，優先取控制器與位號機組前綴一致者（同一 DeviceTag 可能接在 G11／G12／S1 多個控制器），其次單位有寫的，否則索引排序第一個；標「DCS 控制器組態 (AI Low/High Value)」；各通道量程不一時 baseline.note 註明、其餘通道列成 others `dcdas_ch`、`flags.cmp.dcdas_multi="warn"`（前端黃色 pill「控制器多通道量程不一」；多點溫度元件多量程可能是正常設計，不當故障））→ (2) AMS 事件中該參數最新一次「值有改變」的 Cat 28 外部主機寫入（`dcs_writes` URV/LRV，標「DCS 寫入 (AMS 事件)」；只有寫入日期晚於該控制器的 checkout 日期（dcdas `controller.last_mod`；索引建立日只是備援）、或沒有控制器資料時才當基準，否則列為 others 且只比它寫入的那一端，`others[].bounds` 註明）→ (3) DCS 端子表 DEVICE_LO/HI（設計文件）。非基準的 DCS 來源也列入 others 比對。（2026-09-24：G12HAP70BT001 的 DCS 寫入 160 已被人工改回 200 且控制器為 200，寫入事件是歷史，不能讓一致的來源被標 ⚠。）DCS 只寫入一端時 `bounds` 只含該端：另一端顯示端子表（或 AMS 現值）僅供參考，不比較（前端標「（不比較）」）。DCS 寫入基準的單位＝AMS 單位（UNIT 寫入 > AMS 現值單位）；AMS 單位空白時留空（不借端子表單位），note 註明未翻譯的 AMS 單位碼。2026-09-26 全廠比對（有控制器基準且 AMS 有現值的 1,240 台）：AMS 現值與控制器組態完全相同 1,128（91%）、近似 22（2%）、不符 53（4%）、未比較 37；端子表 37% 與控制器不同，所以端子表排第 3。
@@ -368,27 +370,275 @@ C:\Users\bacon\AMS\                      （完整的逐檔用途表見 README�
   69 台因此在同一張畫面列兩組、紅框完全相同，卡片以「以選單機組 X 開啟」表達這件事。
 - 「所在位置」只描述 `marks[0]` 一處；其餘處只能靠圖上的 ②③ 對照，文字不會逐處列座標。
 
+## v6（docs/db 站：P&ID 圖面位置；`tools/db/pid_lib.py`／`pid_index.py`／`pid_shots.py`／`pid_ocr.py`）
+
+查詢卡再回答一題：「這台儀器畫在哪一份 P&ID、PDF 第幾頁、圖上哪個位置」。來源是工程文件庫 `paths.LIBRARY_ROOT` 裡現行的 P&ID PDF（**唯讀、現場走訪**），
+不是 AMS 資料庫，也不讀 hst-docsearch 的全文索引（索引比磁碟舊，認不得剛進庫的新版次）。2026-10-08 第一次發布；
+2026-10-10 經六組獨立查核後改過一輪——位置本身沒有錯，錯的是「一筆命中可以代表什麼」——本節寫的是改過之後的契約，數字取自那次建置
+（`pid.json` sha1 `0c2f5f6c…`）。**寫報告、寫卡片文案一律取 `pid.json` 的 `stats`／`card/index.json` 的 `pid.stats`，不要抄這裡的數字。**
+
+**範圍與文件集**（`pid_lib.build_corpus`；`stats.corpus`）：走訪 31,896 個 PDF → 只看檔名認出 P&ID 類 712 份（`kind_of`：檔名含 P&ID／PID／管線儀表流程圖／…系統圖，
+GE 的 System Schematic／Instrument Diagram 等，或文件編號屬於 AFF01／GFD01／TFD01／BFD01 的 D 類圖；`EXTRA_FAMILIES` 明列檔名規則認不出來的發電機示意圖 EGJ01-D0004；
+彙編夾 18 份、根目錄彙編／初稿 4 份不收）→ 同一張圖的各版次、HT1 舊編號、廠商檔名副本歸成一個**圖號家族**（398 張圖：HT 編號 382、廠商檔名 16；廠商檔名副本以
+「文字層完全相同」或「KKS 標籤詞彙 Jaccard ≥ 0.6」認親，沒有文字層的才看標題而且要完全相同）→ **每個家族只留最高版次當代表檔**（順序：有 HT 編號 > HT0 > HT1 > 其他首碼 >
+**版次高**（數字 > 字母 > 無；廠商檔名認 `_revX`）> 非副本夾 > 非 `_舊版` > 非「(2)」重複檔 > 修改時間新；版次一定排在資料夾旗標之前，緊接在編號後面的標題字不當版次）→
+扣掉二、三號機組專屬圖（HT2-／HT3-／標題 UNIT-2、UNIT-3）26 張 ＝ **372 份圖 1,047 頁**。A4／Letter 直式的頁（長邊 < 1000 pt 且直式）是送審封面（240 頁），
+不當位置也不進 OCR；其餘 807 頁是圖紙（595 頁有可用的文字層；212 頁沒有＝不到 30 個字或不到 400 個字元）。
+**舊版次的座標絕不發布**：舊版與副本只留在統計（`stats.superseded_only` 列出只在舊版找得到的位號，現在是 0 支）；代表檔讀不了（壞檔、有密碼、零頁）時那張圖就沒有位置，
+不會退回舊版（`unreadable_representative`，並印 `!!`）；讀不了的 PDF 只計數（`text_errors`），不讓整個流程中止。
+母數與圖控相同：現行 AMS 位號扣掉 JK 開頭的 HART 多工器模組（1,928 → 1,679；直接呼叫 `hmi_index.load_ams`，兩邊才會永遠相同）。
+
+四張**宣告＋建置時驗證**的表（都是 `pid_lib.py` 的常數，每筆附讀圖證據的註解；驗不過就不套用、計數並印出來，套用情形在 `stats.train`／`foreign`／`air`／`overrides`）：
+
+| 常數 | 宣告的內容 | 建置時的把關 | 效果 |
+|---|---|---|---|
+| `TRAIN_TYPICALS` | 圖面自己聲明「同型各台共用」的圖：`1-TCM01-D1114`（畫 LCC10，代表 LCC20／LCC30）、`1-TDM01-D1205`（只畫 LAC50，代表 LAC60／LAC70） | D1114：圖上找得到 `P&ID is applicable for all condensate pumps`（兩邊去空白、轉大寫再比）。D1205 整份沒有文字層，改驗 OCR 對照表的**結構**：至少 10 列「同一列既有 LAC50 的格子、也有 LAC60／LAC70 的格子，而且設備段相同」（實測 189 列，`stats.train.evidence`） | 別台的位號取圖上那一台的**符號**位置：`rel:"train"`、`drawn_as`＝圖上畫的系統碼（`LCC10`／`LAC50`）。只認符號：清單／附註／旗標裡的字不代表別台畫在那裡 |
+| `FOREIGN_SHEETS` | 圖上自己聲明「這一張不是本機組的組態」：`1-GFD01-D0013` 的 note 12（sheet 3、KKS 前綴 X2，只適用 unit 2-2） | 那句話要印在圖上；頁以**內容**認（文字層裡有 `X2`＋KKS 系統段的頁），不寫死 PDF 頁碼 | 那一頁（現在是 PDF 第 7 頁）的命中全部不發布（`stats.dropped.foreign_sheet` 70） |
+| `AIR_SHEETS` | 儀用／廠用空氣**分配圖**：`1-AFF01-D0021`、`1-BFD01-D0006` | 逐頁驗（`air_sheet`）：頁面印著 INSTRUMENT AIR，而且 KKS 功能碼 QE／QF 開頭的標籤 ≥ 30 個（實測 D0021 第 2／3 頁 264／326 個；D0006 只有第 4 頁 89 個過關，第 2／3 頁 0 個） | 這種頁上**別的系統**的符號命中改成 `note:3`（那是這顆閥的供氣接點，不是閥在製程管線上的位置） |
+| `HIT_OVERRIDES` | 人工讀圖確認、通用規則判不出來的逐處覆寫：`1-TDM01-D1205` 第 5 頁下緣與右下的兩個區域（迴路詳圖「TYPICAL FOR … TRANSMITTER」小圖） | 以家族＋PDF 頁＋轉正後比例的矩形認（不看位號、不靠清單順序）；沒有對到任何命中的條目計入 `overrides.unmatched` 並印出來——圖換版、頁序變了就要重新讀圖 | 中心落在區域裡的符號命中改成 `note:4`（套用 51 處，選級之後發布 45 處） |
+
+三支工具照這個順序，輸出除了對照表都在 cardwork（不進 repo）：
+
+| 步驟 | 程式 | 輸出 | 內容 |
+|---|---|---|---|
+| 0 | `tools/db/pid_ocr.py` | `tools/db/pid_ocr_map.json`（**進 repo**；807 頁、1,419,324 bytes、像位號的字 20,513 個） | **離線**（不在 `rebuild.py` 裡；要 `rapidocr-onnxruntime`，實測 1.2.3）。圖紙清單＝`pid_index --worklist` 的結果（`need`＝沒有可用文字層 OR 這份圖已有位號被文字層定位到 OR 這頁畫了某個 KKS 系統而 AMS 在該系統還有位號沒著落；`--scope all`＝每一張圖紙，這次 807 張全做）。每頁：定轉正角 R（文字層 ≥ 400 字用文字層，否則 OCR 定向投票）→ 以 `render_upright` 渲染轉正後的整頁 → 分塊偵測 → 辨識；配方 `r1b`（偵測 2.5 px/pt、渲染 4 px/pt、小字圖自適應放大、0／180 分類器）整包進快取鍵。逐頁快取 `paths.PID_OCR_CACHE`（`%LOCALAPPDATA%\AMS\pidocr\`，807 檔 25 MB；鍵＝路徑＋size＋mtime＋頁＋配方＋引擎版本與模型檔大小）。`--distill` 把快取裡「像位號」的字（`pid_lib.tag_like`：完整 KKS、系統段／設備段、GE 元件名、ISA 名、差一兩個形近字的 KKS；**OCR 原文、不先對 AMS**）寫成對照表；**與文字層位號重疊的字不寫**（用的是 `pid_index.text_tag_boxes`／`overlaps_text`，68,439 個）、圖框裡印的 CAD 檔路徑不寫（18 個）。**`--distill` 只寫有快取的頁**：快取不全時蒸餾出來的表是殘缺的 |
+| 1 | `tools/db/pid_index.py` | `CARDWORK/pid.json`（517 KB） | 文件集 → 逐頁比對文字層（`match_page`）→ 併入對照表的 OCR 字（`match_ocr_tokens`）→ 四張宣告表 → 選級、排序、上限 → 圖框分區與字高。文字層字框快取 `paths.PID_TEXT_CACHE`（`pidtext\`，712 檔 14 MB；依 size＋mtime，PDF 一變就重抽）。**決定性**：鍵排序、清單排序、無時間戳、無本機絕對路徑（結尾以 regex 自檢）——同樣的輸入重跑逐位元組相同（2026-10-10 實測）。`--verify 位號…` 另畫疊框圖到 `%LOCALAPPDATA%\AMS\pidverify\`；`--worklist FILE` 寫 OCR 工作清單；`--trace FILE` 寫追查旁檔（每筆命中用到的特殊規則、每筆沒發布的命中與原因；**不屬於契約**）；`--no-ocr` 只用文字層 |
+| 2 | `tools/db/pid_shots.py` | `CARDWORK/pid_shots/<slug>.webp`＋`index.json`（117 張、10,539,536 bytes） | 只渲染 `by_tag` 真的引用到的圖紙：轉正後**整張圖**一張影像、所有位號共用，標記不燒進影像。**四階灰階、不抖色、無損 WebP**；長邊＝clamp(2400, round(12 px × 圖紙長邊 pt ÷ `label_pt`), 3600)，讓位號那一行字約 12 px 高。量化（`RENDER_VERSION` 4，2026-10-10）：先量黑點（墨跡像素由暗到亮累計到 2 % 的那一階，≥ 24 才算），把 [黑點, 255] 拉到 [0, 255]——整張用灰色畫的圖才不會斷線（117 張裡 3 張會拉：TCM01-D1701 第 2 頁與 TDM01-D1205 第 4、5 頁）；再做 gamma 2 才取四階——淺灰的髮絲線與線條字留得住。**點陣頁例外**（`raster_page`：嵌入點陣圖合計蓋住頁面 30 % 以上，以未旋轉的 CropBox 計；現行 4 張：TDM01-D1205 第 7、8 頁的儀器清單、BMM01-D3702 第 2 頁、廠商檔名的 Service Water Pumps 圖）：不拉黑點、不偏暗，回到等距四階——點陣頁的小字本來就粗，再偏暗會把 0／6／8／B 的字腔填滿（2026-10-10 在真實站上看到 C10LAC60 讀起來像 C13LAC80）。逐位元組決定性（實測 117 張重出後全部相同；PyMuPDF 1.27.1、Pillow 12.2.0）。快取：`index.json` 的參數與 webp 都在就跳過；`pid.json` 記的 PDF size／mtime 與磁碟不符、`rot` 不是 0／90／180／270、頁碼超出範圍都只算那一張失敗（回傳碼 1，上一次的影像原樣留著）；`--max-minutes` 做不完回傳碼 2；不再被引用的 `<slug>.webp` 刪掉 |
+
+**全專案只有一個轉正慣例 R**：R＝在頁面自己的 `/Rotate` **之上**再順時針多轉幾度才是正的（0／90／180／270）。`pid.json` 的 `sheets[].rot`、`pid_ocr_map.json` 的 `pages[].rot`、
+`pid_shots/index.json` 的 `rot` 全部是 R；渲染＝`page.get_pixmap(matrix=fitz.Matrix(z, z).prerotate(R))`（`get_pixmap` 自己會套 `/Rotate`）。
+PyMuPDF 的 `get_text('words')` 座標是**未旋轉**的頁面空間，有 `/Rotate` 旗標的頁直接除以 `page.rect` 會整頁標錯而且不報錯——一律走 `pid_lib.to_upright_frac(page, rect, R)`
+（先乘 `rotation_matrix` 到顯示空間，再依 R 換到轉正後的比例）。`/Rotate` 不等於轉正（D0027 第 4 版的圖紙 `/Rotate` 0、R＝270）。R 怎麼定（`sheets[].rot_method`）：
+`text`＝文字層 ≥ 400 字，取字數最多的書寫方向當水平（大圖若因此直立，改看兩個橫式候選）；`ocr`＝文字層不夠，用對照表的 `rot`（`pid_ocr` 的 OCR 定向投票）；
+`text-thin`／`default`＝兩者都沒有時的退路。被引用的 117 張：`text` 109、`ocr` 8；R＝0 的 116 張、R＝270 的 1 張（KND01-D0027-4 第 2 頁）。
+**兩個軸要分開驗**：TCM01-D1114 第 5 頁、BDM01-D2111 第 3 頁是 `/Rotate` 270、R＝0（驗 `rotation_matrix` 那一步）；KND01-D0027-4 第 2 頁是 `/Rotate` 0、R＝270（驗 R 那一步）。
+對照表的 `rot` 與文字層定出的 R 不同、或它記的 `w_pt`／`h_pt` 與「照它的 `rot` 轉正後的尺寸」差超過 2 pt 的頁，OCR **整筆不用**（`stats.ocr_map.rot_conflict`／`size_mismatch`）。
+
+### `pid.json`（`pid_index.py` 的輸出）
+
+`{"kind":"pid","generated_by":"tools/db/pid_index.py","version":1,"sheets":{…},"by_tag":{…},"stats":{…}}`
+
+- **圖紙鍵 slug**＝`<文件編號-版次｜x>_<sha1(文件庫相對路徑)[:8]>__p<PDF 頁次>`（`HT0-1-KND01-D0027-4_1030bef1__p2`；檔名沒有 HT 編號的是 `x_…`）。
+  `sheets` 的鍵、`by_tag[*].sheet`、`pid_shots` 的檔名與 `index.json` 的鍵、`sec.pid` 的 `extra.s`、`index.pid.sheets` 的鍵、`card/pid/<slug>.json` 都是它。
+  圖的身分（`doc`／`rev`／`title`）**全部取自檔名**（圖框裡印的編號不可靠），頁次只說「PDF 第 p 頁」。
+- `sheets[slug] = {rel, file, doc, rev, title, page, pages, rot, rot_method, w_pt, h_pt, label_pt, grid, words, ocr, tags, src:{size, mtime}}`：只列**被引用**的圖紙。
+  `rel`＝相對文件庫根目錄的 posix 路徑（**任何輸出都不含本機絕對路徑**）；`w_pt`／`h_pt`＝轉正後的尺寸；`label_pt`＝這張圖位號字的字高（有文字層＝位號字框高度的中位數；
+  沒有文字層＝OCR 偵測框短邊的中位數 ÷ 1.3，換算成字形本身的高度；`pid_shots` 據此決定影像大小）；`words`＝文字層字數（0＝整頁沒有文字層）；`ocr`＝這一頁用到了對照表；
+  `tags`＝這張圖上有幾支位號；`src`＝代表檔的大小＋修改時間（`pid_shots`、`build_card_aux` 都拿它核對是不是同一版 PDF）；
+  `grid`＝圖框分區 `{ok, src, cols:{kind, labs:[[位置, 標籤]…], pitch}, rows:{…}}` 或 `null`。
+- `by_tag[位號] = [hit…]`，hit＝`{sheet, x, y, w, h, label, rel, drawn_as, how, form, note}`＋條件性的 `conf`／`raw`／`zone`／`zone_near`（一律用 `.get()` 讀）：
+  - `x`／`y`＝框的**左上角**、`w`／`h`＝寬高，都是轉正後整張圖的 0~1 比例、左上為原點（五位小數）；可直接乘 `pid_shots` 那張影像的寬高。
+  - `label`＝圖上的字。文字層＝圖上寫的字（拆寫的片段以一個空白相接）；OCR＝**這一筆自己的**正規化讀法（前綴照圖上寫的＋核心＋尾碼；斜線與機組清單保留圖上的寫法
+    `C10PHC10/20BT011`、`G11/12HAP65BP001`），不含併進同一框的鄰字、功能碼、管徑、括號。
+  - `rel`（發布的五級）：`exact`＝圖上畫的就是本台（`=G12…`、`12HAH…`）；`neutral`＝圖面不分機組（位號不帶機組，或寫佔位符 `=GXX…`）；`typical`＝圖上畫的是同一 Block 的另一部氣機
+    （G12 的位號落在畫成 11 的標籤上）；`loop`＝ISA 迴路名只對到迴路號（`1-PIT-CW014-1` ↔ AMS `1-PI-CW014-1`）；`train`＝`TRAIN_TYPICALS`。
+    `drawn_as`＝圖上寫的機組（`G11`／`11`／`C10`）或系統碼（`LCC10`／`LAC50`）。
+  - `how`：`text`｜`ocr`。`form`：文字層 `word`｜`prefixed`（`=G11` 另成一個文字物件）｜`stacked`（系統段在上一行）｜`inline`；OCR `ocr`｜`ocr-fix`（經形近字修復）｜`ocr-stacked`｜`ocr-inline`（兩個框合併）。
+  - **`note` 代碼**：`0` 儀器符號旁的標籤｜`1` 附註句子（≥ 4 個字的一行文字）、整齊排列的清單欄、OCR 讀到的整頁儀器清單的一格｜`2` 跨圖訊號旗標（上緣有訊號編號、下緣有「DCDAS TO／FROM」或去向圖號的箭頭框；`…BL001/2/3` 連號也算）｜`3` 空氣分配圖上的用氣點｜`4` 迴路詳圖 TYPICAL 小圖。
+    1～4 是**引用**——圖上「提到」這支位號的地方，不是儀器符號的位置。現行各代碼的命中（`stats.hits_by_note`）：1,658／36／15／72／45。
+  - `conf`＝OCR 辨識分數（`how:"ocr"` 才有）；`raw`＝這個標籤 OCR 原本讀到的字（**只有 `form:"ocr-fix"` 才有**，如 `C10LAC50 BTO11`）；
+    `zone`＝圖框分區 `C-5`（有格線而且點在圖框內才有）、`zone_near`＝離分區邊界不到格距 3 %（卡片寫「約 C-5」）。
+  - **同一支位號的各筆不一定同一級**：符號是 `typical`／`train` 時，印著位號全名的引用（`exact`）會一起發布——現在 29 支位號帶兩級（`exact`＋`train` 28、`exact`＋`typical` 1）。
+    所以「每支位號只發布最好的一級」說的是**符號**；`stats.by_rel`／`by_how` 統計的是每支位號的第一筆。
+- `stats`：`located`／`located_pct`／`not_located`、`located_symbol`／`located_note_only`／`located_ref_only`（只有引用的位號，依代碼分；混著的記 `mixed`）、`hits`／`hits_by_note`、
+  `by_rel`／`by_how`／`by_proto`／`proto_total`／`by_shape`／`shape_total`、`tags_with_ocr_hit`／`tags_multi_sheet`／`tags_per_sheet_max`、`drawings`／`pages`／`pages_cover`／`pages_sheet`／`pages_text`／`pages_sparse`／`pages_ocr`、
+  `sheets_referenced`／`drawings_referenced`／`sheets_with_grid`／`sheets_without_label_pt`、`rot`／`rot_method`、`dropped`（`sfx_mismatch`／`foreign_sheet`／`other_class`／`scope_letter`／`ocr_list_with_symbol`…，只列非 0 的）、
+  `train`／`foreign`／`air`／`overrides`、`ocr_map`（`present`／`pages`／`stale`／`unused`／`cover`／`rot_conflict`／`size_mismatch`／`tokens_used`／`tokens_dup_text`／`tokens_low_score`）、`ocr_near`（`admitted`、`tags`）、
+  `superseded_only`、`corpus`、`limits`（`sheets_per_tag` 6、`hits_per_sheet` 8、`ocr_min_score` 0.75、`ocr_near_score` 0.7、`min_orient_chars` 400、`sparse_words` 30）。
+- 2026-10-10 的數字：定位 **1,582／1,679（94.2 %）**；第一筆的級別 `exact` 818、`neutral` 446、`typical` 244、`loop` 6、`train` 68；第一筆來自文字層 1,483、OCR 99；HART 1,243／1,328、FF 339／351；
+  KKS 1,203／1,217、GE 元件名 373／385、ISA 6／51、其他（時間戳、殘缺名稱）0／26；命中 1,826 處、117 張圖紙（54 份 PDF）；只有引用的位號 4 支（`{"1":3,"mixed":1}`）。
+
+### 比對規則（`pid_lib`；每一條的由來與案例在檔頭）
+
+- **兩邊都正規化**：圖上 `=G11HSD10QN101` →（字母 G、機組 11、核心 `HSD10QN101`）；AMS `G12HSD10QN101` → 同一個核心。AMS 這邊的裝飾（尾端 `_`、`_01`）剝掉再比。
+- **機組關係**（`relation`）：同字母同機組／只寫數字且相同 → `exact`；佔位符或沒寫機組 → `neutral`；同字母、同一 Block 的另一部氣機 → `typical`。
+  **絕不歸戶**：字母不同（C10 與 G11 是不同設備）、別的 Block（G21、C20）。`SCOPE_LETTER`（`TFD01`／`EGK01`→S、`GFD01`／`EGJ01`→G）：不寫機組的圖上，沒有前綴的標籤只可能屬於那個機組字母
+  （汽機圖上的 `LBA10BT001` 是 S10 的，不是 G12 的同核心位號；`dropped.scope_letter`）。
+- **尾碼必須相等**（`_attribute_kks`）：標籤核心後面帶元件字母／元件碼／子項的（`…BP272C`、`…BT044A`、`…BT008AB`、`…QN001N1`、`…BL001-BL01`）是**另一個項目**，
+  只歸給自己尾碼相同的 AMS 位號（`S10MAV01BP272C` 的 `C`），沒有「退而歸給不帶尾碼的那支」。文字層與 OCR、符號與清單都一樣；`train` 也要尾碼相等。
+  不發布的計入 `dropped.sfx_mismatch`（129）。
+- **標籤拆寫**（`page_candidates`，以該字自己的閱讀方向為準，所以直書的標籤同樣適用）：系統段在設備段的上一行（`stacked`）、`=G11` 另成一個文字物件接在前面（`prefixed`）、同一行隔一格（`inline`）。
+- **GE 元件名**嚴格整詞相等（`96FG-1` ≠ `96FG-1A`；AMS 的 `_01` 兩位數尾碼剝掉再比）；**ISA 名**全名相等＝`exact`，只對到（機組數字、功能首字母、迴路、序號）＝`loop`——開頭的機組數字要一起比（`2-PIT-…` 不是 `1-PI-…`）。
+- **文字層為準**（`pid_index.text_tag_boxes`／`overlaps_text`）：OCR 的字只要與文字層任何一個「含有 KKS 核心或像位號」的字重疊（容許圖寬 0.4 %／圖高 0.6 %）就丟掉，OCR 只補文字層沒有的地方。
+  含有 KKS 核心的文字層字**一律算**，不只是比對器認得的寫法——文字層有的字，OCR 就沒有發言權；文字層比對器不認的寫法，寧可兩邊都不收。
+- **OCR 的字**（`ocr_scan`／`match_ocr_tokens`）：用搜尋而不是整詞相等，一個框裡有幾個標籤就切成幾筆（框沿閱讀方向依字元位置等比例切開）；
+  辨識分數 < 0.75 的字不用；只做**安全的形近字修復**（字母位出現數字或反過來時換成形近字，至多修 2 個字，**展開後只落在一個 AMS 核心才接受**）；不做編輯距離比對
+  （834 個 AMS 核心有 802 個存在只差一個字的鄰居）。機組前綴讀不出來的整個不收；沒寫機組的讀數只在 `SCOPE_LETTER` 的圖上才收（`dropped.ocr_nounit`）。
+  機組清單（`G11/12HAP65 BP001`）兩部機各自 `exact`；斜線系統段（`C10PHC10/20 BT011`）展開成兩支。整頁儀器清單的一格（`ocr_table_tokens`：≥ 5 個完整位號由上到下緊鄰、左緣或中心對齊）記 `note:1`。
+- **差一點點的疊寫標籤**（唯一放寬到 0.70 的地方）：上下兩行拆寫的閥號，設備段的分數在 0.70～0.75 之間時，只有在正上方的系統段 ≥ 0.75、那個系統段沒有別的設備段可接、合起來是 AMS 核心、
+  這一頁沒有別的讀數是同一個核心、而且這支位號在這一頁的文字層沒有著落，才接受。每次建置都印出接受了幾處、是哪幾支（`stats.ocr_near`；現在 6 處：`G11HAD10QN003`／`QN004`／`QN006`、`G12HAD10QN006`、`G11`／`G12LAB65QN003`，分數 0.734～0.749），每一處都要讀圖核對。
+
+### 選級、排序與上限（`pid_index.select`）
+
+- **等級只看符號命中（`note:0`）**：`exact` > `neutral` > `typical` > `loop` > `train`，每支位號留最好那一級的符號。引用（`note` 1～4）絕不把等級較低的符號擠掉；留下來的引用＝與符號同一級的，
+  加上「圖上印的就是這支位號自己的全名（`exact`）而符號是較低的一級」的——但同一張圖上這支位號另有等級更好的命中時，等級較差的引用不留。沒有任何符號命中的位號照樣發布（等級取引用裡最好的一級）。
+- 已經有符號位置的位號，**OCR 在清單裡讀到的那幾格不發布**（`dropped.ocr_list_with_symbol` 13）：清單裡上下左右都是只差一個數字的兄弟位號，同類誤讀最容易歸錯戶。
+  例外：符號是 `train` 的位號，清單格就是對照的憑據，要留。文字層的附註／清單不受影響。
+- **排序**：符號在引用之前 → 文字層在 OCR 之前 → 圖號 → 頁 → 由上到下、由左到右；圖紙的順序＝第一筆命中出現的順序，同一張圖的命中排在一起。
+  所以 `by_tag[*][0]` 是「最像儀器本身」的那一處，`build_card_aux` 的 `marks[0]` 就是它。
+- 每支位號最多 6 張圖、每張圖最多 8 處（超過的丟掉並計數；現在沒有一支碰到上限：最多 3 張圖、一張圖 5 處）。
+
+### `pid_ocr_map.json` 與 `pid_shots/index.json`
+
+- 對照表：`{"kind":"pid_ocr","generated_by":"tools/db/pid_ocr.py","version":1,"recipe":{…},"stats":{…},"pages":{"<相對路徑>|<頁>": {size, mtime, rot, rot_method, w_pt, h_pt, boxes, dup_text, tokens, border}}}`，一頁一行（方便看 git diff）。
+  `tokens`＝`[[OCR 原文, cx, cy, w, h, 分數]…]`（**中心**＋寬高，轉正後整張圖的 0~1 比例，五位小數；依 cy、cx、原文排序）；`border`＝`[[字, cx, cy]…]`（貼著圖紙邊緣 3 % 以內的 1 個字母或 1～2 位數字，圖框分區用；
+  文字層自己有格線的頁不寫）；`size`／`mtime`＝OCR 當時那份 PDF 的身分——**與磁碟上的檔不符＝過期，`pid_index` 整筆不用**（`stats.ocr_map.stale`）。`recipe` 含引擎身分（rapidocr 版本＋三個 onnx 模型檔的大小）。
+  壞檔（不是合法 JSON、`kind` 不對、某一頁的 `tokens` 格式不對）`pid_index` 以一行訊息中止並指出是哪一頁。
+- `pid_shots/index.json`：`{"<slug>": {file, w, h, bytes, bp, raster, long, levels, rot, ver, src:{size, mtime}}}`（`bp`＝量到的黑點，0＝沒有拉伸；`long`＝長邊像素；`levels`＝灰階數 4；`ver`＝`RENDER_VERSION`）。
+
+### card aux 的 `sec.pid`、`card/pid/*.json`、`index.pid` 與 docs
+
+`build_card_aux.py` 的 `--pid`（預設 `paths.PID_JSON`）／`--pid-shots`（預設 `paths.PID_SHOTS`）／`--no-pid`，`--recompare` 同樣吃。以**現行 AMS 位號**（不是 alias）對照 `pid.json.by_tag`。
+`--no-pid` 的 `--recompare` 保留上次發布的 `sec.pid`／`index.pid`／`card/pid/*.json`／`docs` 的 `pid|…`／`stats.pid`（鍵序與重算時相同，同樣的資料產出同樣的位元組）。
+
+- `sec.pid = {rows: [[欄位, 值, lvl, 來源字串, extra]]}`：每張圖紙一組 **5 列**——`P&ID 圖面`（`HT0-1-KND01-D0027 Rev.4　HRSG SCR System P&ID`）、`圖面頁次`（`PDF 第 2 頁（共 3 頁）`）、
+  `所在位置`（`圖面左 47%／上 71%（圖框分區 C-5）`；多處時「＝圖上標記 ①；這支位號在同一張圖另有 3 處（圖上 ②、③、④），其中 ②、③、④ 是跨圖訊號旗標（不是儀器符號的位置）」）、
+  `圖上標示`（`OCR 讀到的字：=G11HSD10QN101（這張是以 G11 繪製的典型圖，本台 G12 取同一位置）`）、`對應方式`（`OCR 讀圖（圖上的位號是線條字，不在 PDF 文字層；辨識信心 0.91）`）。
+  組的順序＝`pid.json` 裡各圖紙第一次出現的順序。現在 1,582 台、1,770 組（1,395 台一組、186 台兩組、1 台三組）。
+- **`lvl` 不新增分級**：這一組的 ① 是文字層命中而且 `rel` 是 `exact`／`neutral` → `doc`；其餘（`typical`／`loop`／`train`，以及所有 OCR 命中）→ `inferred`。
+  以**那一組自己的 ①** 為準，與 `note` 無關（一塊只有訊號旗標的圖紙，旗標是文字層印的本台位號時仍是 `doc`——「文件上印著這串字」是事實，「這一處不是儀器符號」由 `note` 與文案交代）。
+  來源字串＝`文件 · <檔名> 第 N 頁`／`推論 · …`。
+- 每列 `extra` 都帶 `{s: 圖紙鍵, g: 組序}`；**第一列**另帶（現在 1,770 組裡各鍵出現的組數）：
+  - 一定有：`d`（`docs` 的鍵＝這張圖自己的那份 PDF）、`p`／`n`（PDF 頁次／總頁數；`pid.json` 的 `pages` 不明時沒有 `n`，現在每一組都有）、`img: true`、`marks`、`drawn`（圖上畫的字，去掉句尾標點與不成對的括號）、`unit`（圖上畫的機組或系統碼；只寫數字的已補上本台的機組字母）、`rel`、`how`（都是 ① 的）。
+  - `zone`（1,562 組）／`zone_near: 1`（172）：① 的圖框分區；沒有就只寫百分比。
+  - `conf`（191）＝① 的 OCR 辨識信心（① 是 OCR 才有）；`conf_min`（191）＝這張圖上所有 OCR 標記裡最低的信心；`confs`（191）＝逐處的信心，與 `marks` 一一對應（文字層的那幾處是 `null`）。後兩個只要有任何一處是 OCR 就帶——**紅字看 `conf_min`，不是只看 ①**。
+  - `notes`（137）＝逐處的 `note` 代碼，與 `marks` 一一對應；這張圖上有任何一處是引用才帶。`note`（116）＝這張圖上**每一處**都是引用時才有：代碼都相同＝那個代碼，不同＝`1`。沒有 `note`＝① 是儀器符號旁的標籤。
+  - `fix: 1`（32）＝① 是 `ocr-fix`；`raw`（32）＝OCR 原本讀到的字。`odd: 1`＝① 是 `exact` 而圖上的字與位號對不起來（`pid_label_is_tag` 為假；產生器照規則輸出時是 0 筆，建置時 `pid_odd_labels` 會印出來，不擋建置）。
+- `marks: [[中心 x, 中心 y, 框寬, 框高]]`（0~1 比例、左上原點；`pid.json` 給的是左上角＋寬高，這裡換成與圖控相同的「中心＋寬高」；完全重疊的只留第一筆）。
+  **`marks[0]` 就是「所在位置」那列描述的那處**；符號標籤排在引用之前（穩定排序，同級維持 `pid.json` 的順序），前端照陣列順序編號。
+- **文案規矩**（`pid_label_text`／`pid_pos_text`／`pid_how_text`；`tools/tests/test_pid_wording.py` 逐條釘住）：
+  「與本台位號相同」只在圖上的字正規化後**真的等於**位號時才寫（省略機組字母、少了 AMS 的 `_01`、幾支位號合寫成一個標籤各有自己的說法；說不出差在哪裡的寫「請對照圖面確認」）；
+  OCR 讀到的字前面標「OCR 讀到的字：」；`ocr-fix` 不寫「相同」，改寫「OCR 讀成「<raw>」，相近字元（0／O、8／B…）校正後才對上本台位號」；
+  ① 是引用時句尾講明是哪一種（1 `這一處是圖上註記或表格（儀器清單）裡的文字，不是儀器符號旁的標籤`｜2 `這一處是跨圖訊號旗標（接往另一張圖的訊號引用），不是儀器本身的位置`｜
+  3 `這一處是儀用／廠用空氣分配圖上的用氣點（這顆閥的供氣接點），不是閥在製程管線上的位置`｜4 `這一處在圖紙上的迴路詳圖（TYPICAL 小圖）裡，不是主流程圖上的位置`；認不得的代碼一律當「不是儀器符號旁的標籤」），
+  再接「儀器符號畫在這台設備的另一張圖紙上」或——這支位號在任何一張圖上都沒有符號時——「這次比對（PDF 文字層＋OCR）沒有讀到這支位號的儀器符號，不代表圖上沒有畫，請開 PDF 確認」（不可以寫成「圖上沒有」：C10LAC50BT029 的球泡明明畫在圖上，只是 OCR 沒讀到）；
+  OCR 命中在清單頁或整頁沒有文字層的頁不說「線條字」（改說那一頁／那一處沒有 PDF 文字層）；辨識信心印兩位小數，四捨五入後看不出低於 0.8 的多印一位（0.799）。
+- **影像**：`docs/db/data/card/pid/<slug>.json ＝ {w, h, mime:"image/webp", b64}`，每張圖紙一檔、畫在上面的所有位號共用，**走既有 `*.json` 加密路徑**（與 `card/hmi/` 同一種包法）。
+  現在 117 檔：明文（base64）14,177,304 bytes、密文 10.7 MB（每檔 21～354 KB）；影像 2400～3600 px，解碼後每張 16～37 MB（寬×高×4）。只發布真的有設備引用的圖紙。
+- `card/index.json` 新增 `pid = {sheets:{slug:{doc, rev, title, name, page, pages, d, file, w, h, bytes, rows, ocr}}, files:[…], bytes, note, stats}`：
+  `name`＝真正的檔名、`d`＝`docs` 的鍵、`file`＝`card/pid/<slug>.json`、`w`／`h`＝影像像素、`rows`＝有幾台設備畫在這張圖上、`ocr`＝這一頁用到 OCR 結果；`files` 是影像清單——
+  `tools/verify_encrypted.py` 以它認得這些密文不是孤兒，`extract_db.data_build` 的雜湊涵蓋 `card/**/*.json`。
+  `stats`＝`pid.json` 的 `stats` 裡 `PID_STATS_KEEP` 列的鍵原樣帶過來（`ams_tags`／`ams_tags_base`／`located`／`located_pct`／`located_symbol`／`located_note_only`／`located_ref_only`／`not_located`／`hits_by_note`／
+  `by_proto`／`proto_total`／`by_rel`／`by_how`／`tags_with_ocr_hit`／`drawings`／`pages`／`pages_cover`／`pages_sheet`／`pages_text`／`pages_sparse`／`pages_ocr`／`sheets_referenced`／`drawings_referenced`／`dropped`／`ocr_map`；
+  `corpus`／`limits`／`superseded_only` 這些大塊不進站），再加這次實際發布的數字：`devices`（有 `sec.pid` 的設備數）、`devices_ref_only`（每張圖上都只有引用的設備數，現在 4）、`tags`、`tags_unpublished`（`pid.json` 有、現行設備總表沒有的位號）、
+  `images`、`docs`、`no_url`／`no_url_docs`（沒有雲端硬碟連結的圖紙張數／PDF 份數，現在 0）。`index.stats.pid`＝同一份再加 `bytes`；`index.source_stats.pid` 再加 `notes`。
+  **卡片的「查無」文案與 `searched.pid[0].why` 的數字全部取自這裡，不寫死。**
+- `index.searched.pid[0]`＝把「文件庫現行的 P&ID 圖面」整批當一份文件描述（`doc_id: "pid-drawings"`、`rev: "372 份圖面"`、`ref`、`title`、`folder`、`why`）；`index.kind_label.pid`＝`P&ID 圖面`。
+- **docs 與雲端硬碟連結**：每份被引用的 PDF 登記一筆 `docs["pid|<文件編號>|<版次>"] = {title: 真正的檔名, folder: 文件庫相對資料夾, why, url?}`（檔名沒有 HT 編號的用 `pid|<sha1(相對路徑)前 12 碼>|`；
+  兩個不同的檔撞同一組編號＋版次時後者也退用 sha1 鍵），現在 54 筆。**連結只給「位置讀自的那一份檔」**（`pid_own_urls_only`）：`add_drive_urls` 對一般文件會退而連到同編號的別版次並加 `url_note`，
+  `pid|…` 不准——座標是從這一版讀出來的；drive_map 沒有那一份檔就不附連結並計入 `stats.pid.no_url`，**永遠沒有 `url_note`**。唯一的例外是同一份檔的本機檔名：
+  雲端硬碟桌面版替撞名的項目在本機檔名尾端加的「 (N)」雲端上並沒有，精確路徑對不到時只再試去掉那個尾碼的名字（現在 2 份，`why` 會補一句說明）。
+- 02.json 的規格（`extract_db.py`，本機靠 `patch_site_spec` 進站）：摘要組 `{"key":"pid","label":"P&ID 圖面位置（這台儀器畫在哪一張圖、圖上哪裡）","kind":"pid"}`——不收合、不帶 `note`，排在 `hmi` 組**之前**
+  （`summary.groups` 現在的順序：dev、range、valve、dcs、ctrl、draw、docs、**pid**、hmi、〔前端插入的備品庫存〕、search）；附加區段 `{"key":"pid","label":"P&ID 圖面位置","kind":"pid","note":…}` 排在 `docsearch` 之後、`hmi` 之前。
+  區段說明文字不寫死任何張數、頁數、涵蓋率。
+
+### 建置關卡、寫檔順序與 `rebuild.py`
+
+- **缺檔不靜默降級**：沒有 `pid.json`、或有 `pid.json` 而沒有 `pid_shots/index.json`，又沒給 `--no-pid` → 與 dcdas／docsearch／hmi／drive_map 一樣以非 0 結束，而且是在動資料目錄之前。
+- **`pid_check`**（`load_pid` 時一次查完，有任何一項就列出來並以非 0 結束，不發布成「只有文字沒有圖」）：`by_tag` 引用的圖紙都在 `sheets`；圖紙鍵合乎檔名規則、等於 `pid_slug(rel, page)`、不分大小寫也不重複（建置機是 Windows，Pages 分大小寫）；
+  `rel` 是文件庫相對路徑；每張被引用的圖紙在 `pid_shots/index.json` 有一筆、檔案在、是 WebP 且檔頭的寬高與索引相同、`rot` 與來源 PDF 的 size＋mtime 和 `pid.json` 相同（不同＝影像是另一版 PDF 或另一個角度畫的，標記會整批落在錯的地方）；
+  每筆命中的 `rel`／`how` 合法、`note` 是 0 或正整數、框的中心在圖內。
+- **同一個框不可被不相干的位號認領**（`pid_shared_boxes`，屬於 `pid_check`）：同一張圖上左上角座標（取到小數 4 位）相同的框被兩支以上的位號認領時，正當的共用只有三種——機組雙胞胎與 AMS 的 `_01`／`_` 重複名稱、
+  `train`（鍵換成圖上畫的那一台再比）、標籤本身合寫了幾支位號（斜線後面接數字）；`loop` 不參加比較。其餘＝產生器把別的儀器的標籤算了進來（實例：`S10MAV01BP272` 與 `S10MAV01BP272C` 曾經互掛），
+  建置機分不出誰對，**擋下來不發布**。
+- **寫檔順序**（`write_output`）：圖紙影像先只收在記憶體（`pid_collect` 不寫檔）→ 分塊與 `index.json` 全部序列化並通過「不含本機絕對路徑」自檢 → 才動資料目錄：換掉 `aux-*.json` → 整個清掉 `card/pid/` 重寫（掉出覆蓋範圍的圖紙不留孤兒密文）→ 寫 `index.json` → `manifest.build` → 加密 → 戳記。
+  自檢之前失敗，資料目錄裡的 `card/` 原封不動。（圖控的 `card/hmi/` 仍在最前面先寫，那一段照舊。）
+- **`rebuild.py`**：`run_pid` 在圖控三步之後、`build_card_aux` 之前跑 `pid_index` → `pid_shots`（順序固定，與圖控相反：先定位才知道要出哪些圖）；`--skip-pid` 沿用 cardwork 裡上次的 `pid.json`／`pid_shots`。
+  `pid_flags`：cardwork 有 `pid.json` 就明指 `--pid`／`--pid-shots`，連 `pid.json` 都沒有才 `--no-pid`。沒有 `pid_ocr_map.json` 時只用文字層（印一句提醒）。
+  **站台規格自動套用**（`spec_lacks_pid`）：這次會發布 P&ID，而已發布的 02.json 還沒有 `pid` 摘要組／區段、**或**那個區段的內容與 `extract_db.SECTIONS_AUX` 現在的不同 → 等同 `--spec`（否則 `sec.pid` 與影像照樣發布，卡片卻沒有地方顯示，或永遠拿不到新的說明文字）。
+  `patch_site_spec` 排在各產生器之後、`build_card_aux` 之前；`build_card_aux` 沒跑完時把 02／13 換回這次重建之前的內容（`spec_snapshot`），再把明文加密回去。
+  **大聲的警告**（`pid_loud`；不解析輸出文字，只讀 `pid.json` 的 `stats`；回傳碼不變）：`stats.ocr_map` 的 `stale`／`rot_conflict`／`size_mismatch` 不是 0，或重跑之前靠 OCR 定位（第一筆是 OCR）的位號這次整支不見了，
+  就印一段 `!! ====` 框起來的訊息，結尾在「rebuild 完成」之前**再印一次**。`pid_index` 自己也印 `!!` 開頭的行點名是哪幾份圖。
+
+### 前端（card.js `fillPid`／`pidMeta`／`pidView`／`pidMini`／`pidShot`／`pidLoad`／`openPidLightbox`；core.js `D.loadImage`／`D.revokeImages`；app.css）
+
+- 摘要組與附加區段都走 `fillPid(sec, ix, grid, mode, inSum)`；`inSum` **只決定版面**：摘要組是「圖紙標頭＋PDF 連結列＋影像」（`.sum-pid { grid-column: 1 / -1 }` 佔整列寬），完整資料區另有五個欄位與逐格來源。
+  容器 class：`.sum-pid`／`.aux-pid`；區塊外殼、標頭、收合提示與標記元素沿用圖控的 `.hmi-screen`／`.hmi-head`／`.hmi-exp`／`.hmi-mk`／`.hmi-box`／`.hmi-no`，另掛 `.pid-sheet`／`.pid-head`；影像容器是自己的（`.pid-shot`／`.pid-view`／`.pid-stage`／`.pid-mini`）。
+- **`pidMeta(ix, ex)` 是 `{file, w, h}` 的唯一出處**（細部視窗、小地圖、燈箱三處共用；各讀各的話舞台的長寬比、標記的百分比位置與載入後的影像會對不起來——同圖控 `hmiPick` 的教訓）。
+  每張圖紙只有一張影像（沒有逐機組的變體）；沒有影像或長寬不明時 `file` 是 `null`，區塊改印一句話（`.pid-noimg`；現行資料 0 筆）。
+- **同一張影像三個視角**（圖紙長邊 2400～3600 px，整張縮進卡片一個字都讀不到）：**細部視窗** `.pid-view`（舞台 `.pid-stage`＝整張圖紙，寬＝影像寬 × `--pid-k`，現在寬窄版都是 1＝一個影像像素一個 CSS 像素；
+  以純 CSS 的 `clamp()` 把標記 ① 擺到視窗正中央、同時不讓圖紙邊緣縮進視窗）、**小地圖** `.pid-mini`（同一張影像縮小；`.pid-dot` 紅圈＝每處標記、`.pid-rect` 藍框＝細部視窗的範圍，由一個全卡共用的 `ResizeObserver` 重算）、
+  **燈箱** `.pid-lb`（沿用 `.modal.hmi-lb`）：開啟時一個影像像素一個 CSS 像素、對準 ①；滾輪／雙指／＋ −／鍵盤縮放（上限 `PID_ZMAX`＝3，下限＝看得見整張圖）、拖曳平移、「全圖」「回到標記」、多處標記時「下一處」；
+  縮放是改舞台的 width／left／top，不用 `transform: scale`（標記的框線與編號粗細不變）。關閉流程同圖控燈箱（✕／Esc／背景／返回鍵，`AMS.overlay.open('modal', …, true)`），另有 Tab 焦點圈。
+  卡片裡的細部視窗不接手勢（在會捲動的卡片裡攔滾輪／拖曳會讓手機捲不動頁面）。深色主題把圖紙反相，列印還原。
+- **標記不燒進影像**：有框的（文字層／OCR 的字框）只畫外框線、往外推幾個像素（框壓在位號那幾個字上，填色會把字蓋掉）；寬或高為 0 的才畫圈。`marks[0]` 拿 `.pri`（實線；其餘虛線）。
+  多處時掛編號牌 `.hmi-no`：**印一般數字 1、2、3**（紅底圓牌＋白字；圓圈數字 ①②③ 在這個大小糊成一團），說明文字與「下一處 ②」照舊寫圓圈數字；另有一句 `.sr-only`。
+- **收合與延後載入**：一台設備畫在超過 `PID_FOLD`（＝1）張圖紙上時每塊改成 `<details class="pid-sheet">`、只先展開第一張，**摘要組與完整資料區都照收**（圖控只收摘要組）。
+  影像**一律延後**：展開中的那一張等捲進畫面才抓（`whenNear`：`IntersectionObserver`，`beforeprint` 也補載），收起來的等使用者展開才抓（`whenDetailsOpen`，要掛在 `<summary>` 以外的元素上）。
+  PDF 連結列 `.pid-bar` 放在標頭**外面**（標頭收合時是 `<summary>`，連結放裡面一點就把這一塊展開／收起來）。
+- **記憶體釋放**：`D.loadImage(path)`（`D.loadHmiImage` 是它的舊名）解密 → base64 → `Blob` → blob URL，同一張圖共用一個 URL；`card/pid/` 的影像 JSON 在 blob 建好之後就從 `D.cache` 拿掉。
+  `pidRelease(aux, ix)`→`D.revokeImages('card/pid/', keep)`：換到另一台設備時把新卡用不到的圖紙 blob 收掉、新卡還要的留著（G11／G12 共用同一張典型圖時不必重抓）；新畫面沒有 P&ID 區塊（查無位號、首頁、閥卡）就全部收掉。
+  `pidReset()` 收掉上一張卡的 `ResizeObserver` 與還沒觸發的 `whenNear`，並把世代加一——還在路上的影像抓回來也不再插入。離開查詢卡時 `destroy()`→`D.revokeHmiImages()` 連圖控一起全收。
+  `D.imagesHeld(dir)` 回目前還握著 blob 的路徑（測試與除錯用）。`docs/db/index.html` 的 CSP 要有 `img-src blob:` 與 `style-src 'unsafe-inline'`（標記與舞台用行內 style 定位）。
+- **標頭的短籤**（`pidCapBits`，最多三段 `.hmi-cap`；完整那句在 `title`／`alt`／燈箱說明列 `pidSrcText`，「圖上標示」「對應方式」的整句照抄 `build_card_aux` 寫好的、不在前端另外造句）：
+  (a) `drawn`（灰字）＝圖上畫的字＋它跟本台的關係——「圖上畫的是 …」／「OCR 讀到的是 …」／「OCR 校正後是 …」＋（就是本台｜幾支位號合寫的標籤，本台是其中一支｜圖面不分機組｜以 G11 繪製的典型圖，本台取同一位置｜同一迴路的儀器｜只畫 LAC50 一台，同型各台共用這張圖，本台取同一位置；`odd` 時寫「寫法與位號不完全相同，請對照圖面」）。
+  (b) `.pid-ref`（**粗體，不是紅字**——資料沒有錯）＝標記 ① 是引用時「※ 這一處是…，不是儀器符號」；以 `notes[0]` 為準，沒有 `notes` 才看 `note`（`pidRefCode`）。
+  (c) `.pid-how`＝「PDF 文字層」或「OCR 讀圖（信心 0.91…，字元經校正）」；**這張圖上任何一處 OCR 標記的信心低於 `PID_LOW`（＝0.8）時加 `⚠` 並轉紅（`.warn`）、點名是哪幾處**（`pidLow` 讀 `confs`，沒有才退回 `conf_min`／`conf`）。
+  整台設備每一張圖紙都只有引用時，最上面先印 `.pid-nosym`「這次比對（PDF 文字層＋OCR）沒有讀到這支位號的儀器符號——不代表圖上沒有畫，請開 PDF 確認…」。圖上的字一律當文字插入（不當 HTML）。
+- **查無**：摘要只印一句短的「查無（現行 P&ID 圖面上找不到這個位號）」；完整資料區的 `pidNoneText` 把比對範圍講完（份數、頁數、封面頁、文字層頁數、OCR 頁數、定位數），數字全部取自 `index.pid.stats`，缺哪個鍵就不講那一段。
+  **JK 位號那一行**（`pidIsJk`：`stats.ams_tags > ams_tags_base` 而且這一台的位號以 JK 開頭）寫「不在 P&ID 比對範圍（JK 開頭的位號是 HART 多工器模組…）」，**不可以寫「查無」**——那是「比過了、找不到」的意思。
+- 手機（`.cq-body.narrow`）：細部視窗改 4:3，小地圖疊在細部視窗的角落、放在標記 ① 的對角（`.mini-r`／`.mini-t`）；無橫向捲動；燈箱雙指開合縮放。
+  列印：影像捲到／展開才載，`beforeprint` 會補載，來不及時佔位框的文字會說明原因（三種措辭）。
+
+### 測試
+
+- `tools/tests/test_card.py`：`pid_typ`（位置、延後載入、幾何、燈箱）、`pid_wording`（短籤每一種情形直接打 prototype）、`pid_many`（多張圖紙收合、編號牌、「下一處」）、`pid_refs`（現行資料的引用 1～4 各一台）、
+  `pid_lowconf`（紅字與點名）、`pid_jk`、`pid_none_leave`（查無文案、雙胞胎共用不重抓、離開時釋放）、`pid_mobile`，以及檔尾**照網站的 CSP 執行**的一段（其餘測試都以 `bypass_csp` 略過 CSP）。測試位號在檔頭的常數。
+- **那一個釘子**：`PID_PIN = ('HT0-1-KND01-D0027-4_1030bef1__p2', 0.4666, 0.7083, 0.003)`＝G12HSD10QN101 的標記 ① 在 D0027 Rev.4 第 2 頁（R＝270 的那一張）轉正後的絕對位置與容差。
+  其餘幾何檢查都只拿畫面與資料自己的 `marks[0]` 互比——`pid_index`／`pid_shots` 的轉正角或座標換算錯了，那些檢查照樣全綠；只有這一筆會紅。
+- `tools/tests/test_pid_wording.py`（不開瀏覽器、不碰資料目錄，以合成的命中直接呼叫 `pid_rows`／`pid_shared_boxes`／`pid_check`／`pid_doc`／`pid_collect`；可單獨跑，`run_e2e` 也會收它）：
+  rel 五種與拆寫的 form、`note` 代碼 0～4 的說法與 `extra.note`／`notes`、「與本台位號相同」的條件、`ocr-fix` 的 raw、`conf`／`conf_min`／`confs`、共用框的關卡不誤擋雙胞胎／`_01`／同型各台／合寫標籤、`searched.pid` 的頁數說法、`pid_collect` 不寫檔。
+- 2026-10-10：7 個模組 383 項全過（`test_card` 180、`test_pid_wording` 83）。
+
+### 已知限制（誠實標註）
+
+- **OCR 的同類誤讀擋不掉**（C 讀成 Q、0 讀成 9、6 讀成 5）：正規化救不回來，分數門檻也擋不住。把關只有四道——文字層為準、分數 ≥ 0.75、形近字修復只接受唯一的 AMS 核心、已有符號位置的位號不發布 OCR 的清單格；
+  所以 **OCR 讀出的位置一律 `inferred`、卡片寫出辨識信心**，`conf_min` < 0.8 時紅字點名（239 處 OCR 命中裡 41 處；卡片上 38 塊圖紙、37 台設備）。形近字修復另有一個已知的洞：
+  圖上本來就不是 AMS 位號的標籤，被讀錯一個多值形近字時有極小機會「剛好」修成別的 AMS 核心。
+- **沒讀到的球泡**：`C10LAC50BP005` 在給水泵組圖主流程上的球泡 OCR 沒讀到（只有第 5 頁的迴路詳圖小圖與第 7 頁的清單格）、`C10LAC50BT029` 的球泡也沒讀到（只有清單格）；`C10LAC60BP005`／`C10LAC70BP005` 因此也只有清單格。
+  這四台就是 `devices_ref_only`。這一輪不換 OCR 配方重跑（會讓已查核的讀數全部作廢）。
+- **清單頁本身是點陣圖**：TDM01-D1205 第 7、8 頁的儀器清單在 PDF 裡沒有文字層（0 個字、內嵌 92／85 張影像），原檔的解析度就是極限——發布的影像再大，5／6、8／9 也一樣要放大才分得出來。
+- **同一支位號的幾個球泡之間的先後仍是由上到下**（傳送器／元件／DCS 顯示符號）：① 不一定是傳送器那一顆。
+- **沒有文字層的圖紙沒有圖框分區**：一般 OCR 偵測抓不到圖框邊條上孤立的單一字元，被引用的圖紙裡，對照表的 `border` 湊不出任何一張的格線（104 張有分區的全部來自文字層）。117 張裡 13 張沒有分區（8 張沒有可用的文字層、5 張文字層裡沒有圖框字），那些位置只寫百分比。
+- **顏色丟掉了**：四階灰階。117 張裡 44 張有 2 % 以上的彩色墨跡（GE 的示意圖整張把管線畫成藍色），非藍色的彩色墨跡超過 0.5 % 的 15 張（紅色版次雲形框、收文章）；雲形框的輪廓還在，只是不再是紅的。影像只供定位，內容以 PDF 為準。
+- **97 台查無**（`not_located`）：ISA 迴路名 45（`1-TI-CW011-*` 39 台在掃描的循環水泵圖 HT0-0-UCA04-D0114 上寫成帶 X 佔位的 `X-TE-CW011-XAE`，沒有比對規則；`1-LI-CW101-*`、`1-TI-CW029-*` 各 3）、
+  時間戳／殘缺名稱 26、G11／G12 `MAN30` 與 C10 `MAN60` 的 BP101～104 共 12、GE `96TT-GT-10～12`／`96TT-PH-1～3` 共 12、`C10LAC60BT029`／`C10LAC70BT029` 2。
+  查無＝現行圖面的文字層與 OCR 結果都找不到，不代表圖上一定沒有。
+- **舊版次從不採用**：文件庫進了新版，位置就跟著新版走；新版的圖還沒做 OCR（或對照表過期）時，那張圖上靠 OCR 的位號會變回查無，直到重跑 `pid_ocr.py` 並 commit 對照表——建置不會中止，只會大聲印出來。
+- **只做 AMS 設備的卡**：AMS 沒有的閥（v4 的閥卡）不在這一版範圍。
+- **圖紙影像大**：一張解碼後 16～37 MB；靠「捲到／展開才抓」與換卡釋放壓住，不要改成一開卡就抓。沒展開過的圖紙第一次列印可能只印到佔位框（與圖控、參數現值同一個取捨）。
+- **查核提出、這一輪沒有裁決的**（都是潛在問題，現行資料 0 例，改規則時要記得）：(1) `typical` 在任何一張圖上都給，不限圖面自己聲明典型的圖；`SCOPE_LETTER` 只管沒寫機組的標籤，不管佔位符與只寫數字的。
+  (2) ISA 的 `loop` 只比功能首字母，不看元件尾碼字母（現在 6 筆是 PIT↔PI、TE↔TI）。(3) 沒有文字層的頁，OCR 定向若差 180 度沒有任何關卡看得出來（尺寸檢查只擋 90 度，轉正角衝突要文字層 ≥ 400 字）。
+  (4) OCR 清單偵測只數橫書、完整的位號；清單格若被 OCR 拆成系統段＋設備段兩個框，會當成符號（`note:0`）；直書的清單不處理。
+
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
 GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只有 `data/meta.json` 是明文；瀏覽器在員工代號登入後再輸入**密語**解密（與 momobacon-wq/signal-atlas 同一套作法）。
 
 - 金鑰：`PBKDF2-HMAC-SHA256(密語, salt, 200000)` → 32 bytes（AES-256-GCM）。密語只存建置機器 `%LOCALAPPDATA%\AMS\web.key` 第 1 行（或環境變數 `AMS_WEB_KEY`／`AMS_WEB_KEY_FILE`），**永不進 repo**。
-- salt（16 bytes）存 key 檔第 2 行，**固定不隨建置改變**（salt 本來就公開在 meta.json；固定後「記住此裝置」的金鑰在資料重建後仍可用，且 docs/ 與 docs/db/ 同源共用同一把）。`--fresh-salt` 或改密語＝輪替，兩站都要重新加密。
-- 每個資料檔（`manifest.json`、`sheets/*.json`、`card/*.json`）存成 `<rel>.bin` ＝ `12-byte 隨機 IV ‖ AES-GCM(gzip(JSON UTF-8, level 6, mtime 0))`（含 16-byte tag，WebCrypto 版面），**AAD＝相對路徑 rel（不含 .bin）**，密文不能搬到別的路徑。
-- `meta.json` ＝ `{"enc":1,"gzip":1,"build":<manifest.build>,"kdf":{"name":"PBKDF2","hash":"SHA-256","iter":200000,"salt":<b64>},"check":<b64 seal(key,"ams-ok",aad="check")>}`；`check` 只用來驗密語。
-- `manifest.build` 仍以**明文**內容計算（IV 隨機，密文不可拿來算 hash）：產生器先算 build 寫 manifest → `encrypt_dir` → stamp。`tools/stamp_assets.py`／`extract_db.stamp` 在 `meta.json` 存在時從它取 build，並把 index.html 的 preload 改指 `data/meta.json`。db 站的 `extract_db.stamp` 另以 `<!-- ams-preload --> … <!-- /ams-preload -->` 標記整段重寫首訪 preload（第一行 meta.json，其後 `PRELOAD_DATA`＝manifest＋sheets/02、04、03 的 `.bin`，全部 `?v=<build>`，讓 600 KB 與登入閘門往返重疊；重複 stamp 不累加，舊版單行會自動遷移成區塊；`stamp_html()` 是純函式可單測）；主站 `stamp_assets.py` 維持只 preload meta。這些 `?v=` 都等於 build，已在 SW keep 清單內。
+- salt（16 bytes）存 key 檔第 2 行，**固定不隨建置改變**（salt 本來就公開在 meta.json；固定後「記住此裝置」的金鑰在資料重建後仍可用，且 docs/ 與 docs/db/ 同源共用同一把）。`--fresh-salt` 或改密語＝輪替，兩站都要重新加密（那一次全部重封；輪替的 commit 進去之前不能原地重建，見下面「這次的金鑰不是已發布的那一把」）。
+- 每個資料檔（`manifest.json`、`sheets/*.json`、`card/**/*.json`——含 `card/hmi/`、`card/pid/` 的影像檔；`encrypt_data.py` 以 `rglob("*.json")` 收，`meta.json` 除外）存成 `<rel>.bin` ＝ `12-byte 隨機 IV ‖ AES-GCM(gzip(JSON UTF-8, level 6, mtime 0))`（含 16-byte tag，WebCrypto 版面），**AAD＝相對路徑 rel（不含 .bin）**，密文不能搬到別的路徑。**IV 只在「重封」時才重新抽**：2026-10-08 起，明文沒變的檔沿用 git HEAD 上那一份密文（連 IV 一起，見下面「沿用沒變的密文」），所以「每次建置每個檔的密文都不同、每次 commit 都帶全部 `.bin`」已經不成立；同一組（金鑰、IV）仍然不會拿去封第二份明文——內容一變就重新抽 IV。
+- `meta.json` ＝ `{"enc":1,"gzip":1,"build":<manifest.build>,"kdf":{"name":"PBKDF2","hash":"SHA-256","iter":200000,"salt":<b64>},"check":<b64 seal(key,"ams-ok",aad="check")>}`；`check` 只用來驗密語；git HEAD 的 `meta.json` 的 `kdf` 與這次相同、`check` 用這把金鑰打得開時沿用原字串（內容沒變的站重新加密後 `meta.json` 逐位元組相同）。
+- `manifest.build` 仍以**明文**內容計算（重封的檔 IV 隨機，密文不可拿來算 hash；一個檔是沿用還是重封都不影響 build）：產生器先算 build 寫 manifest → `encrypt_dir` → stamp。`tools/stamp_assets.py`／`extract_db.stamp` 在 `meta.json` 存在時從它取 build，並把 index.html 的 preload 改指 `data/meta.json`。db 站的 `extract_db.stamp` 另以 `<!-- ams-preload --> … <!-- /ams-preload -->` 標記整段重寫首訪 preload（第一行 meta.json，其後 `PRELOAD_DATA`＝manifest＋sheets/02、04、03 的 `.bin`，全部 `?v=<build>`，讓 600 KB 與登入閘門往返重疊；重複 stamp 不累加，舊版單行會自動遷移成區塊；`stamp_html()` 是純函式可單測）；主站 `stamp_assets.py` 維持只 preload meta。這些 `?v=` 都等於 build，已在 SW keep 清單內。
 - 前端（core.js）：`D.loadMeta()` 與登入閘門並行；`meta.json` 404 或 `enc:0` → 明文模式（本機開發／mock）。加密模式下 `D.url` 檔名加 `.bin`、`D.fetchJSON` 收齊 bytes → `crypto.subtle.decrypt`（AAD＝path）→ `DecompressionStream('gzip')` → JSON；進度以密文 content-length 為分母（不再用 manifest bytes 估計）。`D.unlock()`：先試 `localStorage['ams.key']`（raw key base64，「記住此裝置」勾選才存；**不可用 `atlas.key`**，同源會與 signal-atlas 互踩），否則密語視窗；標頭「清除密語」＝ `D.forgetKey()`。`D.cryptoOK()` 不通過（舊瀏覽器／非 https）顯示說明。
 - 指令：
-  - `py tools/encrypt_data.py docs/data`、`py tools/encrypt_data.py docs/db/data`（明文 → 密文，原地，刪明文）；`--decrypt`（原地還原）；`--decrypt-to DIR`（另存明文副本）；`--dry-run`。
+  - `py tools/encrypt_data.py docs/data`、`py tools/encrypt_data.py docs/db/data`（明文 → 密文，原地，刪明文）；`--decrypt`（原地還原）；`--decrypt-to DIR`（另存明文副本）；`--no-keep`（每個檔都以新的隨機 IV 重封，也不檢查金鑰是不是已發布的那一把）；`--fresh-salt`（換 salt，等同 `--no-keep`）；`--key-file FILE`；`--dry-run`（只印會沿用／重封幾份、會刪幾個過期的 `.bin`，不寫檔）。
   - 產生器 `extract.py`／`extract_db.py` 結尾自動加密（`--no-encrypt` 只供本機測試，**不可 push**）；`extract_db.py`／`build_card_aux.py` 遇到已加密的輸出目錄會先原地解密。
-  - `py tools/verify_encrypted.py`：重新以密語解開全部 `.bin`、確認沒有明文 `.json`、manifest 引用與檔案一一對應、以明文重算 build 並比對 meta／manifest／version.json／index.html、掃建置機器本機路徑、robots／noindex。**每次 push 前必須 exit 0**。
+  - `py tools/verify_encrypted.py`：重新以密語解開全部 `.bin`、確認沒有明文 `.json`、manifest 引用與檔案一一對應（含 `card/index.json` 的 `hmi.files`、`pid.files` 兩份影像清單）、以明文重算 build（`sheets/*.json`＋`card/**/*.json`）並比對 meta／manifest／version.json／index.html、掃建置機器本機路徑、robots／noindex。**每次 push 前必須 exit 0**。
     本機路徑規則 `LOCAL_RE = Users[\\/]{1,2}bacon|/c/Users/|我的雲端硬碟|@@新機組`：**`{1,2}` 不可拿掉**——掃的是 JSON 文字，Windows 分隔符在裡面是兩個反斜線，
     舊版寫成 `Users[\\/]bacon` 對 JSON 內的 Windows 路徑整支失效（假陰性，`sheets/61.json` 就這樣帶著建置機家目錄出貨）。
     「其他電腦」刻意**不**列入：AMS 資料庫自己的工作站標籤叫「本廠其他電腦 (2024 以後)」（sheets 19／24／28），不是路徑。
     供料端同一份規則在 `tools/db/pneuvalve_site.py`：`scrub_local()`＝文件庫根 → 相對、家目錄 → `~`、其餘還帶本機痕跡的多層路徑 → **只剩檔名**，
     而且在 `read_xlsx()` 就剝（`cell_sources()` 讀的是未經 `clean()` 的原始列，只在 `clean()` 剝會漏）。注意 Python 字元集要寫 `[\\/]`，`[\/]` 只等於 `[/]`。
+- **沿用沒變的密文（compare-and-keep，2026-10-08）**：`encrypt_dir(data, passphrase, salt, keep=True)` 加密時只開一個 `git cat-file --batch`（cwd＝資料目錄，物件名 `HEAD:./<rel>.bin`，所以與呼叫端的 cwd 無關；`GIT_DIR` 這類指定 repo 位置的環境變數先拿掉）取 **git HEAD** 上同一路徑的密文，每一份先以 git 報的物件名驗過（物件名＝內容的雜湊）才收。用**現在這把金鑰**、AAD＝rel 打得開，而且 gunzip 之後與新明文**逐位元組相同**，就把 HEAD 那份原封不動寫回去；否則以新的隨機 IV 重封。比的是明文、不是 gzip 之後的位元組（zlib 換版照樣沿用）；來源是 HEAD、不是工作目錄（原地解密時 `.bin` 已經刪掉了）——上一次建置還沒 commit 就再建一次，有變的檔會再重封一次，無妨。加密格式沒變：瀏覽器、`decrypt_dir`、`verify_encrypted` 都不必改。沒裝 git、資料目錄不在 git 工作區、HEAD 沒有那個路徑、git 逾時（300 秒）、個別舊密文打不開或明文不同 → 那幾份照舊重封，不報錯。
+  結尾那行：`[encrypt] <dir>: N files  X MB → Y MB on the wire  build …  (K kept from git HEAD, M sealed fresh = Z MB new)`；**一份都沒沿用**時附原因 `[keep off]`／`[nothing for this dir at git HEAD]`／`[no file matches its git HEAD copy]`／`[key mismatch with git HEAD]`，有沿用而 HEAD 的 `meta.check` 用不上時附中性的 `[meta.check re-sealed]`。2026-10-10 那次重建：db 站 333 檔裡沿用 137、重封 196（＝工作目錄 71 個有變的 `.bin`＋125 個新檔：117 張 P&ID 圖紙、8 個新分塊）；git HEAD 是 208 檔 17.9 MB、現在 333 檔 28.7 MB。全部密文先放在記憶體再寫檔，用量是該站密文大小的數倍（`encrypt_data.py` 檔頭有實測）。
+- **寫檔順序（中斷在任何一步都救得回來）**：全部密文先在記憶體備妥（到這裡資料目錄一個位元組都沒動）→ 先刪掉「與這次要寫的 `.bin` 只差大小寫」的舊 `.bin`（不分大小寫的檔案系統上，新密文會寫進舊檔名、AAD 卻是新檔名 → 打不開）→ 寫全部 `.bin`（明文還在，中斷就重跑）→ 刪掉沒有對應明文的舊 `.bin` → 寫 `meta.json` → 刪 `manifest.json`（**這一刻起 `is_encrypted()` 為真**＝有 `meta.json` 而沒有 `manifest.json`）→ 刪其餘明文。
+- **殘留明文的收拾（leftover sweep）**：刪明文那一步刪不掉的（檔案被別的程式開著）跳過、其餘照刪，最後以非 0 結束並列出剩下的檔。同一個加密指令再跑一次（目錄已加密、裡面還有明文 → `sweep_leftovers`）：金鑰用**這個目錄 `meta.json` 的 salt**＋密語（不看 key 檔的 salt，它可能正是出錯的那個；密語打不開 `check` 就在動任何檔之前結束）；殘留的明文若與它的 `.bin` 解開、gunzip 後逐位元組相同就刪掉；沒有 `.bin`、打不開、內容不同、刪不掉的一個都不動，列出來並以非 0 結束（那不是已經封存的內容，要人看過才能刪）。
+- **這次的金鑰不是已發布的那一把 → 封完之後擋下來（2026-10-10）**：三個條件都成立才擋——(1) keep 開著（不是 `--no-keep`／`--fresh-salt`／`keep=False`）；(2) git HEAD 上這個資料目錄有 `meta.json`，而且讀得懂（JSON、`enc` 為真、`kdf.salt` 16 bytes、`check` 長度正確）；(3) 這次的金鑰（密語＋salt）打不開它的 `check`。擋的方式：**照常把整個目錄封完**（用這次的金鑰；不能因為要擋就把明文留在 `docs/` 底下）→ 印結尾那行 → `raise SystemExit`（**exit 1**；行程內呼叫 `encrypt_dir` 的產生器同樣是這個 SystemExit 往外傳，後面的戳記不跑，`index.html`／`version.json` 沒被動過）。訊息 `[encrypt] STOP - key mismatch: …` 寫原因——密語不同／salt 不同（HEAD 的 salt 是公開的，拿它重算一把就分得出來，並印出已發布的 salt，照抄到 key 檔第 2 行即可）／兩者都不同／KDF 參數不同——與三條出路：① `git checkout -- <data>` 再 `git clean -fd -- <data>`（後者清掉 HEAD 沒有的 `.bin`）放棄這次建置；② 修正 `AMS_WEB_KEY` 或 key 檔（第 1 行密語、第 2 行 salt）後做 ① 再重建；③ 確定是要換金鑰：目錄已經用新金鑰封好，戳記、驗證、commit 即可，手動加密時加 `--no-keep` 就不做這項檢查。`--dry-run` 遇到同樣情形也印原因並以非 0 結束（什麼都沒寫）。
+  由來：key 檔少了第 2 行（例如只從密碼管理器還原了密語）時 `passphrase_and_salt()` 會自己產生新 salt 寫回去，`AMS_WEB_KEY` 給錯也一樣——以前加密照樣成功、`verify_encrypted` 拿同一把金鑰去驗當然全過，沒有任何一關會紅；上線才看得到後果：同源的兩站共用瀏覽器的 `ams.key`，salt 一邊換了一邊沒換就互相重問密語，`STOCK_TOKEN` 由金鑰算出、對不上之後領取／放入全部「未授權」。**不會誤擋**：第一次加密、資料目錄不在 git 工作區、沒裝 git（HEAD 查無 `meta.json`）、`rotate_passphrase.py`（它加密的是 `data.rotate-tmp` 副本，HEAD 沒有那個路徑）。**會擋，而且是故意的**：密語輪替完還沒 commit 就原地重建（HEAD 仍是舊金鑰的 `meta.json`）——先把輪替 commit 進去。經 `rebuild.py`：`build_card_aux`／`pneuvalve_site` 封完以非 0 結束 → rebuild 中止（它的失敗處理只在 `manifest.json` 還在時才再跑一次加密，這時已經不在）。**限制**：靠的是 git HEAD——查不到 HEAD 的 `meta.json` 就沒有這項保護，結尾那行會是 `[nothing for this dir at git HEAD]`；在 repo 裡重建卻看到這句，一樣要停下來查。
+- `.gitattributes`（repo 根目錄，2026-10-10）：只有一條 `*.bin binary`——密文不做換行轉換（`core.autocrlf`）、不做文字 diff／merge；沒有全 repo 的 eol 規則。
 - `.gitignore` 擋掉 `docs/*/data/**/*.json`（meta.json 除外），明文永遠 commit 不進去；`docs/robots.txt` Disallow 全站、index.html `noindex, nofollow`。
-- 誠實的限制：同一組密語所有同事共用，沒有個人撤銷；勾「記住此裝置」時 raw key 明文存在該瀏覽器 localStorage（嚴格 CSP、無行內 script 是它的防線）；員工代號閘門只是稽核紀錄，密語才是真正的保護。
+- 誠實的限制：同一組密語所有同事共用，沒有個人撤銷；勾「記住此裝置」時 raw key 明文存在該瀏覽器 localStorage（嚴格 CSP、無行內 script 是它的防線）；員工代號閘門只是稽核紀錄，密語才是真正的保護。沿用密文之後，commit 歷史**確定**看得出「哪幾個檔這次有變」（內容仍然看不到；以前從密文大小其實也幾乎看得出來——AES-GCM 不改變長度、gzip 的結果是固定的）。
 
 ## 備品庫存（stock；docs/db 站；tools/stock/）
 

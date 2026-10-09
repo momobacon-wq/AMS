@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """一鍵重建 docs/db 站的查詢卡附加資料（README「文件全文檢索與 Google 雲端硬碟連結」那五步，按順序、任一步失敗就停）。
 
-  py tools/db/rebuild.py                    # drive_map → 解密 → docsearch → build_card_aux --recompare → 戳記 → verify_encrypted
-  py tools/db/rebuild.py --spec             # 多跑 patch_site_spec（extract_db 的 02／13 規格有改時）
+  py tools/db/rebuild.py                    # drive_map → 解密 → docsearch → 圖控 HMI → P&ID 圖面位置 → build_card_aux --recompare → 戳記 → verify_encrypted
+  py tools/db/rebuild.py --spec             # 多跑 patch_site_spec（extract_db 的 02／13 規格有改時；已發布的 02 還沒有「P&ID 圖面位置」
+                                            # 摘要組／區段、或它的區段說明與 extract_db 現在的不同，而這次會發布它時，不必加這個旗標也會自動套）
   py tools/db/rebuild.py --skip-docsearch   # 不重跑 hst-docsearch（約 4 分鐘；沿用上次的 docsearch.json）
   py tools/db/rebuild.py --skip-hmi        # 不重跑圖控 HMI 三步（hmi_shots／hmi_nav／hmi_index）；沿用 cardwork 裡上次的 hmi.json／hmi_shots
+  py tools/db/rebuild.py --skip-pid        # 不重跑 P&ID 圖面位置兩步（pid_index／pid_shots）；沿用 cardwork 裡上次的 pid.json／pid_shots
   py tools/db/rebuild.py --skip-drive-map   # 不重讀 Google 雲端硬碟中繼資料
   py tools/db/rebuild.py --cardwork DIR     # 有各產生器輸出時做完整建置（build_card_aux DIR），而不是 --recompare
   py tools/db/rebuild.py --only-stamp       # 只改了前端程式：兩站重新戳記＋驗證
@@ -15,12 +17,16 @@
                                             # 一條龍（拿到新的 .ams_bckup、tools/db/restore.sh 倒出 SQLite 之後）：
                                             #   build_workbook（Excel＋sheets_final.pkl）→ extract_db（明文）→ card_ams_extra／docmap_terminal／
                                             #   docmap_instlist／docmap_eomr／docmap_docindex（寫到 cardwork）→ docmap_docsearch
-                                            #   → 圖控 HMI 三步（hmi_shots 縮圖 → hmi_nav 選單路徑 → hmi_index 位號座標）→ build_card_aux 完整
+                                            #   → 圖控 HMI 三步（hmi_shots 縮圖 → hmi_nav 選單路徑 → hmi_index 位號座標）
+                                            #   → P&ID 圖面位置兩步（pid_index 位號在哪張圖、圖上哪裡 → pid_shots 圖紙影像）→ build_card_aux 完整
                                             #   （加密＋戳記）→ 兩站戳記 → verify_encrypted；路徑一律取自 tools/db/paths.py（環境變數可覆寫），開頭先印出來
 
-任何一步失敗：若資料仍是明文，先原地加密回去（不留明文在 docs/ 底下），再以非 0 結束；結尾一定跑 verify_encrypted（加 --e2e 再跑 run_e2e），0 錯誤才可 push。
+任何一步失敗：若資料仍是明文，先原地加密回去（不留明文在 docs/ 底下；patch_site_spec 已改而 build_card_aux 沒跑完時，02／13 先換回原樣），再以非 0 結束；結尾一定跑 verify_encrypted（加 --e2e 再跑 run_e2e），0 錯誤才可 push。
+P&ID 位置「默默變少」不算失敗但要看得到（pid_loud；只讀 cardwork/pid.json 的 stats，不解析 pid_index 的輸出文字）：OCR 對照表有過期／衝突的頁、
+或上一次靠 OCR 定位的位號這次不見了，就印一段「!! ====」框起來的訊息，結尾在「rebuild 完成」之前再印一次；回傳碼不變。
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -59,6 +65,7 @@ def verify_and_finish(a, t0, label):
     run('驗證（verify_encrypted）', PY, os.path.join('tools', 'verify_encrypted.py'))
     if a.e2e:
         run('端對端測試（run_e2e：mock 登入伺服器＋Playwright）', PY, os.path.join('tools', 'tests', 'run_e2e.py'))
+    loud_print(LOUD, again=True)   # P&ID 位置默默變少的警告（pid_loud）：途中印過一次，結尾再印一次
     print('\nrebuild 完成（%s），%.0f s；docs/ 變更如下，確認後即可 push：' % (label, time.time() - t0), flush=True)
     subprocess.run(['git', 'status', '--short', 'docs/'], cwd=ROOT)
 
@@ -88,6 +95,142 @@ def run_hmi(a):
         PY, os.path.join(db, 'hmi_shots.py'))
     run('圖控畫面選單路徑與標題（hmi_nav → cardwork/hmi_nav.json）', PY, os.path.join(db, 'hmi_nav.py'))
     run('圖控位號定位索引（hmi_index → %s）' % paths.HMI_JSON, PY, os.path.join(db, 'hmi_index.py'))
+
+
+def pid_flags(a):
+    """build_card_aux 的 P&ID 旗標：cardwork 有 pid.json 就明指路徑與圖紙影像目錄；連 pid.json 都沒有才 --no-pid。
+    有 pid.json 而 pid_shots 不完整（缺 index.json、缺任何一張被引用的圖紙、影像與 pid.json 不同步）時 build_card_aux 會以非 0 結束，
+    rebuild 跟著中止並走加密回滾——不會降級成「只有文字沒有圖」。"""
+    if os.path.exists(paths.PID_JSON):
+        return ['--pid', paths.PID_JSON, '--pid-shots', paths.PID_SHOTS]
+    print('    （cardwork 沒有 pid.json → build_card_aux 走 --no-pid：沿用上次發布的「P&ID 圖面位置」；從沒發布過就沒有這一組）', flush=True)
+    return ['--no-pid']
+
+
+def run_pid(a):
+    """P&ID 圖面位置兩步，順序固定（與圖控相反：先定位才知道要出哪些圖）：
+    位號定位（pid_index：走訪工程文件庫現行的 P&ID，PDF 文字層＋pid_ocr_map.json → cardwork/pid.json）→ 圖紙影像（pid_shots：只替
+    pid.json 引用到的圖紙出圖 → cardwork/pid_shots/<slug>.webp＋index.json）。
+    **OCR 不在這裡**：`tools/db/pid_ocr.py` 是離線工具（需要 rapidocr-onnxruntime；全部 807 頁實測約 20 分鐘），蒸餾後的 `tools/db/pid_ocr_map.json`
+    已 commit 進 repo，pid_index 只讀它；沒有那個檔時只用 PDF 文字層（圖上是線條字的位號找不到）。圖面換版或新增圖面後才要手動重跑那支。
+    輸入是唯讀的工程文件庫 paths.LIBRARY_ROOT（不修改），輸出全在 cardwork；必須在 build_card_aux 之前跑完。"""
+    if a.skip_pid:
+        print('\n== 略過 P&ID 圖面位置（--skip-pid）：沿用 cardwork 裡上次的 pid.json／pid_shots ==', flush=True)
+        pid_loud(None); return
+    if not os.path.isdir(paths.LIBRARY_ROOT):
+        raise SystemExit('沒有工程文件庫根目錄 %s（設 AMS_LIBRARY_ROOT，或用 --skip-pid 沿用 cardwork 裡上次的 pid.json／pid_shots）' % paths.LIBRARY_ROOT)
+    if not os.path.exists(paths.PID_OCR_MAP):
+        print('    （沒有 %s：pid_index 只用 PDF 文字層，圖上是線條字的位號不會被找到）' % paths.PID_OCR_MAP, flush=True)
+    db = os.path.join('tools', 'db')
+    before = pid_ocr_located()   # 重跑之前：上一次靠 OCR 才有位置的位號（重跑之後少了誰，pid_loud 會大聲講）
+    run('P&ID 位號定位索引（pid_index：文件庫現行 P&ID 的文字層＋pid_ocr_map.json → %s）' % paths.PID_JSON, PY, os.path.join(db, 'pid_index.py'))
+    pid_loud(before)
+    run('P&ID 圖紙影像（pid_shots：pid.json 引用到的圖紙 → %s）' % paths.PID_SHOTS, PY, os.path.join(db, 'pid_shots.py'))
+
+
+LOUD = []   # 重建途中「不擋建置、但位置會默默變少」的警告；印在當下，rebuild 結尾（verify_and_finish）再印一次——中間隔著幾百行輸出，只印一次沒有人看得到
+
+
+def pid_read():
+    """cardwork/pid.json（pid_index 的輸出）；沒有、讀不了都回 None（這裡只是為了示警，不可以因此讓重建失敗）。"""
+    try:
+        with open(paths.PID_JSON, encoding='utf-8') as f:
+            j = json.load(f)
+        return j if isinstance(j, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def pid_ocr_located():
+    """pid.json 裡「① 是靠 OCR 定位」的位號 → {位號: 圖檔名}（與 pid_index 自己示警用的定義相同：第一筆命中是 OCR）。沒有 pid.json 回 {}。"""
+    j = pid_read() or {}
+    sheets = j.get('sheets') if isinstance(j.get('sheets'), dict) else {}
+    out = {}
+    for tag, hits in (j.get('by_tag') if isinstance(j.get('by_tag'), dict) else {}).items():
+        if isinstance(hits, list) and hits and isinstance(hits[0], dict) and hits[0].get('how') == 'ocr':
+            sh = sheets.get(hits[0].get('sheet')) or {}
+            out[tag] = sh.get('file') or str(hits[0].get('sheet'))
+    return out
+
+
+def pid_loud(before):
+    """P&ID 位置會**默默變少**的兩種情況，印成醒目的一段（不改回傳碼；2026-10-10 裁決 A9）。**不解析 pid_index 的輸出文字**，
+    只讀它寫出的 cardwork/pid.json：
+      * stats.ocr_map 的 stale（PDF 的大小／修改時間與 OCR 對照表記的不同）／rot_conflict／size_mismatch 不是 0：那幾頁的 OCR 結果整筆沒用，
+        圖上靠 OCR 才找得到的位號這次不會有位置（文件庫重新同步、PDF 的修改時間變了就會發生；補救要重跑離線的 pid_ocr.py）。
+        --skip-pid 沿用舊的 pid.json 時也照查（那份 pid.json 產生時就少了位置）。
+      * before＝重跑 pid_index 之前靠 OCR 定位的位號（pid_ocr_located）；重跑之後整支不見的列出來（None＝這次沒有重跑，不比）。"""
+    j = pid_read()
+    if j is None:
+        return
+    om = (j.get('stats') or {}).get('ocr_map') if isinstance(j.get('stats'), dict) else None
+    om = om if isinstance(om, dict) else {}
+    msgs = []
+    names = (('stale', '過期（PDF 的大小／修改時間與對照表記的不同）'), ('rot_conflict', '轉正角與文字層不符'), ('size_mismatch', '尺寸與轉正角不符'))
+    bad = ['%s %d 頁' % (label, om[k]) for k, label in names if isinstance(om.get(k), int) and not isinstance(om.get(k), bool) and om[k] > 0]
+    if bad:
+        msgs.append('P&ID 的 OCR 對照表（%s）有幾頁這次沒有用上：%s。那幾張圖上靠 OCR 才找得到的位號不會有圖面位置（卡片顯示「查無」）。'
+                    '補救：py tools/db/pid_ocr.py 重跑那幾份圖 → py tools/db/pid_ocr.py --distill → commit 對照表 → 再重建'
+                    '（是哪幾份圖：往上找 pid_index 印的「!!」那幾行）' % (os.path.basename(paths.PID_OCR_MAP), '、'.join(bad)))
+    if before:
+        now = j.get('by_tag') if isinstance(j.get('by_tag'), dict) else {}
+        lost = sorted(t for t in before if t not in now)
+        if lost:
+            files = sorted({before[t] for t in lost})
+            msgs.append('上一次靠 OCR 定位的位號有 %d 支這次沒有圖面位置了：%s%s；原本畫在：%s%s'
+                        % (len(lost), '、'.join(lost[:10]), '…' if len(lost) > 10 else '', '、'.join(files[:6]), '…' if len(files) > 6 else ''))
+    for m in msgs:
+        if m not in LOUD:
+            LOUD.append(m)
+    loud_print(msgs)
+
+
+def loud_print(msgs, again=False):
+    if not msgs:
+        return
+    bar = '!! ' + '=' * 96
+    print('\n' + bar, flush=True)
+    for m in msgs:
+        print('!! %s%s' % ('（再說一次）' if again else '', m), flush=True)
+    print(bar, flush=True)
+
+
+def spec_lacks_pid():
+    """已發布（此時已解密）的 02.json 的「P&ID 圖面位置」規格是不是該重套：回傳原因（空字串＝不用）。
+      * 還沒有摘要組或附加區段 → '還沒有…'。build_card_aux 不寫 02.json：extract_db 的 summary_spec／SECTIONS_AUX 在本機這條路只靠
+        patch_site_spec 進得了站；少了它，sec.pid 與圖紙影像照樣發布，卡片卻沒有任何地方顯示。
+      * 區段那一筆（標題、說明文字）與 extract_db.SECTIONS_AUX 現在的內容不同 → '…與現在的規格不同'。2026-10-10 稽核後區段說明改寫過
+        （引用不是儀器符號、紅字看整張圖的最低辨識信心、OCR 校正要講明、JK 不在比對範圍）；只查「有沒有」的話，已經發布過 P&ID 的站
+        永遠拿不到新的說明，除非有人記得加 --spec。
+    讀不到 02.json、載不了 extract_db 時回空字串（不亂套）。"""
+    try:
+        with open(os.path.join(ROOT, DATA, 'sheets', '02.json'), encoding='utf-8') as f:
+            s02 = json.load(f)
+    except (OSError, ValueError):
+        return ''
+    groups = {g.get('key') for g in (s02.get('summary') or {}).get('groups') or []}
+    secs = {s.get('key'): s for s in s02.get('sections_aux') or [] if isinstance(s, dict)}
+    if 'pid' not in groups or 'pid' not in secs:
+        return '還沒有「P&ID 圖面位置」的摘要組／區段'
+    try:
+        import extract_db   # 只為了比對規格；載入失敗（少了 pandas 之類）就當作不用重套
+        want = next((s for s in extract_db.SECTIONS_AUX if s.get('key') == 'pid'), None)
+    except Exception:   # noqa: BLE001
+        return ''
+    if want is not None and want != secs['pid']:
+        return '的「P&ID 圖面位置」區段（標題／說明文字）與 extract_db 現在的規格不同'
+    return ''
+
+
+def spec_snapshot():
+    """patch_site_spec 會改寫的兩個檔（sheets/02.json、13.json）此刻的內容：build_card_aux 沒跑完時用它換回去。"""
+    out = {}
+    for fn in ('02.json', '13.json'):
+        p = os.path.join(ROOT, DATA, 'sheets', fn)
+        if os.path.exists(p):
+            with open(p, 'rb') as f:
+                out[p] = f.read()
+    return out
 
 
 def run_pneuvalve(a):
@@ -133,8 +276,9 @@ def rebuild_from_sqlite(a, t0):
             run('文件全文檢索（docmap_docsearch → %s，約 4 分鐘）' % paths.DOCSEARCH_JSON, PY, os.path.join(db, 'docmap_docsearch.py'), '--data', DATA, '--out', paths.DOCSEARCH_JSON,
                 '--library', lib, '--drive-map', paths.DRIVE_MAP)
         run_hmi(a)
+        run_pid(a)
         run('查詢卡附加資料（build_card_aux 完整：%s → card/*.json，加密、戳記）' % cardwork, PY, os.path.join(db, 'build_card_aux.py'), cardwork, DATA,
-            '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP, *hmi_flags(a))
+            '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP, *hmi_flags(a), *pid_flags(a))
         run_pneuvalve(a)
     except BaseException:
         if is_plaintext():
@@ -152,6 +296,7 @@ def main():
     ap.add_argument('--spec', action='store_true', help='套用 extract_db 的 02／13 規格（patch_site_spec）')
     ap.add_argument('--skip-docsearch', action='store_true')
     ap.add_argument('--skip-hmi', action='store_true', help='略過圖控 HMI 三步（hmi_shots／hmi_nav／hmi_index）；沿用 cardwork 裡上次的 hmi.json／hmi_shots')
+    ap.add_argument('--skip-pid', action='store_true', help='略過 P&ID 圖面位置兩步（pid_index／pid_shots）；沿用 cardwork 裡上次的 pid.json／pid_shots')
     ap.add_argument('--skip-drive-map', action='store_true')
     ap.add_argument('--cardwork', metavar='DIR', help='各產生器輸出目錄：做完整 build_card_aux 而非 --recompare')
     ap.add_argument('--only-stamp', action='store_true', help='只重新戳記兩站並驗證（前端程式有改、資料沒改）')
@@ -179,23 +324,42 @@ def main():
         rebuild_from_sqlite(a, t0); return
     if not a.skip_drive_map:
         run('Google 雲端硬碟對照（drive_map）', PY, os.path.join('tools', 'db', 'drive_map.py'))
+    spec_undo = {}
     try:
         if not is_plaintext():
             run('解密 docs/db/data', PY, os.path.join('tools', 'encrypt_data.py'), DATA, '--decrypt')
         if not a.skip_docsearch:
             run('文件全文檢索（docmap_docsearch，約 4 分鐘）', PY, os.path.join('tools', 'db', 'docmap_docsearch.py'), '--data', DATA)
-        if a.spec:
-            run('套用站台規格（patch_site_spec）', PY, os.path.join('tools', 'db', 'patch_site_spec.py'), DATA)
         run_hmi(a)
-        hmi = hmi_flags(a)
+        run_pid(a)
+        aux = hmi_flags(a) + pid_flags(a)
+        # 站台規格排在各產生器之後、build_card_aux 之前：patch_site_spec 改寫 02／13 但不重算 manifest.build（交給 build_card_aux），
+        # 所以「改了規格」到「build_card_aux 跑完」之間越短越好；這段時間失敗就把 02／13 換回原樣（見下面 except）
+        spec = a.spec
+        why = '' if (spec or '--no-pid' in aux) else spec_lacks_pid()
+        if why:
+            # 這次會發布 P&ID 圖面位置，而已發布的 02.json 還不認得它、或它的區段說明是舊的 → 等同 --spec
+            # （規格其餘部分本來就該與 02 相同，所以只會動到 pid 的摘要組與區段）
+            print('\n== 已發布的 02.json %s → 自動套用站台規格（等同 --spec） ==' % why, flush=True)
+            spec = True
+        if spec:
+            spec_undo = spec_snapshot()
+            run('套用站台規格（patch_site_spec）', PY, os.path.join('tools', 'db', 'patch_site_spec.py'), DATA)
         if a.cardwork:
-            run('查詢卡附加資料（build_card_aux 完整）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), a.cardwork, DATA, *hmi)
+            run('查詢卡附加資料（build_card_aux 完整）', PY, os.path.join('tools', 'db', 'build_card_aux.py'), a.cardwork, DATA, *aux)
         else:
-            run('查詢卡附加資料（build_card_aux --recompare：併入 docsearch、圖控畫面位置、Drive 連結、重算比對、加密、戳記）',
-                PY, os.path.join('tools', 'db', 'build_card_aux.py'), '--recompare', DATA, *hmi)
+            run('查詢卡附加資料（build_card_aux --recompare：併入 docsearch、圖控畫面位置、P&ID 圖面位置、Drive 連結、重算比對、加密、戳記）',
+                PY, os.path.join('tools', 'db', 'build_card_aux.py'), '--recompare', DATA, *aux)
+        spec_undo = {}   # build_card_aux 已經用新規格算好 manifest.build 並加密；之後才失敗就不能再換回舊規格
         run_pneuvalve(a)
     except BaseException:
         if is_plaintext():
+            if spec_undo:
+                # build_card_aux 沒跑完（多半是缺輸入、在動資料之前就以非 0 結束）：不可留下「02／13 是新規格、其餘資料與 build 雜湊是舊的」
+                for p, b in spec_undo.items():
+                    with open(p, 'wb') as f:
+                        f.write(b)
+                print('\n!! patch_site_spec 改過的 %s 已換回這次重建之前的內容' % '、'.join(os.path.basename(p) for p in spec_undo), flush=True)
             print('\n!! 建置失敗，資料仍是明文 → 先原地加密回去（不留明文）', flush=True)
             subprocess.run([PY, os.path.join('tools', 'encrypt_data.py'), DATA], cwd=ROOT)
         raise

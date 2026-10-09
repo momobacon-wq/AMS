@@ -65,6 +65,23 @@
   const CMP_TEXT = { mismatch: '⚠ 與 DCS 不符', near: '≈ 近似（請確認）', unit_mismatch: '單位不同未比較', unit_unknown: '單位不明未比較', ref_only: '序號不符未比較', ok: '✓ 與 DCS 一致' };
   // 一目了然的圖控組超過這個張數時只先展開第一張（2026-10-05 使用者指定 3）：其餘收成 <details>，影像也延後到展開才抓
   const HMI_FOLD = 3;
+  // P&ID 圖面位置：一台設備畫在超過這個張數的圖紙上時只先展開第一張，其餘收成 <details>、展開才抓影像。
+  // 圖紙比圖控畫面大得多（長邊 2400–3600 px，一張解碼後 16–30 MB），所以門檻是 1，而且完整資料區也照收（圖控只收摘要組）。
+  const PID_FOLD = 1;
+  const PID_NO = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫';
+  // 燈箱縮放上限（每個影像像素幾個 CSS 像素）：圖紙上的位號字高約 12 個影像像素，放到 3 倍已經比紙本大
+  const PID_ZMAX = 3;
+  // OCR 辨識信心低於這個值就用紅字（pid_index 的採用門檻是 0.75；看的是這張圖上各處標記的最低值 extra.conf_min，不是只看 ①）
+  const PID_LOW = 0.8;
+  // 引用（build_card_aux 的 note／notes 代碼 1～4）：圖上「提到」這支位號的地方，不是儀器符號的位置。標頭短籤用 PID_REF（整句在
+  // 「圖上標示」那一列，由 build_card_aux 寫）；PID_REF_NAME 是連結列「其中 ②③ 是…」用的更短的名字。認不得的代碼用 PID_REF_OTHER。
+  const PID_REF = { 1: '這一處是圖上註記／表格（儀器清單）裡的文字，不是儀器符號', 2: '這一處是跨圖訊號旗標，不是儀器本身的位置',
+    3: '這一處是空氣分配圖上的用氣點，不是閥在製程管線上的位置', 4: '這一處在迴路詳圖（TYPICAL 小圖）裡，不是主流程圖上的位置' };
+  const PID_REF_NAME = { 1: '註記／表格裡的文字', 2: '跨圖訊號旗標', 3: '用氣點', 4: '迴路詳圖裡的標籤' };
+  const PID_REF_OTHER = ['這一處只是圖上提到這支位號的地方，不是儀器符號', '圖上提到的地方'];
+  // JK 開頭的位號（HART 多工器模組）沒有列入 P&ID 比對：[摘要組的短句, 完整資料區的整句]。不可以寫「查無」。
+  const PID_JK = ['不在 P&ID 比對範圍（JK 開頭的位號是 HART 多工器模組，圖面沒有比對這一類）',
+    '不在 P&ID 比對範圍：JK 開頭的位號是 HART 多工器模組，現行 P&ID 圖面的比對不含這一類，所以這裡不是「比對過、找不到」。'];
   const cmpCls = (st) => (st === 'mismatch' ? 'bad' : st === 'near' ? 'warn' : st === 'ok' ? 'ok' : 'soft');
   const CMP_KIND = { ams: 'AMS 量程（資料庫快照）', dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', dcs_write: 'DCS 寫入事件', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR' };
   let uid = 0;
@@ -330,6 +347,8 @@
       } else { alts.hidden = true; alts.innerHTML = ''; }
       const body = root.querySelector('.cq-body');
       body.innerHTML = '';
+      this.pidReset();   // 上一張卡的 P&ID 細部視窗：ResizeObserver 與還沒觸發的延後載入
+      if (res.valve || res.notfound || res.empty) this.pidRelease(null);   // 這個畫面沒有 P&ID 區塊：上一台的圖紙影像全部收掉（查到設備的等附加資料回來才知道要留哪幾張）
       body.classList.toggle('landing', !!res.empty);
       if (changed) { root.scrollTop = 0; if (this.scrollEl) this.scrollEl.scrollTop = 0; }
       if (res.valve) {
@@ -840,6 +859,7 @@
       D.loadAux(alias, path).then(({ ix, aux }) => {
         if (this.destroyed || this.res.alias !== alias) return;
         this.aux = aux; this.auxIx = ix;
+        this.pidRelease(aux, ix);   // 上一台設備的 P&ID 圖紙影像：這一台用不到的收掉（要在下面 fillAuxSection 開始抓圖之前）
         for (const sa of list) {
           const { h, grid } = els[sa.key];
           grid.innerHTML = '';
@@ -947,6 +967,7 @@
       const empty = (txt) => { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, txt)); };
       if (sa.key === 'compare') { this.fillCompare(aux, grid); return; }
       if (sa.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, false); return; }   // false＝完整資料區段（整列寬的大圖＋四個欄位與逐格來源）
+      if (sa.kind === 'pid') { this.fillPid(sec, ix, grid, mode, false); return; }   // 同上：圖紙影像＋五個欄位與逐格來源（要排在下面通用的 sa.kind 分支之前，不然只會印出五列文字、沒有圖）
       if (sa.kind) { // 工程文件
         if (!sec) {
           const used = this.searchedList(ix, sa.kind);
@@ -1200,7 +1221,7 @@
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
-    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索', hmi: '圖控 HMI 畫面' }[kind] || kind; }
+    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索', hmi: '圖控 HMI 畫面', pid: 'P&ID 圖面' }[kind] || kind; }
     async fillSummary(row, res, pend, svcEl) {
       const S = this.spec.summary; const alias = res.alias; const st = this.spec.stats;
       let r13 = null; let aux = null; let ix = null;
@@ -1216,6 +1237,7 @@
       await Promise.all(jobs);
       if (this.destroyed || this.res.alias !== alias) return;
       if (ix) { this.auxIx = ix; this.aux = aux; this.setAsof(ix); }
+      this.pidRelease(ix ? aux : null, ix);   // 上一台設備的 P&ID 圖紙影像：這一台用不到的收掉（要在下面 fillSumGroup 開始抓圖之前）
       const mode = this.currentMode();
       const secOf = (kind) => (aux && aux.sec && aux.sec[kind]) || null;
       // 多筆文件列時取「主體」：儀器清單略過保護管／感測元件；EOMR 優先序號與 AMS 相符者
@@ -1287,6 +1309,7 @@
       const sec = (aux && aux.sec && aux.sec[g.kind]) || null;
       const used = ix ? this.searchedList(ix, g.kind) : [];
       if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }   // true＝摘要組（不收合、只有畫面標頭＋影像；四個欄位與逐格來源在完整資料區）
+      if (g.kind === 'pid') { this.fillPid(sec, ix, grid, mode, true); return; }   // true＝摘要組（圖紙標頭＋PDF 連結＋影像；五個欄位與逐格來源在完整資料區）
       if (g.kind === 'docindex' || g.kind === 'docsearch') {
         if (!sec || !(sec.rows || []).length) {
           grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
@@ -1561,6 +1584,537 @@
       close.focus();
     }
 
+    /* ---------- P&ID 圖面位置 ---------- */
+    /** P&ID 圖面位置（card aux `sec.pid`，CONTRACT.md「P&ID 圖面位置」）：這台儀器畫在哪一張圖、圖上哪裡。
+     *  rows 每張圖紙一組 5 列（P&ID 圖面／圖面頁次／所在位置／圖上標示／對應方式），以 extra.g 分組，第一列的 extra 帶
+     *  s（圖紙鍵）／d（docs 鍵）／p／n／img／marks／drawn／unit／rel／how／conf／zone。標記跟圖控一樣以百分比疊上去、不燒進影像。
+     *  跟圖控不同的是圖紙很大（長邊 2400–3600 px）：整張縮進卡片就一個字都讀不到，所以同一張影像給三個視角——
+     *  「細部視窗」（pidView：以標記 ① 為中心、字讀得到的比例）、「整張圖的小地圖」（pidMini：紅圈＝位號、藍框＝細部視窗的範圍）、
+     *  點開後可縮放拖曳的燈箱（openPidLightbox）。圖紙的檔名與長寬只由 pidMeta 讀。
+     *  `inSum` 只決定版面：摘要組是「圖紙標頭＋PDF 連結列＋影像」，完整資料區另有五個欄位與逐格來源。
+     *  影像一律延後：展開中的那一張等捲進畫面才抓（whenNear），收起來的（PID_FOLD）等使用者展開才抓（whenDetailsOpen）。 */
+    fillPid(sec, ix, grid, mode, inSum) {
+      grid.innerHTML = '';
+      grid.classList.remove('cfields', 'sumgrid');   // 每張圖紙一塊（完整資料區的塊裡有自己的 .cfields），不是一格一欄
+      grid.classList.add('hmi-body', 'pid-body');
+      const rows = (sec && sec.rows) || [];
+      if (!rows.length) {
+        // 摘要組只印一句短的（同圖控：不收合的組不塞整段比對範圍）；比對了多少圖面留給完整資料區講，數字一律取自 index.pid.stats。
+        // JK 開頭的位號根本沒有列入比對：不可以寫「查無」（那是「比過了、找不到」的意思）
+        grid.appendChild(U.h('p', { class: 'muted cl-empty' }, this.pidIsJk(ix) ? (inSum ? PID_JK[0] : PID_JK[1])
+          : (inSum ? '查無（現行 P&ID 圖面上找不到這個位號）' : this.pidNoneText(ix))));
+        return;
+      }
+      const list = U.h('div', { class: 'hmi-list pid-list' });
+      const groups = [];
+      for (const r of rows) {
+        const ex = (r.length > 4 && r[4]) || {};
+        const g = groups.length && groups[groups.length - 1].g === ex.g ? groups[groups.length - 1] : null;
+        if (g) g.rows.push(r);
+        else groups.push({ g: ex.g, head: ex, rows: [r] });
+      }
+      // 每一張圖紙上都只有引用（extra.note）＝現行圖面上沒有找到這支位號的儀器符號：在最上面先講一句，免得把下面的位置當成儀器的位置
+      if (groups.every((g) => this.pidRefCode(g.head) > 0)) {
+        grid.appendChild(U.h('p', { class: 'pid-nosym' }, '這次比對（PDF 文字層＋OCR）沒有讀到這支位號的儀器符號——不代表圖上沒有畫，請開 PDF 確認。下面是圖上「提到」這支位號的地方（各張圖的標頭寫明是哪一種），不是儀器符號的位置。'));
+      }
+      const fold = groups.length > PID_FOLD;
+      groups.forEach((grp, gi) => {
+        const ex = grp.head;
+        const meta = this.pidMeta(ix, ex);
+        const val = (k) => { const r = grp.rows.find((x) => x[0] === k); return r ? U.cardValue(r[1]) : ''; };
+        // 圖號＋版次；檔名沒有 HT 編號的圖（廠商圖）就用檔名
+        const no = meta.doc ? meta.doc + (meta.rev ? ' Rev.' + meta.rev : '') : (meta.name.replace(/\.pdf$/i, '') || U.cardValue(grp.rows[0][1]) || String(ex.s || ''));
+        const pg = meta.page ? `PDF 第 ${meta.page}${meta.pages ? '／' + meta.pages : ''} 頁` : '';
+        const href = this.docHref(ix, meta.d);
+        // info.drawn／how＝build_card_aux 寫好的「圖上標示」「對應方式」整句（典型圖／不分機組／迴路…是什麼意思都在裡面），說明文字照抄、不在前端另外造句
+        const info = { no, title: no + (meta.page ? ` 第 ${meta.page} 頁` : ''), drawn: val('圖上標示'), how: val('對應方式'), href, hrefTitle: this.docTitle(ix, meta.d) };
+        const nm = (ex.marks || []).length;
+        const open = !fold || gi < PID_FOLD;
+        const block = U.h(fold ? 'details' : 'div', { class: 'hmi-screen pid-sheet', open: open ? true : null });
+        const cap = this.pidCapBits(ex); const capTip = this.pidSrcText(meta, ex, info);
+        block.appendChild(U.h(fold ? 'summary' : 'div', { class: 'hmi-head pid-head' },
+          U.h('span', { class: 'hmi-t' }, no),
+          meta.doc && meta.title ? U.h('span', { class: 'pid-title' }, meta.title) : null,
+          pg ? U.h('span', { class: 'hmi-unit' }, pg) : null,
+          ex.zone ? U.h('span', { class: 'hmi-unit', title: '圖框邊上印的分區座標' }, '圖框分區' + (ex.zone_near ? '約 ' : ' ') + ex.zone) : null,
+          // 短籤三段：圖上實際畫的字與它的意思、（引用才有）這一處其實是什麼、怎麼對上的。圖上畫的不是本台位號（典型圖）是圖面的畫法、
+          // 不是錯誤，所以是一般的灰字；「這一處不是儀器符號」是讀圖的人最容易誤會的事，用粗體 .pid-ref（不是紅字：資料沒有錯）；
+          // 只有 OCR 辨識信心偏低（可能讀錯字）那一段才用紅字 .warn
+          cap.drawn ? U.h('span', { class: 'hmi-cap', title: capTip }, cap.drawn) : null,
+          cap.ref ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip }, cap.ref) : null,
+          cap.how ? U.h('span', { class: 'hmi-cap pid-how' + (this.pidLowConf(ex) ? ' warn' : ''), title: capTip }, cap.how) : null,
+          fold ? U.h('span', { class: 'hmi-exp', 'aria-hidden': 'true' }) : null));
+        // PDF 連結放在標頭外面：收合時標頭是 <summary>，連結放裡面的話一點就把這一塊展開／收起來。
+        // 連結只開「位置讀自的那一份檔」；雲端硬碟對照裡沒有它就不給連結（build_card_aux 不會改連其他版次）。
+        block.appendChild(U.h('div', { class: 'pid-bar' },
+          href ? U.h('a', { class: 'lk', href, target: '_blank', rel: 'noopener noreferrer', title: info.hrefTitle || '' }, '開啟 PDF（Google 雲端硬碟）↗')
+            : U.h('span', { class: 'muted' }, '雲端硬碟裡找不到這一份 PDF，沒有連結（不改連其他版次）'),
+          U.h('span', { class: 'muted small' }, '影像只供定位，內容以 PDF 正本為準' + (meta.page ? `（翻到第 ${meta.page} 頁）` : '')
+            + (nm > 1 ? `·這支位號在這張圖上有 ${nm} 處（${PID_NO.slice(0, nm) || nm}），細部對準 ①` + this.pidRefOthers(ex) : ''))));
+        if (meta.file) {
+          const shot = this.pidShot(meta, ex, info);
+          block.appendChild(shot.el);
+          // 要掛在 <summary> 以外的元素上（shot）：<details> 自己就算收合也有排版框
+          if (open) this.whenNear(shot.el, shot.load); else this.whenDetailsOpen(shot.el, shot.load);
+        } else block.appendChild(U.h('p', { class: 'muted small pid-noimg' }, '這張圖紙沒有發布影像，只能顯示圖號與頁次' + (href ? '；請開啟上面的 PDF。' : '。')));
+        if (!inSum) {
+          const fields = U.h('div', { class: 'cfields hmi-f' });
+          const det = this.docDetail(ix, meta.d);
+          grp.rows.forEach((r, k) => {
+            fields.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: r[0] === '圖面頁次' || r[0] === '所在位置' ? undefined : 2,
+              href: k === 0 ? href : null, hrefTitle: k === 0 ? info.hrefTitle : null,
+              src: r[3] ? { lvl: r[2], text: r[3], detail: det.slice() } : null }, mode));
+          });
+          block.appendChild(fields);
+        }
+        list.appendChild(block);
+      });
+      grid.appendChild(list);
+      if (fold) grid.appendChild(U.h('p', { class: 'muted small aux-note' },
+        `這台設備畫在 ${groups.length} 張圖紙上，先展開第 1 張；其餘點圖號那一列展開（展開才會下載那一張圖面）。`));
+    }
+    /** 完整資料區的查無：把比對範圍一次講完。數字全部取自 index.pid.stats（pid_index 的統計），缺哪個鍵就不講那一段、不寫死任何數字。
+     *  JK 開頭的位號（HART 多工器模組）不在 pid_index 的比對母數裡（ams_tags_base，同圖控），要講明「沒有比對」而不是「找不到」。 */
+    pidNoneText(ix) {
+      const st = (ix && ix.pid && ix.pid.stats) || {};
+      const n = (k) => (typeof st[k] === 'number' ? st[k] : null);
+      const jk = n('ams_tags') != null && n('ams_tags_base') != null && n('ams_tags') > n('ams_tags_base');
+      if (this.pidIsJk(ix)) return PID_JK[1];
+      const bits = [];
+      if (n('drawings') != null) bits.push(`已比對現行 P&ID 圖面 ${n('drawings')} 份` + (n('pages') != null ? ` ${n('pages')} 頁` : '')
+        + (n('pages_cover') ? `（其中 ${n('pages_cover')} 頁是封面、目錄等非圖紙頁）` : ''));
+      // 文字層與 OCR 各比了多少頁：每一張圖紙頁都做過 OCR（pages_ocr），其中 pages_sparse 頁沒有可用的文字層、位號只在 OCR 結果裡。
+      // （原本寫成「N 頁的位號是線條字…N 頁用到 OCR」，讀起來像只有線條字的頁才做 OCR——2026-10-10 稽核）
+      const how = [];
+      if (n('pages_text') != null) how.push(`${n('pages_text')} 頁有 PDF 文字層可比對`);
+      if (n('pages_ocr') != null) {
+        const sheetPages = n('pages_sheet') != null ? n('pages_sheet') : (n('pages') != null ? n('pages') - (n('pages_cover') || 0) : null);
+        if (n('pages_ocr') > 0) how.push((sheetPages === n('pages_ocr') ? `所有圖紙頁都做過 OCR 讀圖（${n('pages_ocr')} 頁）` : `${n('pages_ocr')} 頁做過 OCR 讀圖`)
+          + (n('pages_sparse') ? `，其中 ${n('pages_sparse')} 頁的位號只在 OCR 結果裡` : ''));
+        else how.push('還沒有 OCR 讀圖的結果');
+      }
+      if (how.length) bits.push(how.join('，'));
+      if (n('located') != null) bits.push((n('ams_tags_base') != null ? `列入比對的 ${n('ams_tags_base')} 支現行位號` + (jk ? '（不含 JK 開頭的 HART 多工器模組）' : '') : '現行位號')
+        + `有 ${n('located')} 支在圖上找得到，這一支不在其中`);
+      return '查無（' + (bits.length ? bits.join('；') : '現行 P&ID 圖面上找不到這個位號') + '）';
+    }
+    /** 這一台是不是「沒有列入 P&ID 比對」的 JK 位號（HART 多工器模組）：pid_index 的比對母數 ams_tags_base 不含 JK 開頭的位號（同圖控），
+     *  stats 兩個數字不同才代表這份資料真的有排除掉東西。這種設備要講「不在比對範圍」，不是「查無」。 */
+    pidIsJk(ix) {
+      const st = (ix && ix.pid && ix.pid.stats) || {};
+      if (!(typeof st.ams_tags === 'number' && typeof st.ams_tags_base === 'number' && st.ams_tags > st.ams_tags_base)) return false;
+      const row = this.res && this.res.i3 != null && AMS.devices && AMS.devices.sheet ? AMS.devices.sheet.rows[this.res.i3] : null;
+      return /^JK/i.test(row ? U.text(row[this.spec.lookup.target_tag_col]) : '');
+    }
+    /** 這一組（一張圖紙）的影像檔與圖紙資料。**{file, w, h} 只從這裡讀**（細部視窗、小地圖、燈箱三處共用）：
+     *  各讀各的話，舞台的長寬比、標記的百分比位置與載入後的影像就會對不起來（同圖控 hmiPick 的教訓，CONTRACT.md）。
+     *  P&ID 每張圖紙只有一張影像（沒有逐機組的變體），所以這裡不用挑；沒有影像或長寬不明時 file＝null（區塊改印一句話）。 */
+    pidMeta(ix, ex) {
+      const e = ex || {};
+      const s = (ix && ix.pid && ix.pid.sheets && ix.pid.sheets[e.s]) || {};
+      const w = Number(s.w) || 0; const h = Number(s.h) || 0;
+      return { file: e.img && s.file && w > 0 && h > 0 ? s.file : null, w, h,
+        doc: s.doc || '', rev: s.rev == null ? '' : String(s.rev), title: s.title || '', name: s.name || '',
+        page: e.p || s.page || null, pages: e.n || s.pages || null, d: e.d || s.d || null };
+    }
+    /** 這張圖上 OCR 辨識信心偏低（< PID_LOW）的標記是第幾處（0 起算的陣列）。看 extra.confs（逐處的辨識信心，文字層的是 null）——
+     *  偏低的不一定是 ①（2026-10-10 稽核：③ 是 0.78 而短籤只看 ①，沒有出聲）。舊資料沒有 confs：conf_min 偏低但不知道是哪幾處 → [-1]；
+     *  再舊的只有 ① 的 conf。 */
+    pidLow(ex) {
+      const e = ex || {};
+      const low = (c) => typeof c === 'number' && c < PID_LOW;
+      if (Array.isArray(e.confs)) return e.confs.map((c, i) => (low(c) ? i : -1)).filter((i) => i >= 0);
+      if (low(e.conf_min)) return e.how === 'ocr' && low(e.conf) && e.conf <= e.conf_min ? [0] : [-1];
+      return e.how === 'ocr' && low(e.conf) ? [0] : [];
+    }
+    /** 這張圖上有任何一處 OCR 標記的辨識信心偏低：只有這種情況說明文字才用紅字 */
+    pidLowConf(ex) { return this.pidLow(ex).length > 0; }
+    /** 辨識信心的寫法：兩位小數；四捨五入後看不出「低於門檻」的（0.798 → 0.80）多寫一位，免得紅字旁邊印著 0.80 */
+    pidConf(c) { return c < PID_LOW && Number(c.toFixed(2)) >= PID_LOW ? c.toFixed(3) : c.toFixed(2); }
+    /** ① 是哪一種引用（0＝不是引用，是儀器符號旁的標籤）。notes 是逐處的代碼（與 marks 對應），有就以 notes[0] 為準——
+     *  這張圖上幾處的種類不同時 note 只會給 1，講不準 ① 是哪一種；沒有 notes（舊資料）才看 note。 */
+    pidRefCode(ex) {
+      const e = ex || {};
+      const c = Array.isArray(e.notes) && e.notes.length ? e.notes[0] : e.note;
+      return typeof c === 'number' && c > 0 ? c : (c ? 1 : 0);
+    }
+    /** 連結列「…有 N 處，細部對準 ①」後面那半句：① 是儀器符號、而其餘幾處裡有引用時，點名是哪幾處、各是什麼 */
+    pidRefOthers(ex) {
+      const e = ex || {};
+      if (!Array.isArray(e.notes) || this.pidRefCode(e) > 0) return '';
+      const by = new Map();
+      e.notes.forEach((c, i) => { if (i > 0 && typeof c === 'number' && c > 0) by.set(c, (by.get(c) || '') + (PID_NO[i] || String(i + 1))); });
+      if (!by.size) return '';
+      return '；' + Array.from(by.entries()).map(([c, nos]) => `${nos} 是${PID_REF_NAME[c] || PID_REF_OTHER[1]}`).join('、') + '，不是儀器符號';
+    }
+    /** 圖紙標頭的短籤，分三段：drawn＝圖上實際畫的字（OCR 的講明是讀到的）與它跟本台的關係（rel）；ref＝① 是引用時講這一處其實是什麼
+     *  （不是儀器符號的位置）；how＝怎麼對上的（文字層／OCR＋辨識信心，ocr-fix 加「字元經校正」，偏低的點名是哪幾處）。
+     *  完整那句在 title／alt／燈箱說明列（pidSrcText）。版次與 PDF 頁次是標頭自己的欄位，「以 PDF 正本為準」在連結列，這裡不重複。 */
+    pidCapBits(ex) {
+      const e = ex || {};
+      // exact：圖上就是本台；圖上把幾支位號合寫成一個標籤（…BL001/2/3、G11/12…）時講「本台是其中一支」；odd＝build_card_aux 對不起來的（不替它說「就是本台」）
+      const rel = { exact: e.odd ? '寫法與位號不完全相同，請對照圖面' : (/\/\d/.test(e.drawn || '') ? '幾支位號合寫的標籤，本台是其中一支' : '就是本台'), neutral: '圖面不分機組', typical: (e.unit ? `以 ${e.unit} 繪製的` : '') + '典型圖，本台取同一位置',
+        loop: '同一迴路的儀器', train: (e.unit ? `只畫 ${e.unit} 一台，` : '') + '同型各台共用這張圖，本台取同一位置' }[e.rel] || '';
+      const lead = e.how === 'ocr' ? (e.fix ? 'OCR 校正後是 ' : 'OCR 讀到的是 ') : '圖上畫的是 ';
+      const drawn = e.drawn ? lead + e.drawn + (rel ? `（${rel}）` : '') : rel;
+      const code = this.pidRefCode(e);
+      const ref = code ? '※ ' + (PID_REF[code] || PID_REF_OTHER[0]) : '';
+      const low = this.pidLow(e);
+      const many = (e.marks || []).length > 1;
+      const no = (i) => (i >= 0 ? (PID_NO[i] || String(i + 1)) : '');
+      const confs = Array.isArray(e.confs) ? e.confs : [];
+      // 偏低的那幾處：只有一處標記時直接說「偏低」；多處時點名（① 以外的把信心值一起寫出來，① 的已經寫在前面）
+      const lowTxt = !low.length ? '' : (many && low[0] >= 0
+        ? low.map((i) => (i === 0 ? no(0) : `${no(i)}${typeof confs[i] === 'number' ? ' ' + this.pidConf(confs[i]) : ''}`)).join('、') + ' 偏低，請對照圖面'
+        : '偏低，請對照圖面');
+      let how = '';
+      if (e.how === 'ocr') {
+        const bits = [];
+        // 只有一處標記而且偏低：「偏低」緊跟在信心值後面（原本排成「信心 0.79，字元經校正，偏低」，讀起來像是校正偏低）
+        const one = !many && low.length && typeof e.conf === 'number';
+        if (typeof e.conf === 'number') bits.push('信心 ' + (many ? '① ' : '') + this.pidConf(e.conf) + (one ? ' 偏低' : ''));
+        if (e.fix) bits.push('字元經校正');
+        const tail = one ? '請對照圖面' : lowTxt;
+        how = (low.length ? '⚠ ' : '') + 'OCR 讀圖' + (bits.length || tail ? `（${bits.join('，')}${bits.length && tail ? (many ? '；' : '，') : ''}${tail}）` : '');
+      } else if (e.how === 'text') {
+        how = (low.length ? '⚠ ' : '') + 'PDF 文字層' + (lowTxt ? `；另有 OCR 讀圖的標記（${lowTxt}）` : '');
+      }
+      return { drawn, ref, how };
+    }
+    /** 短籤的整句（各段以「·」相接） */
+    pidCapText(meta, ex) { const b = this.pidCapBits(ex); return [b.drawn, b.ref, b.how].filter(Boolean).join('·'); }
+    /** 影像來源的完整說明（alt、標頭短籤的 title、燈箱說明列）：哪一版哪一頁、圖上實際畫的字與它的意思、文字層還是 OCR、以 PDF 正本為準。
+     *  info.drawn／info.how 是 build_card_aux 的「圖上標示」「對應方式」兩列原句（引用是哪一種、OCR 原本讀成什麼都在裡面）。 */
+    pidSrcText(meta, ex, info) {
+      const m = meta || {}; const e = ex || {}; const i = info || {};
+      const bits = [(m.rev ? `Rev.${m.rev} ` : '') + (m.page ? `PDF 第 ${m.page} 頁` + (m.pages ? `（共 ${m.pages} 頁）` : '') : 'PDF') + '轉正後的灰階影像'];
+      bits.push('圖上標示：' + (i.drawn || e.drawn || '—'));
+      bits.push('對應方式：' + (i.how || (e.how === 'ocr' ? 'OCR 讀圖' : 'PDF 文字層')));
+      const low = this.pidLow(e);
+      if (low.length) {
+        const which = (e.marks || []).length > 1 && low[0] >= 0 ? `（圖上 ${low.map((k) => PID_NO[k] || String(k + 1)).join('、')}）` : '';
+        bits.push(`⚠ OCR 辨識信心偏低${which}，可能讀錯相近的字元，請對照圖面確認`);
+      }
+      bits.push('影像只供定位，內容以雲端硬碟的 PDF 正本為準');
+      return bits.join('；');
+    }
+    /** 圖紙上的標記（舞台的子元素，以百分比定位，所以縮放時位置不用重算、粗細也不變）。
+     *  有框的（文字層／OCR 的字框）只畫外框線：P&ID 的標記就壓在位號那幾個字上，照圖控的畫法（26px 紅圈＋半透明填色）會把字蓋掉；
+     *  框線由 CSS 往外推幾個像素（.pid-stage .hmi-box），字本身露在框裡。寬或高為 0 的（只有一個點）才畫圈。
+     *  多處時掛編號 ①②③（marks[0]＝「所在位置」那列描述的那處），有框的編號貼在框的右緣外側。 */
+    pidMarks(marks) {
+      const out = [];
+      (marks || []).forEach((m, i) => {
+        const x = U.num(m[0]); const y = U.num(m[1]); const mw = U.num(m[2]); const mh = U.num(m[3]);
+        const pri = i === 0 ? ' pri' : '';
+        const pc = (f) => (f * 100).toFixed(3) + '%';
+        const boxed = mw > 0 && mh > 0;
+        if (boxed) out.push(U.h('span', { class: 'hmi-box' + pri, 'aria-hidden': 'true', style: `left:${pc(x - mw / 2)};top:${pc(y - mh / 2)};width:${pc(mw)};height:${pc(mh)}` }));
+        else out.push(U.h('span', { class: 'hmi-mk' + pri, 'aria-hidden': 'true', style: `left:${pc(x)};top:${pc(y)}` }));
+        if (marks.length > 1) {
+          // 編號印一般的數字（1、2、3）：圓圈數字 ①②③ 在 11–13px 的紅底上糊成一團、讀不出來（2026-10-10 稽核）；
+          // 紅底圓牌＋白字本身就是「①」的樣子（app.css .pid-stage .hmi-no），說明文字與「下一處 ②」照舊寫圓圈數字
+          out.push(U.h('span', { class: 'hmi-no' + pri, 'aria-hidden': 'true',
+            style: boxed ? `left:${pc(x + mw / 2)};top:${pc(y)};transform:translate(10px,-50%)`
+              : `left:${pc(x)};top:${pc(y)};transform:translate(10px,${(i % 2 ? 1 : -1) * (130 + Math.floor(i / 2) * 115)}%)` },
+            String(i + 1)));
+        }
+      });
+      return out;
+    }
+    /** 細部視窗（.pid-view）＋舞台（.pid-stage＝整張圖紙；影像與標記都是它的子元素）。
+     *  卡片裡（big=false）：舞台寬＝影像寬 × --pid-k（app.css .pid-shot：一個影像像素幾個 CSS 像素，現在是 1），
+     *  以純 CSS 的 clamp() 把標記 ① 擺到視窗正中央、同時不讓圖紙邊緣縮進視窗（位號靠圖邊時就偏離中央）——不量容器、
+     *  也不必跟著 resize 重算。舞台比視窗小的方向（小圖）則置中。big=true 是燈箱：寬與位置由 openPidLightbox 以 px 寫入。 */
+    pidView(meta, ex, big) {
+      const view = U.h(big ? 'div' : 'span', { class: 'pid-view loading' + (big ? ' big' : '') });
+      const stage = U.h('span', { class: 'pid-stage' });
+      stage.style.aspectRatio = meta.w + ' / ' + meta.h;
+      const marks = ex.marks || [];
+      if (!big) {
+        const m0 = marks[0] || [0.5, 0.5];
+        const W = `calc(var(--pid-k) * ${meta.w}px)`; const H = `calc(var(--pid-k) * ${meta.h}px)`;
+        const at = (S, c) => `clamp(min(calc(100% - ${S}), calc((100% - ${S}) / 2)), calc(50% - var(--pid-k) * ${c.toFixed(1)}px), max(0px, calc((100% - ${S}) / 2)))`;
+        stage.style.width = W;
+        stage.style.left = at(W, U.num(m0[0], 0.5) * meta.w);
+        stage.style.top = at(H, U.num(m0[1], 0.5) * meta.h);
+      }
+      for (const el of this.pidMarks(marks)) stage.appendChild(el);
+      if (marks.length > 1) stage.appendChild(U.h('span', { class: 'sr-only' }, `此位號在這張圖紙上有 ${marks.length} 處標記，標記 ① 是「完整資料 › P&ID 圖面位置」的「所在位置」那列描述的那處。`));
+      view.appendChild(stage);
+      return { view, stage };
+    }
+    /** 小地圖：整張圖紙縮小（跟細部視窗用同一張影像，不另外發布縮圖），每處標記一個紅圈、藍框是細部視窗現在看到的範圍 */
+    pidMini(meta, ex) {
+      const mini = U.h('span', { class: 'pid-mini', 'aria-hidden': 'true' });
+      mini.style.aspectRatio = meta.w + ' / ' + meta.h;
+      const rect = U.h('span', { class: 'pid-rect', hidden: true });
+      mini.appendChild(rect);
+      (ex.marks || []).forEach((m, i) => mini.appendChild(U.h('span', { class: 'pid-dot' + (i === 0 ? ' pri' : ''),
+        style: `left:${(U.num(m[0]) * 100).toFixed(2)}%;top:${(U.num(m[1]) * 100).toFixed(2)}%` })));
+      return { mini, rect };
+    }
+    /** 小地圖的藍框＝舞台落在細部視窗裡的那一塊（要量排版，所以由 pidWatch 在視窗寬高變動時重算；收合中沒有排版框就跳過） */
+    pidRect(view, stage, rect) {
+      const v = view.getBoundingClientRect(); const s = stage.getBoundingClientRect();
+      if (!(v.width > 0 && s.width > 0 && s.height > 0)) return;
+      const x0 = v.left + view.clientLeft; const y0 = v.top + view.clientTop;
+      const l = U.clamp((x0 - s.left) / s.width, 0, 1); const t = U.clamp((y0 - s.top) / s.height, 0, 1);
+      const r = U.clamp((x0 + view.clientWidth - s.left) / s.width, 0, 1); const b = U.clamp((y0 + view.clientHeight - s.top) / s.height, 0, 1);
+      rect.style.left = (l * 100).toFixed(2) + '%'; rect.style.top = (t * 100).toFixed(2) + '%';
+      rect.style.width = ((r - l) * 100).toFixed(2) + '%'; rect.style.height = ((b - t) * 100).toFixed(2) + '%';
+      rect.hidden = false;
+    }
+    /** 卡片裡每個細部視窗的寬高一變（視窗縮放、寬窄版切換、<details> 展開）就重算它的藍框：全卡共用一個 ResizeObserver，換卡／離開時收掉 */
+    pidWatch(view, sync) {
+      if (!('ResizeObserver' in window)) { sync(); return; }
+      if (!this._pidRO) {
+        this._pidSync = new WeakMap();
+        this._pidRO = new ResizeObserver((es) => { for (const e of es) { const f = this._pidSync.get(e.target); if (f) f(); } });
+      }
+      this._pidSync.set(view, sync);
+      this._pidRO.observe(view);
+    }
+    /** 抓圖紙影像（core.js D.loadImage：解密 → blob URL，同一張圖共用一個 URL）放進細部視窗與小地圖：兩個 <img> 指向同一個 blob，
+     *  瀏覽器只解碼一次。先 decode() 再插入，3000 px 級的圖才不會在插入那一格把畫面卡住。 */
+    pidLoad(meta, v, mm, alt) {
+      // gen＝這張卡的世代（pidReset 每換一台就加一）：影像抓回來時如果已經換卡，就不要再建 <img>——那張圖的 blob 可能已被
+      // pidRelease 撤銷（撤銷後才指過去會在 console 留一則載入失敗），而且那些元素也已經不在畫面上
+      const gen = this._pidGen || 0;
+      const stale = () => this.destroyed || gen !== (this._pidGen || 0);
+      return D.loadImage(meta.file).then((o) => {
+        if (stale()) return null;
+        const mk = (a) => U.h('img', { class: 'pid-img', src: o.url, alt: a, decoding: 'async', draggable: 'false' });
+        const img = mk(alt); const small = mk('');
+        const ready = typeof img.decode === 'function' ? img.decode().catch(() => { /* 解不開就照樣插入，由瀏覽器顯示破圖 */ }) : Promise.resolve();
+        return ready.then(() => {
+          if (stale()) return;
+          v.stage.insertBefore(img, v.stage.firstChild);
+          mm.mini.insertBefore(small, mm.mini.firstChild);
+          v.view.classList.remove('loading');
+        });
+      }).catch((e) => {
+        if (stale()) return;
+        v.view.classList.remove('loading');
+        v.view.appendChild(U.h('span', { class: 'muted small pid-err' }, '無法載入圖面影像：' + ((e && e.message) || e)));
+      });
+    }
+    /** 一張圖紙的「細部視窗＋小地圖」（整塊是按鈕：點開燈箱）。回傳 {el, load}：load 由 fillPid 交給 whenNear／whenDetailsOpen 延後呼叫。
+     *  卡片裡的視窗不接手勢（在會捲動的卡片裡攔滾輪／拖曳會讓手機捲不動頁面）；縮放、拖曳都在燈箱。 */
+    pidShot(meta, ex, info) {
+      // 窄版面的小地圖疊在細部視窗的角落（app.css）：放在 ① 的對角（mini-r＝靠右、mini-t＝靠上）——位號靠圖紙邊緣、
+      // 細部視窗對不到正中央時，標記會往它所在的那一側偏，對角那一側才不會蓋到它
+      const m0 = (ex.marks || [])[0] || [0.5, 0.5];
+      const btn = U.h('button', { type: 'button', 'aria-label': '放大圖面：' + info.title, title: '點擊放大（可縮放、拖曳）',
+        class: 'hmi-shot pid-shot' + (U.num(m0[0], 0.5) < 0.5 ? ' mini-r' : '') + (U.num(m0[1], 0.5) >= 0.5 ? ' mini-t' : '') });
+      const v = this.pidView(meta, ex, false); const mm = this.pidMini(meta, ex);
+      v.view.appendChild(U.h('span', { class: 'hmi-zoom', 'aria-hidden': 'true' }, '⤢ 放大'));   // 掛在細部視窗上（掛在按鈕上會落在小地圖那一欄）
+      const side = U.h('span', { class: 'pid-side' }, mm.mini,
+        U.h('span', { class: 'pid-legend muted small', 'aria-hidden': 'true' }, '整張圖：紅圈＝這支位號，藍框＝左邊細部的範圍'));
+      btn.append(v.view, side);
+      const sync = () => this.pidRect(v.view, v.stage, mm.rect);
+      this.pidWatch(v.view, sync);
+      const load = () => this.pidLoad(meta, v, mm, info.title + ' 的圖面影像（' + this.pidSrcText(meta, ex, info) + '）').then(sync);
+      btn.addEventListener('click', () => this.openPidLightbox(meta, ex, info, btn));
+      return { el: btn, load };
+    }
+    /** el 真的捲進畫面才跑 load，只跑一次。與 whenDetailsOpen 的差別：那個是「有排版框就跑」（不管捲到了沒），給使用者自己點開的收合內容用；
+     *  這個給一開卡就展開、但多半在第一屏以下的大圖（P&ID 第一張圖紙：密文 26–300 KB、解碼後 16–30 MB，不該每次開卡都抓）。
+     *  還收在 <details> 裡的元素沒有排版框、不會觸發，所以完整資料區（.cq-more）收合中也不會白抓。列印（beforeprint）一樣先載。 */
+    whenNear(el, load) {
+      let done = false;
+      let io = null;
+      const off = () => { done = true; if (io) io.disconnect(); window.removeEventListener('beforeprint', run); };
+      const run = () => { if (done || this.destroyed) return; off(); load(); };
+      if (typeof IntersectionObserver !== 'function') { run(); return; }
+      io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) run(); });
+      io.observe(el);
+      window.addEventListener('beforeprint', run);
+      (this._pidOff || (this._pidOff = [])).push(off);   // 換卡時還沒捲到的就不用等了（pidReset）
+    }
+    /** 換卡／離開時收掉上一張卡的 P&ID 觀察器：細部視窗的 ResizeObserver（pidWatch）與還沒觸發的 whenNear */
+    pidReset() {
+      if (this._pidRO) { this._pidRO.disconnect(); this._pidRO = null; }
+      for (const f of this._pidOff || []) f();
+      this._pidOff = [];
+      this._pidGen = (this._pidGen || 0) + 1;   // 上一張卡還在路上的圖紙影像抓回來也不再插入（pidLoad）
+    }
+    /** 換到另一台設備時收掉新卡用不到的圖紙影像（blob URL；core.js D.revokeImages）。aux＝新卡的附加資料：它引用的圖紙留著
+     *  （G11／G12 共用同一張典型圖時不必重抓）；null＝新畫面沒有 P&ID 區塊（查無位號、首頁、只有氣動閥清單）→ 全部收掉。
+     *  圖紙一張解碼後 16–30 MB，連看幾十台設備不收的話會一直疊上去；離開查詢卡時另由 destroy() → D.revokeHmiImages() 全收。 */
+    pidRelease(aux, ix) {
+      if (!D.revokeImages) return;
+      const keep = [];
+      for (const r of (aux && aux.sec && aux.sec.pid && aux.sec.pid.rows) || []) {
+        const ex = r.length > 4 && r[4];
+        if (ex && ex.marks) { const f = this.pidMeta(ix, ex).file; if (f) keep.push(f); }
+      }
+      D.revokeImages('card/pid/', keep);
+    }
+    /** 圖紙燈箱：同一個舞台，可縮放（滾輪、雙指、＋／−）、拖曳平移、「全圖」「回到標記」，多處標記時「下一處」。
+     *  開啟時是一個影像像素一個 CSS 像素、對準標記 ①。關閉走既有的覆蓋層流程（Esc／✕／手機與桌機的返回鍵／換頁），同圖控燈箱。 */
+    openPidLightbox(meta, ex, info, opener) {
+      const marks = ex.marks || [];
+      const ov = U.h('div', { class: 'modal hmi-lb pid-lb', role: 'dialog', 'aria-modal': 'true', 'aria-label': '圖面放大：' + info.title });
+      const panel = U.h('div', { class: 'hmi-lb-panel' });
+      const B = (act, text, label) => U.h('button', { type: 'button', class: 'pid-tb', 'data-z': act, 'aria-label': label, title: label }, text);
+      const zoomv = U.h('span', { class: 'pid-zoomv', 'aria-hidden': 'true' });
+      const close = U.h('button', { class: 'icon-btn modal-x', type: 'button', 'aria-label': '關閉放大檢視' }, '✕');
+      const nextB = marks.length > 1 ? B('next', '下一處', '移到這支位號的下一處標記') : null;
+      const tools = U.h('div', { class: 'pid-tools', role: 'toolbar', 'aria-label': '圖面縮放與定位' },
+        B('out', '−', '縮小'), B('in', '＋', '放大'), B('fit', '全圖', '縮到看得見整張圖'), B('mark', '回到標記', '回到標記的位置（原尺寸）'), nextB, zoomv, close);
+      const v = this.pidView(meta, ex, true); const mm = this.pidMini(meta, ex);
+      v.view.setAttribute('tabindex', '0');
+      v.view.setAttribute('role', 'group');
+      v.view.setAttribute('aria-label', '圖面：拖曳平移，滾輪或雙指縮放；鍵盤 ＋ − 縮放、0 看全圖、方向鍵平移');
+      v.view.appendChild(mm.mini);
+      const cap = U.h('div', { class: 'hmi-lb-cap' }, U.h('span', { class: 'hmi-t' }, info.no),
+        meta.doc && meta.title ? U.h('span', {}, meta.title) : null,
+        info.href ? U.h('a', { class: 'lk', href: info.href, target: '_blank', rel: 'noopener noreferrer', title: info.hrefTitle || '' }, '開啟 PDF（Google 雲端硬碟）↗') : null,
+        U.h('span', { class: 'muted small' }, this.pidSrcText(meta, ex, info) + '；紅框（只有一個點時是紅圈）＝這支位號在圖上的位置'
+          + (marks.length > 1 ? `，共 ${marks.length} 處，① 是「所在位置」（完整資料）描述的那處` + this.pidRefOthers(ex) : '')));
+      panel.append(tools, v.view, cap);
+      ov.appendChild(panel);
+      document.body.appendChild(ov);
+      document.body.classList.add('modal-open');
+
+      // 狀態：z＝一個影像像素幾個 CSS 像素；cx／cy＝視窗正中央對到圖紙的哪一點（0~1）。縮放是改舞台的 width／left／top，
+      // 不用 transform: scale——scale 會把框線與編號一起放大；標記是舞台裡以百分比定位的子元素，只跟著移動、粗細不變。
+      const st = { z: 1, cx: 0.5, cy: 0.5 };
+      const geom = { left: 0, top: 0 };   // 舞台左上角相對於視窗內緣的位置（px）
+      let cur = 0; let raf = 0; let closed = false; let tok = null;
+      const vw = () => v.view.clientWidth; const vh = () => v.view.clientHeight;
+      const zFit = () => Math.min(vw() / meta.w, vh() / meta.h) || 1;
+      const zMax = () => Math.max(PID_ZMAX, zFit());
+      const apply = () => {
+        raf = 0;
+        const w = vw(); const h = vh();
+        if (!(w > 0 && h > 0)) return;
+        const W = meta.w * st.z; const H = meta.h * st.z;
+        let left = w / 2 - st.cx * W; let top = h / 2 - st.cy * H;
+        left = W <= w ? (w - W) / 2 : Math.min(0, Math.max(w - W, left));   // 圖紙比視窗小就置中；比視窗大就不讓圖邊縮進視窗
+        top = H <= h ? (h - H) / 2 : Math.min(0, Math.max(h - H, top));
+        st.cx = (w / 2 - left) / W; st.cy = (h / 2 - top) / H;              // 靠邊被擋下時把中心改成實際位置，接著拖曳才沒有空行程
+        geom.left = left; geom.top = top;
+        v.stage.style.width = W.toFixed(2) + 'px'; v.stage.style.left = left.toFixed(2) + 'px'; v.stage.style.top = top.toFixed(2) + 'px';
+        zoomv.textContent = Math.round(st.z * 100) + '%';
+        v.view.classList.toggle('far', st.z < 0.5);                         // 縮得很小：框只剩一小條，CSS 補一個圈
+        mm.mini.classList.toggle('all', W <= w + 1 && H <= h + 1);          // 整張圖都看得到了：小地圖收起來
+        this.pidRect(v.view, v.stage, mm.rect);
+      };
+      const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
+      /** 以視窗內的 (px, py) 為定點縮放 f 倍：那一點底下的圖紙位置不動 */
+      const zoomAt = (f, px, py) => {
+        const z1 = Math.min(zMax(), Math.max(zFit(), st.z * f));
+        const fx = (px - geom.left) / (meta.w * st.z); const fy = (py - geom.top) / (meta.h * st.z);
+        st.z = z1; st.cx = fx + (vw() / 2 - px) / (meta.w * z1); st.cy = fy + (vh() / 2 - py) / (meta.h * z1);
+        schedule();
+      };
+      const goMark = (i) => {
+        cur = i;
+        const m = marks[i] || [0.5, 0.5];
+        st.z = Math.max(zFit(), 1); st.cx = U.num(m[0], 0.5); st.cy = U.num(m[1], 0.5);
+        // 角落的小地圖放在這處標記的對角（位號靠圖邊、對不到正中央時才不會被小地圖蓋住）
+        mm.mini.classList.toggle('l', st.cx >= 0.5); mm.mini.classList.toggle('t', st.cy >= 0.5);
+        if (nextB) nextB.textContent = '下一處 ' + (PID_NO[(i + 1) % marks.length] || String(((i + 1) % marks.length) + 1));
+        schedule();
+      };
+      const goFit = () => { st.z = zFit(); st.cx = 0.5; st.cy = 0.5; schedule(); };
+      goMark(0); cancelAnimationFrame(raf); apply();
+      this.pidLoad(meta, v, mm, info.title + ' 的圖面（' + this.pidSrcText(meta, ex, info) + '）').then(() => { if (!closed) apply(); });
+
+      const centre = () => [vw() / 2, vh() / 2];
+      tools.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-z]'); if (!b) return;
+        const a = b.dataset.z; const c = centre();
+        if (a === 'in') zoomAt(1.5, c[0], c[1]); else if (a === 'out') zoomAt(1 / 1.5, c[0], c[1]);
+        else if (a === 'fit') goFit(); else if (a === 'mark') goMark(cur); else if (a === 'next') goMark((cur + 1) % marks.length);
+      });
+      const local = (e) => { const r = v.view.getBoundingClientRect(); return [e.clientX - r.left - v.view.clientLeft, e.clientY - r.top - v.view.clientTop]; };
+      // 滾輪：以游標為定點縮放（ctrlKey＝觸控板的雙指開合，位移量小，倍率放大）。要 preventDefault，所以不能是 passive
+      v.view.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const p = local(e);
+        zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), p[0], p[1]);
+      }, { passive: false });
+      // Pointer Events（滑鼠、觸控、觸控筆同一條路）：一指拖曳平移、兩指開合縮放（以兩指中點為定點）
+      const pts = new Map(); let pinch = 0;
+      const two = () => { const a = Array.from(pts.values()); return { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; };
+      v.view.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.pid-mini') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        try { v.view.setPointerCapture(e.pointerId); } catch (err) { /* 指標已經放開 */ }
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pts.size === 2) pinch = two().d;
+        v.view.classList.add('drag');
+      });
+      v.view.addEventListener('pointermove', (e) => {
+        const p = pts.get(e.pointerId); if (!p) return;
+        const dx = e.clientX - p.x; const dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+        if (pts.size === 1) { st.cx -= dx / (meta.w * st.z); st.cy -= dy / (meta.h * st.z); schedule(); }
+        else if (pts.size === 2) {
+          const t = two(); const r = v.view.getBoundingClientRect();
+          if (pinch > 0 && t.d > 0) zoomAt(t.d / pinch, t.x - r.left - v.view.clientLeft, t.y - r.top - v.view.clientTop);
+          pinch = t.d;
+        }
+      });
+      const up = (e) => { pts.delete(e.pointerId); pinch = 0; if (!pts.size) v.view.classList.remove('drag'); };
+      v.view.addEventListener('pointerup', up);
+      v.view.addEventListener('pointercancel', up);
+      v.view.addEventListener('dblclick', (e) => {   // 連點兩下：在「全圖」與「原尺寸（以點的地方為中心）」之間切換
+        if (e.target.closest('.pid-mini')) return;
+        const p = local(e);
+        if (st.z > zFit() * 1.05) goFit(); else zoomAt(1 / st.z, p[0], p[1]);
+      });
+      // 小地圖：點或拖，把視窗中心移到那個位置
+      const jump = (e) => { const r = mm.mini.getBoundingClientRect(); if (!(r.width > 0)) return; st.cx = (e.clientX - r.left) / r.width; st.cy = (e.clientY - r.top) / r.height; schedule(); };
+      mm.mini.addEventListener('pointerdown', (e) => { e.stopPropagation(); try { mm.mini.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } jump(e); });
+      mm.mini.addEventListener('pointermove', (e) => { if (mm.mini.hasPointerCapture(e.pointerId)) jump(e); });
+      // 鍵盤（焦點在燈箱裡任何地方都有效）：＋／− 縮放、0 全圖、方向鍵平移；Esc 由下面的 onKey 關閉
+      ov.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const c = centre(); const sx = 80 / (meta.w * st.z); const sy = 80 / (meta.h * st.z);
+        if (e.key === '+' || e.key === '=') zoomAt(1.25, c[0], c[1]); else if (e.key === '-' || e.key === '_') zoomAt(0.8, c[0], c[1]);
+        else if (e.key === '0') goFit();
+        else if (e.key === 'ArrowLeft') { st.cx -= sx; schedule(); } else if (e.key === 'ArrowRight') { st.cx += sx; schedule(); }
+        else if (e.key === 'ArrowUp') { st.cy -= sy; schedule(); } else if (e.key === 'ArrowDown') { st.cy += sy; schedule(); }
+        else return;
+        e.preventDefault();
+      });
+      // 視窗大小變了（轉向、縮放瀏覽器視窗）：維持同一個中心點重排
+      const ro = 'ResizeObserver' in window ? new ResizeObserver(() => schedule()) : null;
+      if (ro) ro.observe(v.view);
+
+      // 以下與 openHmiLightbox 的關閉流程相同（✕／Esc／背景／hashchange／ams-close／返回鍵）
+      const done = (fromHistory) => {
+        if (closed) return;
+        closed = true;
+        if (ro) ro.disconnect();
+        if (raf) cancelAnimationFrame(raf);
+        ov.remove();
+        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('hashchange', onHash);
+        if (!document.querySelector('.modal')) document.body.classList.remove('modal-open');
+        if (!fromHistory) AMS.overlay.done(tok);
+        if (opener && opener.isConnected) { try { opener.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }   // 焦點還給開啟它的那張縮圖
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); done(false); return; }
+        if (e.key !== 'Tab') return;
+        // 這個燈箱有一排按鈕（圖控的只有 ✕）：Tab 到頭就繞回來，焦點不跑到被蓋住的卡片上（aria-modal）
+        const f = Array.from(ov.querySelectorAll('button, a[href], [tabindex="0"]')).filter((el) => el.getClientRects().length);
+        const i = f.indexOf(document.activeElement);
+        if (f.length && (e.shiftKey ? i <= 0 : i < 0 || i === f.length - 1)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+      };
+      const onHash = () => done(false);
+      close.addEventListener('click', () => done(false));
+      ov.addEventListener('pointerdown', (e) => { if (e.target === ov || e.target === panel) done(false); });
+      ov.addEventListener('ams-close', () => done(false));
+      document.addEventListener('keydown', onKey, true);
+      window.addEventListener('hashchange', onHash);
+      tok = AMS.overlay.open('modal', () => done(true), true);   // force：平板／桌機按返回鍵也只關燈箱，不離開這張卡
+      close.focus();
+    }
+
     /* ---------- 快速連結 ---------- */
     renderLinks(row, res) {
       const s = U.h('section', { class: 'csec links' });
@@ -1803,9 +2357,10 @@
     onTheme() { if (this.spec) this.run(this.lastQuery); }
     destroy() {
       this.destroyed = true;
-      U.$$('.hmi-lb').forEach((m) => m.dispatchEvent(new CustomEvent('ams-close')));
-      if (D.revokeHmiImages) D.revokeHmiImages();   // 圖控縮圖的 blob URL 與影像 JSON 快取
+      U.$$('.hmi-lb').forEach((m) => m.dispatchEvent(new CustomEvent('ams-close')));   // 圖控與 P&ID 的燈箱都帶 .hmi-lb
+      if (D.revokeHmiImages) D.revokeHmiImages();   // 圖控縮圖與 P&ID 圖紙的 blob URL、影像 JSON 快取
       if (this.ro) { this.ro.disconnect(); this.ro = null; }
+      this.pidReset();
       window.removeEventListener('beforeprint', this._bp);
       window.removeEventListener('afterprint', this._ap);
     }

@@ -892,7 +892,7 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-g { min-width: 0; border-top: 1px solid var(--border); }
 .sum-g:nth-child(odd) { border-right: 1px solid var(--border); }
 /* 每個訊號一塊（dcs＝控制器組態、ctrl＝端子表）與文件類的組佔整列；否則三欄的訊號塊擠在半欄、右半邊空白 */
-.sum-dcs, .sum-ctrl, .sum-draw, .sum-docs, .sum-search, .sum-valve, .sum-hmi { grid-column: 1 / -1; border-right: 0 !important; }
+.sum-dcs, .sum-ctrl, .sum-draw, .sum-docs, .sum-search, .sum-valve, .sum-hmi, .sum-pid { grid-column: 1 / -1; border-right: 0 !important; }
 .sum-valve .sum-sigh .lk { margin-left: auto; }
 .valve-only .valve-ams { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */
@@ -1102,4 +1102,101 @@ details.hmi-screen[open] > .hmi-head .hmi-exp::after { content: "▾ 收合"; }
      摘要組已經不收合（展開中的那幾張渲染時就載），所以那裡的佔位只會是「還在解密」；完整資料區才要叫使用者先展開。 */
   .hmi-frame.loading::after { content: '（畫面縮圖還在解密：等縮圖出現再列印）'; }
   .cq-more .hmi-frame.loading::after { content: '（畫面縮圖尚未載入：請先在螢幕上展開「完整資料」，等縮圖出現再列印）'; }
+}
+
+/* ---------------- P&ID 圖面位置（card.js fillPid／pidView／pidMini／openPidLightbox；CONTRACT.md「P&ID 圖面位置」） ----------------
+   區塊外殼、標頭、收合提示與標記元素沿用圖控的 .hmi-screen／.hmi-head／.hmi-exp／.hmi-mk／.hmi-box／.hmi-no；
+   影像容器是自己的：圖紙長邊 2400–3600 px，不能像圖控那樣整張縮進 920px 的 .hmi-frame（縮到 25% 一個字都讀不到）。
+   .pid-view＝細部視窗（overflow: hidden 的窗）、.pid-stage＝整張圖紙（影像＋以百分比定位的標記）、.pid-mini＝整張圖的小地圖。
+   --pid-k＝卡片裡一個影像像素幾個 CSS 像素（card.js pidView 用它算舞台寬與位置）。現在寬窄版都是 1：圖紙上的位號字高只有
+   8–12 個影像像素（pid_shots 的長邊上限 3600 px），在一般桌機螢幕（DPR 1）縮成 0.75 就糊到讀不出來（2026-10-08 實看 D0027 第 2 頁）。 */
+.sum-pid .hmi-list, .aux-pid .hmi-list { padding: 4px 0 6px; }
+.pid-head .pid-title { font-size: 13px; }
+.pid-head .hmi-cap { overflow-wrap: anywhere; }
+/* 「這一處不是儀器符號的位置」（圖上註記／表格、跨圖旗標、用氣點、迴路詳圖）：讀圖的人最容易誤會的事，用粗體與正文色；
+   不是紅字——資料沒有錯，紅字留給「OCR 可能讀錯」（.hmi-cap.warn）。.pid-nosym＝整台設備在圖上都找不到儀器符號時最上面的那一句。 */
+.hmi-head .hmi-cap.pid-ref { color: var(--text); font-weight: 700; }
+.pid-nosym { margin: 6px 12px 2px; padding: 6px 10px; border-left: 3px solid var(--cmp-warn); border-radius: 4px; background: var(--cmp-warn-bg); color: var(--text); font-size: 13px; line-height: 1.5; }
+.cq-body.narrow .pid-nosym { margin: 6px 8px 2px; }
+.pid-sheet .hmi-exp::after { content: "▸ 顯示圖面"; }
+.pid-bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 12px 0; font-size: 12.5px; }
+.pid-noimg { padding: 6px 12px; margin: 0; }
+.pid-shot { --pid-k: 1; display: grid; grid-template-columns: minmax(0, 1fr) clamp(170px, 24%, 260px); gap: 8px; align-items: start; max-width: 1320px; }   /* 寬螢幕不再拉寬：細部視窗最多約 1030×560 */
+/* 細部視窗：高度由 aspect-ratio 決定（舞台的 top 百分比才算得出來）；底色固定白——圖紙是白底黑線 */
+.pid-view { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 560px; overflow: hidden; background: #fff; border: 1px solid var(--border-strong); border-radius: 6px; }
+.pid-view.loading::after { content: '載入圖面…'; position: absolute; inset: 0; display: grid; place-items: center; color: #5b6475; font-size: 12.5px; }
+.pid-err { position: absolute; inset: 0; display: grid; place-items: center; padding: 8px; text-align: center; background: rgba(255, 255, 255, 0.85); }
+.pid-stage { position: absolute; display: block; max-width: none; }
+.pid-img { display: block; width: 100%; height: 100%; max-width: none; user-select: none; -webkit-user-drag: none; }
+.pid-view > .hmi-zoom { right: 8px; top: 8px; }
+/* 圖紙上的標記：框壓在位號那幾個字上，所以只畫外框線、不填色，而且往外推（content-box：百分比的寬高是字框本身，
+   padding＋border 以負 margin 抵銷），字露在框裡讀得到；沒有框的點才畫圖控那種圈（.hmi-mk 原樣）。 */
+.pid-stage .hmi-box { box-sizing: content-box; padding: 3px 5px; margin: -5px -7px; border: 2px solid #e02020; border-radius: 4px; background: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85); }
+.pid-stage .hmi-box:not(.pri) { border-style: dashed; background: none; }
+/* 圖紙上的編號牌：圖控沿用的 11.5px 等寬粗體圓圈數字（①②③）在紅底上糊成一團、讀不出來（2026-10-10 稽核，放大 5 倍才認得出），
+   所以 P&ID 這裡改印一般數字（card.js pidMarks）、用系統無襯線字、加大成 18px 的圓牌——紅底圓牌＋白字就是「①」的樣子。圖控的 .hmi-no 不動。 */
+.pid-stage .hmi-no { min-width: 18px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 13px; font-weight: 700; line-height: 18px; letter-spacing: 0; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.95); }
+@media (prefers-reduced-motion: no-preference) {
+  .pid-stage .hmi-box.pri { animation: pid-pulse 1.8s ease-out 3; }
+  @keyframes pid-pulse { 0% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 0 1px rgba(224, 32, 32, 0.6); } 70%, 100% { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85), 0 0 0 14px rgba(224, 32, 32, 0); } }
+}
+/* 小地圖：整張圖紙（與細部視窗同一張影像）；紅圈＝每處標記（.pri 是 ①），藍框＝細部視窗的範圍 */
+.pid-side { display: block; min-width: 0; }
+.pid-mini { position: relative; display: block; background: #fff; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
+.pid-rect { position: absolute; border: 2px solid #2e75b6; border-radius: 2px; background: rgba(46, 117, 182, 0.14); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9); pointer-events: none; }
+.pid-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border: 3px solid #e02020; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9); pointer-events: none; }
+.pid-dot:not(.pri) { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-width: 2px; }
+.pid-legend { display: block; padding: 3px 2px 0; line-height: 1.35; }
+/* 深色主題：圖紙反相（白底黑線 → 深底淺線），不然卡片中間一大塊白得刺眼；標記是另外的元素，不受影響。列印一律還原（見下方 print）。 */
+[data-theme="dark"] .pid-view, [data-theme="dark"] .pid-mini { background: #14181e; }
+[data-theme="dark"] .pid-img { filter: invert(0.92) hue-rotate(180deg); }
+[data-theme="dark"] .pid-view.loading::after { color: #9aa4b2; }
+[data-theme="dark"] .pid-err { background: rgba(20, 24, 30, 0.85); }
+/* 燈箱：滿版；工具列一列、圖面吃掉剩下的高度、說明列在下 */
+/* 背景完全不透明（一般 .modal 是半透明）：工具列直接擺在背景上，原本的 0.94 在手機上仍看得到底下頁面的字從工具列那一帶透上來
+   （2026-10-10 稽核）。工具列自己也給同一個不透明底色，日後背景再改也不會透。 */
+.pid-lb { padding: 10px; cursor: default; background: #0a0e14; }
+.pid-lb .hmi-lb-panel { width: 100%; height: 100%; max-height: none; }
+.pid-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: #0a0e14; }
+.pid-tb { min-width: 40px; min-height: 36px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; }
+.pid-tb:hover { background: var(--surface-3); }
+.pid-zoomv { min-width: 44px; color: #fff; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.pid-tools .modal-x { margin-left: auto; align-self: center; }
+.pid-view.big { flex: 1 1 auto; min-height: 0; aspect-ratio: auto; max-height: none; touch-action: none; overscroll-behavior: contain; cursor: grab; }
+.pid-view.big.drag { cursor: grabbing; }
+.pid-view.big:focus-visible { outline: 2px solid var(--accent-2); outline-offset: -2px; }
+.pid-view.big .pid-mini { position: absolute; right: 10px; bottom: 10px; width: clamp(110px, 18%, 220px); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); cursor: pointer; touch-action: none; }
+.pid-view.big .pid-mini.l { right: auto; left: 10px; }
+.pid-view.big .pid-mini.t { bottom: auto; top: 10px; }
+.pid-view.big .pid-mini.all { display: none; }   /* 整張圖都在視窗裡了（全圖）：小地圖沒有東西可指，收起來不擋圖 */
+/* 縮得很小的時候（card.js：z < 0.5 加 .far）字本來就讀不到，框也只剩一小條：補一個圈，位置才看得出來 */
+.pid-view.far .pid-stage .hmi-box::after { content: ''; position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 3px solid #e02020; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), inset 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.pid-view.far .pid-stage .hmi-box:not(.pri)::after { border-width: 2px; width: 26px; height: 26px; margin: -13px 0 0 -13px; }
+.pid-lb .hmi-lb-cap { max-height: 28dvh; overflow: auto; }
+@media (max-width: 720px) {
+  .pid-lb { padding: 0; }
+  .pid-tools { padding: 6px 6px 0; }
+  .pid-lb .hmi-lb-cap { border-radius: 0; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+}
+/* 窄容器（< 640px）：細部視窗改 4:3，小地圖疊在細部視窗的角落——預設左下，.mini-r／.mini-t 由 card.js 依標記 ①
+   在圖紙上的位置加上（放在它的對角）；小地圖在右上時「⤢ 放大」改到左上。寬 34%：正中央留一條 30% 寬的空檔給標記。 */
+.cq-body.narrow .pid-shot { display: block; }
+.cq-body.narrow .pid-view { aspect-ratio: 4 / 3; }
+.cq-body.narrow .pid-view > .hmi-zoom { right: 6px; top: 6px; }
+.cq-body.narrow .pid-side { position: absolute; left: 12px; bottom: 8px; width: 34%; }
+.cq-body.narrow .pid-shot.mini-r .pid-side { left: auto; right: 12px; }
+.cq-body.narrow .pid-shot.mini-t .pid-side { bottom: auto; top: 12px; }
+.cq-body.narrow .pid-shot.mini-r.mini-t .pid-view > .hmi-zoom { right: auto; left: 6px; }
+.cq-body.narrow .pid-mini { box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35); }
+.cq-body.narrow .pid-legend { display: none; }
+.cq-body.narrow .pid-bar { padding: 5px 8px 0; }
+@media print {
+  .pid-view, .pid-mini { border-color: #c3cad5; background: #fff !important; }
+  .pid-img { filter: none !important; }
+  .pid-view.loading::after { color: #5b6475 !important; }
+  .pid-stage .hmi-box, .pid-rect, .pid-dot { -webkit-print-color-adjust: exact; print-color-adjust: exact; animation: none !important; }
+  /* 圖紙影像是捲進畫面／展開才載（card.js whenNear／whenDetailsOpen）；beforeprint 會補載，但解密與解碼來不及時佔位框要講原因 */
+  .pid-view.loading::after { content: '（圖面影像尚未載入：請先在螢幕上捲到這張圖，等圖面出現再列印）'; }
+  details.pid-sheet .pid-view.loading::after { content: '（圖面影像尚未載入：請先在螢幕上展開這張圖，等圖面出現再列印）'; }
+  .cq-more .pid-view.loading::after { content: '（圖面影像尚未載入：請先在螢幕上展開「完整資料」並捲到這張圖，等圖面出現再列印）'; }
 }

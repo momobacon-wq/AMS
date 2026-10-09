@@ -19,12 +19,13 @@ class Checks:
 
 
 @contextmanager
-def browser(ctx, mobile=False):
-    """yield (page, errors, console)；errors = pageerror 訊息、console = error/warning 訊息（favicon 除外）"""
+def browser(ctx, mobile=False, csp=False):
+    """yield (page, errors, console)；errors = pageerror 訊息、console = error/warning 訊息（favicon 除外）。
+    csp=True＝照網站的 CSP 執行（預設略過）：這時 wait_for_function(字串) 會被 'unsafe-eval' 擋下，要改用 page.evaluate 輪詢。"""
     with sync_playwright() as p:
         b = p.chromium.launch()
         vp = {'width': 390, 'height': 844} if mobile else {'width': 1280, 'height': 900}
-        c = b.new_context(viewport=vp, bypass_csp=True, is_mobile=mobile, has_touch=mobile)
+        c = b.new_context(viewport=vp, bypass_csp=not csp, is_mobile=mobile, has_touch=mobile)
         page = c.new_page()
         errors, console = [], []
         page.on('pageerror', lambda e: errors.append(str(e)))

@@ -83,11 +83,18 @@ PREV_TEMPLATES_JSON = os.path.join(BUILD_DIR, 'prev_templates.json')  # sheets_t
 DOCSEARCH_JSON = os.path.join(CARDWORK, 'docsearch.json')          # docmap_docsearch 的輸出（build_card_aux --docsearch）
 HMI_JSON = os.path.join(CARDWORK, 'hmi.json')                      # tools/db/hmi_index.py 的輸出（畫面／位號→座標索引）
 HMI_SHOTS = os.path.join(CARDWORK, 'hmi_shots')                    # 畫面影像：執行時截圖 <slug>__<選單機組>.webp ＋ 設計時 ThumbNail EMF <slug>.webp ＋ index.json
+PID_JSON = os.path.join(CARDWORK, 'pid.json')                      # tools/db/pid_index.py 的輸出（P&ID 圖紙／位號→圖上座標索引）
+PID_SHOTS = os.path.join(CARDWORK, 'pid_shots')                    # P&ID 圖紙影像：<slug>.webp（轉正後整張圖）＋ index.json（tools/db/pid_shots.py）
+PID_TEXT_CACHE = os.path.join(AMS_LOCAL, 'pidtext')                # pid_index：每份 P&ID PDF 的文字層字框快取（依檔案大小＋修改時間；刪掉即重抽）
+PID_OCR_CACHE = os.path.join(AMS_LOCAL, 'pidocr')                  # pid_ocr：逐頁 OCR 原始結果快取（離線工具；刪掉要全部重跑，807 頁實測約 20 分鐘）
+PID_OCR_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pid_ocr_map.json')  # pid_ocr 蒸餾後的位號字框（進 repo；pid_index 只讀它）
 
 ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFTXT_CACHE), ('LIBRARY_ROOT', LIBRARY_ROOT),
        ('PREV_XLSX', PREV_XLSX), ('BUILD_DIR', BUILD_DIR), ('SHEETS_CACHE', SHEETS_CACHE), ('SHEETS_FINAL', SHEETS_FINAL),
        ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB),
-       ('PNEUVALVE_XLSX', PNEUVALVE_XLSX), ('HMI_SCREENS', HMI_SCREENS), ('HMI_JSON', HMI_JSON), ('HMI_SHOTS', HMI_SHOTS)]
+       ('PNEUVALVE_XLSX', PNEUVALVE_XLSX), ('HMI_SCREENS', HMI_SCREENS), ('HMI_JSON', HMI_JSON), ('HMI_SHOTS', HMI_SHOTS),
+       ('PID_JSON', PID_JSON), ('PID_SHOTS', PID_SHOTS), ('PID_TEXT_CACHE', PID_TEXT_CACHE), ('PID_OCR_CACHE', PID_OCR_CACHE),
+       ('PID_OCR_MAP', PID_OCR_MAP)]
 
 
 def report():
