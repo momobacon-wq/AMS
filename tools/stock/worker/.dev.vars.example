@@ -1,0 +1,5 @@
+# 複製成 .dev.vars 供 npx wrangler dev 使用（不進 repo）
+# 本機 mock 登入（tools/auth/mock_server.py）簽 token 用的密鑰
+AUTH_SECRET=mock-secret
+# py tools/stock/print_token.py 的輸出
+STOCK_TOKEN=

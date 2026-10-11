@@ -1,0 +1,21 @@
+{
+  "name": "ams-stock-worker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AMS 備品庫存 API（Cloudflare Worker + D1）",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "login": "wrangler login",
+    "d1:create": "wrangler d1 create ams-stock",
+    "d1:schema": "wrangler d1 execute ams-stock --remote --file schema.sql",
+    "d1:schema:local": "wrangler d1 execute ams-stock --local --file schema.sql",
+    "d1:import": "wrangler d1 execute ams-stock --remote --file import.sql",
+    "d1:import:local": "wrangler d1 execute ams-stock --local --file mock_import.sql",
+    "d1:status": "wrangler d1 execute ams-stock --remote --command \"SELECT pn, model, qty, loc FROM items ORDER BY pn\"",
+    "d1:ledger": "wrangler d1 execute ams-stock --remote --command \"SELECT id, ts, emp_id, emp_name, action, pn, delta, balance, kks, note, wo FROM ledger ORDER BY id DESC LIMIT 30\""
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

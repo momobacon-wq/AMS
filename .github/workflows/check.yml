@@ -1,0 +1,35 @@
+# push 前關卡（GitHub 端）：兩站資料必須是可用密語解開的密文，且 build 戳記一致（tools/verify_encrypted.py）。
+# 密語從 repo 的 Actions secret AMS_WEB_KEY 讀（值＝%LOCALAPPDATA%\AMS\web.key 第一行）；secret 沒設就直接失敗，不會靜默通過。
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-encrypted:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安裝相依套件（verify_encrypted 只需要 cryptography）
+        run: python -m pip install cryptography
+
+      - name: 確認 AMS_WEB_KEY secret 已設定
+        env:
+          AMS_WEB_KEY: ${{ secrets.AMS_WEB_KEY }}
+        run: |
+          if [ -z "$AMS_WEB_KEY" ]; then
+            echo '::error::repo 沒有設定 Actions secret AMS_WEB_KEY（Settings → Secrets and variables → Actions → New repository secret；值＝web.key 第一行），無法驗證密文。'
+            exit 1
+          fi
+
+      - name: 驗證兩站密文（tools/verify_encrypted.py）
+        env:
+          AMS_WEB_KEY: ${{ secrets.AMS_WEB_KEY }}
+          PYTHONIOENCODING: utf-8
+        run: python tools/verify_encrypted.py

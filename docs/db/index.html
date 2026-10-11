@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<!-- CSP：只允許本站的程式與資料（行內事件處理器、他站 script／fetch 一律不執行）；style 需 'unsafe-inline'（版面大量使用行內 style） -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://ams-stock.momobaconno1.workers.dev; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AMS 資料庫解析（20260912）</title>
+<meta name="description" content="新複循環廠 AMS Device Manager 資料庫解析（20260912.ams_bckup 還原後的完整資料庫；20260912_AMS資料庫解析.xlsx 的網頁版）">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1F4E79" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171C23" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AMS 解析">
+<meta property="og:title" content="AMS 資料庫解析（20260912）">
+<meta property="og:description" content="新複循環廠 AMS Device Manager 完整資料庫解析：設備總表與實體位置、位號索引、參數現值與變更、事件稽核、警報定義、範本、使用者權限、資料表字典與設備查詢卡。">
+<meta property="og:url" content="https://momobacon-wq.github.io/AMS/db/">
+<meta property="og:image" content="https://momobacon-wq.github.io/AMS/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<!-- 版本戳記：tools/stamp_assets.py 依檔案內容寫入（build＝資料建置雜湊、app／chart＝程式雜湊） -->
+<meta name="ams-build" content="729812fa52" data-app="a460f0b76f" data-chart="81ffafe13c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F4E79'/%3E%3Ctext x='16' y='21' font-size='12' font-family='Arial' font-weight='700' fill='white' text-anchor='middle'%3EAMS%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="../assets/icon-180.png">
+<!-- 首訪 preload（extract_db.stamp 整段重寫）：meta 之外先抓 manifest 與查詢卡首頁的 02／04／03，與登入往返重疊 -->
+<!-- ams-preload -->
+<link rel="preload" href="data/meta.json?v=729812fa52" as="fetch" crossorigin>
+<link rel="preload" href="data/manifest.json.bin?v=729812fa52" as="fetch" crossorigin>
+<link rel="preload" href="data/sheets/02.json.bin?v=729812fa52" as="fetch" crossorigin>
+<link rel="preload" href="data/sheets/04.json.bin?v=729812fa52" as="fetch" crossorigin>
+<link rel="preload" href="data/sheets/03.json.bin?v=729812fa52" as="fetch" crossorigin>
+<!-- /ams-preload -->
+<script src="../assets/boot.js?v=0783d4f386"></script>
+<script src="../assets/report.js?v=52830d37f1"></script>
+<meta name="ams-auth-config" content="../auth-config.json" data-site="AMS 資料庫解析（20260912）">
+<script src="../assets/auth.js?v=ec3a67691b"></script>
+<link rel="stylesheet" href="../assets/app.css?v=6692c698f6">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主要內容</a>
+<div id="topbar-progress" class="topbar-progress" hidden><div></div></div>
+
+<header class="app-header" role="banner">
+  <button id="btn-menu" class="icon-btn only-mobile" type="button" aria-label="開啟工作表清單" aria-controls="sidebar" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+  <button id="btn-collapse" class="icon-btn only-desktop" type="button" aria-label="收合側欄" aria-controls="sidebar" aria-expanded="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14"/></svg>
+  </button>
+  <a class="brand" href="#/card/" title="回到設備查詢">
+    <span class="brand-mark" aria-hidden="true">AMS</span>
+    <span class="brand-text">
+      <span id="wb-title" class="brand-title">AMS 資料庫解析</span>
+      <span id="wb-subtitle" class="brand-sub"></span>
+    </span>
+  </a>
+  <div class="header-search" role="search">
+    <svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input id="global-search" type="search" autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="characters" enterkeyhint="search"
+      placeholder="位號／舊位號／HostTag／裝置ID／alias…" aria-label="全域位號搜尋（開啟設備查詢卡）">
+  </div>
+  <button id="btn-legend" class="icon-btn" type="button" aria-label="圖例（各狀態色的意義）" title="圖例（各狀態色的意義）" aria-haspopup="dialog" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.2"/><rect x="3.5" y="14" width="6" height="6" rx="1.2"/><path d="M13 7h7.5M13 17h7.5"/></svg>
+  </button>
+  <button id="btn-key" class="btn sm" type="button" title="忘掉此裝置記住的密語並重新載入" hidden>清除密語</button>
+  <button id="btn-theme" class="icon-btn" type="button" aria-label="切換深色／淺色主題" title="切換深色／淺色主題">
+    <svg class="ico-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+    <svg class="ico-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+  </button>
+</header>
+
+<div class="app-body">
+  <aside id="sidebar" class="sidebar" aria-label="工作表清單">
+    <div class="sidebar-inner">
+      <div class="sidebar-head">
+        <span>工作表</span>
+        <span id="sheet-count" class="muted"></span>
+      </div>
+      <nav id="sheet-nav" class="sheet-nav"></nav>
+      <div class="sidebar-foot muted" id="sidebar-foot"></div>
+    </div>
+  </aside>
+  <div id="scrim" class="scrim" hidden></div>
+  <main id="main" class="main" tabindex="-1">
+    <div id="view" class="view">
+      <div class="boot">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>載入中…</p>
+        <noscript><p>此網頁需要啟用 JavaScript。</p></noscript>
+      </div>
+    </div>
+  </main>
+</div>
+
+<aside id="detail" class="detail" aria-label="列詳情" hidden>
+  <div class="detail-head">
+    <div class="detail-title">
+      <div id="detail-kicker" class="detail-kicker"></div>
+      <h2 id="detail-h"></h2>
+    </div>
+    <div class="detail-actions">
+      <button type="button" class="icon-btn" id="detail-prev" aria-label="上一列" title="上一列 (↑)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+      <button type="button" class="icon-btn" id="detail-next" aria-label="下一列" title="下一列 (↓)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button type="button" class="icon-btn" id="detail-close" aria-label="關閉列詳情" title="關閉 (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+  </div>
+  <div id="detail-tools" class="detail-tools"></div>
+  <div id="detail-body" class="detail-body"></div>
+</aside>
+
+<div id="legend-pop" class="popover legend-pop" role="dialog" aria-label="圖例" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- Chart.js 只在有圖表的工作表（01、16）由 grid.js 動態載入 -->
+<script src="../assets/core.js?v=074b1119db"></script>
+<script src="../assets/table.js?v=3efb55f531"></script>
+<script src="../assets/grid.js?v=93821d2ae1"></script>
+<script src="../assets/card.js?v=9a65e2e244"></script>
+<meta name="ams-stock-config" content="stock-config.json">
+<script src="../assets/stock.js?v=94e7dea602"></script>
+<script src="../assets/app.js?v=ac619184af"></script>
+</body>
+</html>

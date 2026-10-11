@@ -1,0 +1,2 @@
+# 密文 .bin（docs/*/data，tools/encrypt_data.py 產生）一律當二進位：不做換行轉換（core.autocrlf）、不做文字 diff／merge
+*.bin binary
