@@ -6,8 +6,9 @@ Usage:  py tools/stamp_assets.py [docs]
 * data/manifest.json gets "build" = sha256 of all data files (computed by tools/extract.py; recomputed here if missing).
   The front-end appends ?v=<build> to every data/sheets/*.json request, so one tab never mixes chunks of two builds.
 * index.html: every assets/*.js|css reference gets ?v=<sha256 of that file>[:10]; <meta name="ams-build"> gets the data
-  build plus the app / Chart.js hashes; the manifest preload gets ?v=<build> (the same URL core.js fetches).
-* version.json = {"build", "app"}: an open tab re-fetches it (no-cache) and offers a reload when either changed.
+  build, the key tag (data-key; encrypted sites only, see key_tag) and the app / Chart.js hashes; the meta/manifest
+  preload gets ?v=<build><key tag> (the same URL core.js fetches).
+* version.json = {"build", "app", "key"}: an open tab re-fetches it (no-cache) and offers a reload when any changed.
 
 Idempotent and deterministic (no timestamps).  tools/extract.py runs it after writing the data; run it by hand after
 editing anything in docs/assets.
@@ -18,6 +19,13 @@ import json
 import os
 import re
 import sys
+
+
+def key_tag(meta):
+    """同 tools/encrypt_data.key_tag（本檔不 import 它，免得只蓋戳記也要裝 cryptography）：meta.check 前 8 個英數字。"""
+    if not (meta and meta.get("enc") and meta.get("check")):
+        return ""
+    return re.sub(r"[^0-9A-Za-z]", "", str(meta["check"]))[:8]
 
 
 def sha(data, n=10):
@@ -44,9 +52,12 @@ def stamp(docs):
     man_path = os.path.join(data_dir, "manifest.json")
     meta_path = os.path.join(data_dir, "meta.json")
     encrypted = os.path.exists(meta_path) and not os.path.exists(man_path)
+    tag = ""
     if encrypted:  # 加密站（tools/encrypt_data.py）：manifest 已是 .bin，build 記在明文 meta.json
         with open(meta_path, "rb") as f:
-            build = json.loads(f.read().decode("utf-8")).get("build")
+            meta = json.loads(f.read().decode("utf-8"))
+        build = meta.get("build")
+        tag = key_tag(meta)
         if not build:
             raise SystemExit("meta.json has no build")
     else:
@@ -76,13 +87,13 @@ def stamp(docs):
         return m.group(1) + "assets/" + name + ("?v=" + fh[name] if name in fh else "") + m.group(4)
     html = re.sub(r'((?:src|href)=")assets/([\w.-]+\.(?:js|css))(\?v=[0-9a-zA-Z]*)?(")', ref, html)
     html = re.sub(r'<meta name="ams-build"[^>]*>',
-                  '<meta name="ams-build" content="%s" data-app="%s" data-chart="%s">' % (build, app, chart), html)
+                  '<meta name="ams-build" content="%s" data-key="%s" data-app="%s" data-chart="%s">' % (build, tag, app, chart), html)
     html = re.sub(r'(<link rel="preload" href=")data/(?:meta|manifest)\.json(\?v=[0-9a-zA-Z]*)?(")',
-                  r'\g<1>data/%s.json?v=%s\g<3>' % ("meta" if encrypted else "manifest", build), html)
+                  r'\g<1>data/%s.json?v=%s\g<3>' % ("meta" if encrypted else "manifest", build + tag), html)
     if html != orig:
         with open(ix_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(html)
-    ver = {"build": build, "app": app}
+    ver = {"build": build, "app": app, "key": tag}  # key：金鑰標記，換密語時 build／app 可能都不變，開著的分頁靠它提示重新整理
     with open(os.path.join(docs, "version.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(ver, separators=(",", ":")))
     return ver

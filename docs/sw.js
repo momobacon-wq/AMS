@@ -2,6 +2,7 @@
  *
  * 規則（只處理同源 GET；跨網域的 Apps Script／Worker／Google 雲端硬碟一律不碰）：
  *  - 網址帶 ?v=（資料 .bin、meta.json、assets 程式）→ 快取優先：內容雜湊或建置雜湊已在網址裡，命中就不必再問伺服器
+ *    （資料檔的 ?v= 是建置雜湊＋金鑰標記，core.js D.dataV：換密語時 build 不變，靠標記換網址）
  *    （GitHub Pages 只給 max-age=600，沒有 Service Worker 時每 10 分鐘都要重新驗證每個檔）
  *  - version.json／auth-config.json／stock-config.json → 只走網路（版本偵測與端點設定不能拿舊的）
  *  - 其餘（index.html、無版本值的檔）→ 網路優先，失敗才用快取（廠區網路斷線時仍能開站、查已看過的設備）

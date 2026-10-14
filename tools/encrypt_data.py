@@ -128,6 +128,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -199,6 +200,16 @@ def seal(key, plain, aad):
 def unseal(key, blob, aad):
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     return AESGCM(key).decrypt(blob[:12], blob[12:], aad.encode("utf-8"))
+
+
+def key_tag(meta):
+    """金鑰標記（前端快取鍵的一部分）：meta.check 的前 8 個英數字；明文站（enc 為假或沒有 check）＝''。
+    資料檔網址的 ?v= 是 build＋這個標記（core.js D.dataV、兩支 stamp 的 preload 與 data-key、verify_encrypted 都用同一條規則）：
+    密語輪替時 build（明文雜湊）不變而密文全換，只靠 build 的話 Service Worker 快取優先會把舊金鑰的密文交給新金鑰。
+    check 在金鑰不變時沿用（compare-and-keep），所以平常重建標記不變；--no-keep／--fresh-salt 會重封 check → 標記一換、大家重抓一次。"""
+    if not (meta and meta.get('enc') and meta.get('check')):
+        return ''
+    return re.sub(r'[^0-9A-Za-z]', '', str(meta['check']))[:8]
 
 
 def is_encrypted(data):

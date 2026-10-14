@@ -77,7 +77,7 @@ py tools/rotate_passphrase.py             # 新密語用 getpass 互動輸入兩
 ```
 一條指令做完：舊密語（`web.key`）解出兩站明文副本 → 新密語重新加密 → 交換目錄 → 兩站戳記 → `verify_encrypted` 必須 0 錯誤 → 才改寫 `web.key`（舊檔另存 `web.key.bak-<日期時間>`）→ 印出新的 `STOCK_TOKEN`。任一步失敗就把舊密文換回來、key 檔不動；環境變數 `AMS_WEB_KEY` 有設時拒絕執行（否則寫了 key 檔也沒效）。
 輪替那一次兩站全部 `.bin` 都會重寫（`rotate_passphrase.py` 加密的是 `data.rotate-tmp` 副本，git HEAD 沒有那個路徑；新金鑰也打不開舊密文，無從沿用——所以也不會被上面「金鑰不是已發布的那一把」那一關擋下），屬正常；輪替的 commit 進去之後，之後的重建才又只動有變的檔。**輪替完先 commit、再做別的重建**：HEAD 還是舊金鑰的 `meta.json` 時原地重建（`rebuild.py`、各產生器）會封好然後停在那一關，這是故意的。
-輪替後要跟著做：(1) `cd tools/stock/worker && npx wrangler secret put STOCK_TOKEN` 貼印出的值（忘了會使領取／放入全部回「未授權（密語不符）」；E2E 的 `test_stock` 用同一算法比對，抓得到）、本機 `.dev.vars` 也改；(2) GitHub Actions secret `AMS_WEB_KEY` 改成新密語；(3) `py tools/tests/run_e2e.py` → push；(4) 通知同事新密語——舊的「記住此裝置」金鑰開站時驗不過 `meta.check` 會自動改問密語，不必逐台清；`--fresh-salt` 時所有人都要重輸。
+輪替後要跟著做：(1) `cd tools/stock/worker && npx wrangler secret put STOCK_TOKEN` 貼印出的值（忘了會使領取／放入全部回「未授權（密語不符）」；E2E 的 `test_stock` 用同一算法比對，抓得到）、本機 `.dev.vars` 也改；(2) GitHub Actions secret `AMS_WEB_KEY` 改成新密語；(3) `py tools/tests/run_e2e.py` → push；(4) 通知同事新密語——資料網址的 `?v=` 含金鑰標記（`meta.check` 前 8 個英數字，戳記寫進 `index.html` 的 `data-key`），換密語就換網址，Service Worker 不會拿舊金鑰的快取；舊的「記住此裝置」金鑰開站時驗不過 `meta.check` 會自動改問密語，不必逐台清；`--fresh-salt` 時所有人都要重輸。
 
 只重建查詢卡附加資料：`encrypt_data.py --decrypt` → `build_card_aux.py`（結尾自動加密＋戳記）→ `verify_encrypted.py`。
 DCS 比對的基準會讀 signal-atlas 的控制器索引 `%LOCALAPPDATA%\dcdas\index.sqlite`（在 signal-atlas repo 跑 `py tools\dcdas.py build` 產生；沒有就只用 DCS 寫入／端子表）。
@@ -166,7 +166,7 @@ py tools/tests/test_pid_wording.py                                  # P&ID 建�
 
 ## 前端快取與錯誤回報
 
-- `docs/sw.js`（Service Worker，兩站共用）：帶 `?v=` 的資料檔／程式檔快取優先（網址已含建置或內容雜湊），`version.json`／`auth-config.json`／`stock-config.json` 只走網路，其餘網路優先、離線用快取。頁面載入後把本站用到的版本值交給它，舊版本快取自動清掉。GitHub Pages 只給 10 分鐘快取，沒有它每次回訪都要重新驗證每個檔。
+- `docs/sw.js`（Service Worker，兩站共用）：帶 `?v=` 的資料檔／程式檔快取優先（網址已含建置或內容雜湊；資料檔另含金鑰標記，換密語即換網址），`version.json`／`auth-config.json`／`stock-config.json` 只走網路，其餘網路優先、離線用快取。頁面載入後把本站用到的版本值交給它，舊版本快取自動清掉。GitHub Pages 只給 10 分鐘快取，沒有它每次回訪都要重新驗證每個檔。
 - `docs/assets/report.js`：未捕捉錯誤、未處理的 Promise 拒絕、資源與資料檔載入失敗 → 備品庫存 Worker `clientlog`（D1 表 `client_log`；本機 mock 記到 `tools/auth/mock_log.jsonl`）。只在登入後送，每次載入最多 8 筆。查看：見 `tools/stock/README.md`。
 
 ## 不進 repo 的廠內專屬檔（2026-10-11 起）

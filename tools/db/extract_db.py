@@ -682,10 +682,12 @@ PRELOAD_BLOCK_RE = re.compile(r'[ \t]*<!-- ams-preload -->.*?<!-- /ams-preload -
 PRELOAD_LINE_RE = re.compile(r'[ \t]*<link rel="preload" href="data/(?:meta|manifest)\.json(?:\?v=[0-9a-zA-Z]*)?"[^>]*>[ \t]*\n?')
 
 
-def preload_block(build, encrypted):
+def preload_block(build, encrypted, tag=''):
     """<head> 內的 preload 區塊：整段以 <!-- ams-preload --> … <!-- /ams-preload --> 標記重寫（重複 stamp 不會累加）。
-    第一行永遠是 meta.json（加密站）或 manifest.json（明文站），verify_encrypted 也只認這一行。"""
+    第一行永遠是 meta.json（加密站）或 manifest.json（明文站），verify_encrypted 也只認這一行。
+    ?v= 一律＝build＋金鑰標記（encrypt_data.key_tag；明文站沒有標記），與 core.js D.dataV 同一個網址。"""
     src = 'meta.json' if encrypted else 'manifest.json'
+    build = build + tag
     lines = ['<link rel="preload" href="data/%s?v=%s" as="fetch" crossorigin>' % (src, build)]
     for rel in PRELOAD_DATA:
         if rel == src:
@@ -694,14 +696,14 @@ def preload_block(build, encrypted):
     return '<!-- ams-preload -->\n' + '\n'.join(lines) + '\n<!-- /ams-preload -->\n'
 
 
-def stamp_html(html, build, encrypted, fh, app):
+def stamp_html(html, build, encrypted, fh, app, tag=''):
     """純函式：把 index.html 字串戳記成新版（assets ?v=、<meta ams-build>、preload 區塊）。stamp() 與測試都用它。"""
     def ref(m):
         name = m.group(2)
         return m.group(1) + '../assets/' + name + ('?v=' + fh[name] if name in fh else '') + m.group(4)
     html = re.sub(r'((?:src|href)=")\.\./assets/([\w.-]+\.(?:js|css))(\?v=[0-9a-zA-Z]*)?(")', ref, html)
-    html = re.sub(r'<meta name="ams-build"[^>]*>', '<meta name="ams-build" content="%s" data-app="%s" data-chart="%s">' % (build, app, fh.get('chart.umd.min.js', '')), html)
-    block = preload_block(build, encrypted)
+    html = re.sub(r'<meta name="ams-build"[^>]*>', '<meta name="ams-build" content="%s" data-key="%s" data-app="%s" data-chart="%s">' % (build, tag, app, fh.get('chart.umd.min.js', '')), html)
+    block = preload_block(build, encrypted, tag)
     if PRELOAD_BLOCK_RE.search(html):
         html = PRELOAD_BLOCK_RE.sub(lambda m: block, html, count=1)
     elif PRELOAD_LINE_RE.search(html):  # 舊版單行 preload → 換成標記區塊
@@ -716,15 +718,17 @@ def stamp(docs_db, assets_dir):
     加密站（encrypt_data）：manifest 是 .bin，build 讀明文 meta.json，preload 指向 meta.json（＋PRELOAD_DATA 的 .bin）。"""
     encrypted = encrypt_data.is_encrypted(os.path.join(docs_db, 'data'))
     src = 'meta.json' if encrypted else 'manifest.json'
-    build = json.load(open(os.path.join(docs_db, 'data', src), encoding='utf-8'))['build']
+    meta = json.load(open(os.path.join(docs_db, 'data', src), encoding='utf-8'))
+    build = meta['build']
+    tag = encrypt_data.key_tag(meta) if encrypted else ''
     fh = {}
     for p in sorted(glob.glob(os.path.join(assets_dir, '*.js')) + glob.glob(os.path.join(assets_dir, '*.css'))):
         fh[os.path.basename(p)] = hashlib.sha256(open(p, 'rb').read()).hexdigest()[:10]
     app = hashlib.sha256(''.join('%s=%s;' % kv for kv in sorted(fh.items())).encode('utf-8')).hexdigest()[:10]
     ix = os.path.join(docs_db, 'index.html')
-    html = stamp_html(open(ix, encoding='utf-8').read(), build, encrypted, fh, app)
+    html = stamp_html(open(ix, encoding='utf-8').read(), build, encrypted, fh, app, tag)
     open(ix, 'w', encoding='utf-8', newline='\n').write(html)
-    open(os.path.join(docs_db, 'version.json'), 'w', encoding='utf-8', newline='\n').write(json.dumps({'build': build, 'app': app}, separators=(',', ':')))
+    open(os.path.join(docs_db, 'version.json'), 'w', encoding='utf-8', newline='\n').write(json.dumps({'build': build, 'app': app, 'key': tag}, separators=(',', ':')))
     print('stamped', build, app)
 
 

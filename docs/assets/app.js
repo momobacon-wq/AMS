@@ -190,7 +190,9 @@
     lastVerCheck = now;
     fetch('version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).then((v) => {
       if (!v || verBanner) return;
-      const dataChanged = v.build && D.manifest && D.manifest.build && v.build !== D.manifest.build;
+      // key：金鑰標記（換密語時 build 不變、密文全換；這個分頁之後才載入的 .bin 用舊金鑰會解密失敗）
+      const dataChanged = (v.build && D.manifest && D.manifest.build && v.build !== D.manifest.build) ||
+        (typeof v.key === 'string' && typeof D.keyTag === 'string' && D.manifest && v.key !== D.keyTag);
       const appChanged = v.app && D.appVersion && v.app !== D.appVersion;
       if (!dataChanged && !appChanged) return;
       verBanner = U.h('div', { class: 'ver-banner', role: 'status' },
@@ -249,8 +251,12 @@
     if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
     const v = new Set();
     document.querySelectorAll('script[src], link[href]').forEach((el) => { const m = /[?&]v=([0-9a-zA-Z]+)/.exec(el.getAttribute('src') || el.getAttribute('href') || ''); if (m) v.add(m[1]); });
-    if (D.pageBuild) v.add(D.pageBuild);
-    if (D.manifest && D.manifest.build) v.add(D.manifest.build);
+    // 資料檔的版本值＝D.dataV（建置＋金鑰標記，core.js）；只列它，舊金鑰或舊建置的密文快取才會被刪
+    if (D.dataV) v.add(D.dataV);
+    else {
+      if (D.pageBuild) v.add(D.pageBuild);
+      if (D.manifest && D.manifest.build) v.add(D.manifest.build);
+    }
     const mb = document.querySelector('meta[name="ams-build"]');
     if (mb && mb.getAttribute('data-chart')) v.add(mb.getAttribute('data-chart'));
     const dir = location.pathname.replace(/[^/]*$/, '');

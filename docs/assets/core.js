@@ -453,6 +453,7 @@
     // 版本戳記（tools/stamp_assets.py 寫入 index.html）：manifest 以建置雜湊為快取鍵
     const mv = document.querySelector('meta[name="ams-build"]');
     D.pageBuild = mv ? mv.getAttribute('content') || '' : '';
+    D.pageKey = mv ? mv.getAttribute('data-key') || '' : ''; // 金鑰標記（加密站；同 meta.check 前 8 個英數字）
     D.appVersion = mv ? mv.getAttribute('data-app') || '' : '';
     D.chartVersion = mv ? mv.getAttribute('data-chart') || '' : '';
   })();
@@ -471,13 +472,22 @@
   D.cryptoOK = () => !!(window.crypto && crypto.subtle && typeof crypto.subtle.deriveKey === 'function' && window.DecompressionStream && window.TextDecoder);
   D.loadMeta = async function () {
     let r;
-    try { r = await fetch(D.base + 'meta.json' + (D.pageBuild ? '?v=' + encodeURIComponent(D.pageBuild) : '')); }
+    // ?v=＝build＋金鑰標記（index.html data-key，stamp 由 meta.check 算）：密語輪替時 build 不變而 check 變了，
+    // 只帶 build 會被 Service Worker 快取優先拿到舊金鑰的 meta.json（見下方 D.dataV）
+    const pv = D.pageBuild ? D.pageBuild + D.pageKey : '';
+    try { r = await fetch(D.base + 'meta.json' + (pv ? '?v=' + encodeURIComponent(pv) : '')); }
     catch (e) { throw new Error('無法連線：' + D.base + 'meta.json'); }
     if (r.status === 404) { D.encMeta = { enc: 0 }; return D.encMeta; }
     if (!r.ok) throw new Error('meta.json HTTP ' + r.status);
     D.encMeta = await r.json();
     if (D.encMeta.enc && (!D.encMeta.kdf || !D.encMeta.check)) throw new Error('meta.json 缺少 kdf/check');
     if (D.encMeta.build) D.pageBuild = D.encMeta.build; // manifest.json.bin 的 ?v= 以資料建置為準
+    // 資料檔的快取鍵＝建置雜湊＋金鑰標記（meta.check 的前 8 個英數字）：換密語後 build 不變、密文全換，
+    // 網址也要跟著換，否則 Service Worker 快取優先會把舊金鑰的密文交給新金鑰（解密失敗）。check 在金鑰不變時沿用（compare-and-keep）。
+    // 規則同 tools/encrypt_data.key_tag；以實際拿到的 meta 為準（index.html 還是舊的時 data-key 可能落後）
+    const tag = D.encMeta.enc && D.encMeta.check ? String(D.encMeta.check).replace(/[^0-9A-Za-z]/g, '').slice(0, 8) : '';
+    D.keyTag = tag;
+    D.dataV = D.pageBuild ? D.pageBuild + tag : '';
     return D.encMeta;
   };
   async function decryptJSON(buf, rel) {
@@ -488,11 +498,11 @@
     const ab = D.encMeta.gzip === 0 ? plain : await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
     return JSON.parse(new TextDecoder('utf-8').decode(ab));
   }
-  /** 實際網址：資料檔加上 ?v=<manifest.build>，同一建置的檔案才會共用快取；加密版檔名加 .bin */
+  /** 實際網址：資料檔加上 ?v=<D.dataV>（建置雜湊＋金鑰標記），同一建置、同一把金鑰的檔案才會共用快取；加密版檔名加 .bin */
+  D.dataV = '';
   D.url = function (path) {
     const file = D.enc() ? path + '.bin' : path;
-    if (path === 'manifest.json') return D.base + file + (D.pageBuild ? '?v=' + encodeURIComponent(D.pageBuild) : '');
-    const v = D.manifest && D.manifest.build;
+    const v = D.dataV || (path === 'manifest.json' ? D.pageBuild : D.manifest && D.manifest.build);
     return D.base + file + (v ? (file.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(v) : '');
   };
   D.fetchJSON = function (path, onProgress, estBytes) {
@@ -501,7 +511,7 @@
       const url = D.url(path);
       let res;
       // 沒有版本戳記的 manifest 一律向伺服器確認（304 很便宜），避免分塊清單與資料檔來自不同建置
-      const cacheMode = path === 'manifest.json' && !D.pageBuild ? 'no-cache' : 'default';
+      const cacheMode = path === 'manifest.json' && !D.dataV && !D.pageBuild ? 'no-cache' : 'default';
       try { res = await fetch(url, { cache: cacheMode }); } catch (e) { throw new Error('無法連線：' + url); }
       if (!res.ok) throw new Error(`HTTP ${res.status}：${url}`);
       const encd = D.enc();

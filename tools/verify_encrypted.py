@@ -9,7 +9,8 @@ meta.json; every file listed in manifest (sheets[].files, aux.card.index and its
 = the HMI screen images and pid.files = the P&ID sheet images) exists as .bin and vice versa;
 recomputes build from the plaintext the way the generators do (sheets/*.json by basename, then card/**/*.json by rel path,
 plus manifest without build) and requires meta.build == manifest.build == version.json.build == index.html's
-<meta name="ams-build"> == the meta.json preload ?v=; total size < 900 MB; no local absolute paths.  Exit 0 only with 0 errors.
+<meta name="ams-build">; the meta.json preload ?v= == build + key tag (key_tag(meta), also <meta ams-build data-key> and
+version.json key); total size < 900 MB; no local absolute paths.  Exit 0 only with 0 errors.
 """
 import base64
 import gzip
@@ -21,7 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from encrypt_data import passphrase_and_salt  # noqa: E402  (key file convention only)
+from encrypt_data import key_tag, passphrase_and_salt  # noqa: E402  (key file convention + cache-key tag)
 
 # 建置機器的本機路徑絕不能外流；AMS 資料本身含伺服器路徑（C:\ProgramData\… 之類）是資料內容，只計數提醒
 # 注意 `[\\/]{1,2}`：這些檔是 JSON，路徑分隔符在 JSON 文字裡是**兩個**反斜線（`Users\\bacon`）。
@@ -131,13 +132,23 @@ def verify_site(docs, pw):
     m = re.search(r'<meta name="ams-build" content="([0-9a-f]+)"', html)
     vals["index.html meta"] = m.group(1) if m else None
     m = re.search(r'<link rel="preload" href="data/(meta|manifest)\.json\?v=([0-9a-zA-Z]+)"', html)
-    vals["index.html preload"] = (m.group(2) if m else None)
+    pre = m.group(2) if m else None
     if m and m.group(1) != "meta":
         err("index.html preloads data/manifest.json (must be data/meta.json when encrypted)")
     if len(set(vals.values())) == 1:
         ok(f"build consistent everywhere: {build}")
     else:
         err(f"build mismatch: {vals}")
+    # 資料網址的 ?v= ＝ build＋金鑰標記（key_tag）：戳記若還是舊金鑰的標記，換密語後瀏覽器會拿快取的舊密文
+    tag = key_tag(meta)
+    m = re.search(r'<meta name="ams-build"[^>]* data-key="([0-9a-zA-Z]*)"', html)
+    vk = json.loads(vp.read_text(encoding="utf-8")).get("key") if vp.exists() else None
+    vals_k = {"meta.check tag": tag, "index.html data-key": m.group(1) if m else None, "index.html preload": pre, "version.json key": vk}
+    want = {"meta.check tag": tag, "index.html data-key": tag, "index.html preload": build + tag, "version.json key": tag}
+    if vals_k == want:
+        ok(f"key tag stamped: data-key={tag}, preload ?v={build}{tag}")
+    else:
+        err(f"key tag mismatch (re-stamp: py tools/db/rebuild.py --only-stamp): got {vals_k}, want {want}")
     # content hygiene
     bad = drive = 0
     for rel, b in texts.items():
