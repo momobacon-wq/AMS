@@ -542,7 +542,9 @@ def run(a, data):
                  '兩份一手文件互相矛盾的格不硬裁，另列於 59_氣動閥兩讀並列，該列「v2.6補齊來源」有 [兩讀] 註記。',
                  'AMS 設備 1／2：本列閥在 AMS 資料庫裡的智慧定位器（點開查詢卡）；%d 列有對到。對照方式：閥位號（xx／x0 依涵蓋機組展開）＝AMS 位號索引任一鍵，或 GT 閥 <機組>_90<GE 舊位號>；'
                  '經多代理逐筆驗證。沒有 AMS 設備＝開關閥（SOV 直控）、非 HART/FF 定位器，或該機組不在本 AMS 資料庫（本庫只有 1 號機：G11、G12、S10、C10）。' % n_amslinked,
-                 '「定位器比對」：清單定位器欄與 AMS 製造商＋型號比廠牌家族（Fisher DVC、Masoneilan SVI、Flowserve Logix…）；不符者請以現場銘牌為準。AMS 定位器序號換過就會變，只當旁證。']
+                 '「定位器比對」：清單定位器欄與 AMS 製造商＋型號比廠牌家族（Fisher DVC、Masoneilan SVI、Flowserve Logix…）；不符者請以現場銘牌為準。',
+                 '來源等級（2026-10-15 裁定）：AMS 一號機裝置自報的製造商／型號算一份一手來源（只對 AMS 有的那幾台；其他機組的值標 [同構]）；AMS 定位器序號換過就會變，只當旁證。'
+                 '控制器 I/O（Mark VIe）與原廠出貨文件不一致時以 Mark VIe 為準。定位器欄 v2.6.2 已依此全表重核：逐列結果見試算表分頁「v2.6.2定位器核對」，改過的格與依據見「v2.6.2修正紀錄」。']
         tj = table_json(sid, short, sh, hdr, out_rows, notes, ui_extra={'presets': [{'label': '有 AMS 設備', 'col': ti + 1, 'nonempty': True}]}, bands=band_list(hdr))
         tj['valve_src'] = src
         entries.append({'id': sid, 'name': '%s_%s' % (sid, short), 'short': short, 'tj': tj, 'rows': len(out_rows), 'cols': len(hdr),
@@ -555,7 +557,7 @@ def run(a, data):
         rows = [[clean(v) for v in r] for r in rows]
         desc = {'59': '兩份一手文件對同一格讀法不同（不硬裁、留現場查對）：讀法 A／B 與各自出處、表內採用哪一個',
                 '60': 'v2.6 以兩份一手文件互證推翻 v2.5 既有值：原值、新值與證據',
-                '61': 'v2.6 經逐列複核刪除的範疇外列（直動 SOV、電動、手動、液動、減溫器、幽靈位號…）：原列全部欄位與刪除理由'}[sid]
+                '61': 'v2.6 經逐列複核刪除的範疇外列（直動 SOV、電動、手動、液動、減溫器、幽靈位號…），以及 v2.6.2 刪除的設計已刪閥與併入主列的重複別名：原列全部欄位與刪除理由'}[sid]
         unit = {'59': '一個（位號, 欄位）的兩讀', '60': '一個被推翻的格', '61': '一個被刪除的列'}[sid]
         notes = ['一列＝%s｜列數 %d｜來源：Google 試算表「%s」分頁「%s」' % (unit, len(rows), LIST_NAME, sh), '試算表（正本）：' + SHEET_URL]
         tj = table_json(sid, short, sh, hdr, rows, notes)
