@@ -155,6 +155,7 @@
         this.hasSrc = !!(spec && spec.src_defs);
         this.srcDefs = this.hasSrc ? spec.src_defs : {};
         this.renderShell();
+        if (AMS.getag) AMS.getag.load(); // GE 原廠編號對照表（db 站）：先開始抓，查 CT-DA-1 這類 AMS 沒有的元件時才不必等
         this.run(this.queryFromRoute(this.route));
       } catch (e) {
         console.error(e);
@@ -241,8 +242,15 @@
       if (U.isMobile() && this.input) this.input.blur(); // 手機：送出後收軟鍵盤，不然摘要被鍵盤蓋住
       if (!q) { this.run(''); return; }
       let k = q;
-      // 氣動閥清單位號（AMS 沒有）優先於「包含／唯一建議」的模糊對應：不然閥位號會被悄悄換成某個不相干的 AMS 鍵
-      try { const rs = AMS.index.resolve(q); if (rs.key && (rs.how === 'exact' || rs.how === 'compact' || !this.valveBlocksFuzzy(q, rs))) k = rs.key; } catch (e) { /* 索引未載 → 照原字串 */ }
+      // 氣動閥清單位號、GE 原廠編號（AMS 沒有）優先於「包含／唯一建議」的模糊對應：不然閥位號／CT-DA-1 會被悄悄換成某個不相干的 AMS 鍵；
+      // 去分隔符才對到純數字設備鍵的（74-1 → 741）也一樣。GE 對照表還沒載完時一律不改寫：網址留原字串，卡片等對照表載完再判斷
+      // （改寫成模糊鍵的話，同一個網址重新整理後會開到別台）
+      try {
+        const rs = AMS.index.resolve(q);
+        const loose = rs.key && ((rs.how !== 'exact' && rs.how !== 'compact') || this.numCompact(q, rs));
+        const geUnknown = AMS.getag && D.manifest && !AMS.getag.ready(); // 下載中、慢、失敗：還不知道 GE 有沒有這個編號
+        if (rs.key && (!loose || (!geUnknown && !this.valveBlocksFuzzy(q, rs) && !this.geBlocksFuzzy(q, rs)))) k = rs.key;
+      } catch (e) { /* 索引未載 → 照原字串 */ }
       const h = '#/card/' + encodeURIComponent(k);
       if (location.hash === h) this.run(k); else AMS.router.go(h);
     }
@@ -258,9 +266,35 @@
       res.key = key; res.how = rs.how;
       if (!key) { res.status = M.empty; res.empty = true; return res; }
       let fuzzyBlocked = false;
-      if (rs.how !== 'exact' && rs.how !== 'compact') {
-        const vr = this.valveLookup(q, res, rs); if (vr) return vr;
-        fuzzyBlocked = !!rs.key && !this.valveHit(q, rs) && this.valveBlocksFuzzy(q, rs);
+      // 卡內 chips 帶 ?sc=G|S：04 的 GE 鍵（來源類型 8）是另一個範圍的 AMS 設備，而這個範圍的同編號沒有 AMS 設備 → 開這個範圍的 GE 編號卡
+      const scp = this.route && this.route.params ? this.route.params.get('sc') : null;
+      if (scp && IX.ge && IX.ge.has(rs.key) && AMS.getag) {
+        if (AMS.getag.pending()) { res.gePending = true; res.notfound = true; res.key = IX.norm(q); res.status = '查詢中：GE 原廠編號對照表下載中…'; return res; }
+        const gh = this.geHit(q); const E = AMS.getag.G ? AMS.getag.G.j.entries : [];
+        const f = gh ? gh.ids.filter((i) => E[i].sc === scp) : [];
+        if (f.length && f.every((i) => !(E[i].ams || []).length)) return this.geLookup(q, res, Object.assign({}, gh, { ids: f }));
+      }
+      const numc = this.numCompact(q, rs);
+      if ((rs.how !== 'exact' && rs.how !== 'compact') || numc) {
+        // GE 對照表還沒載完（db 站，第一次開／重新整理）：先顯示「查詢中」，run() 等它（最多 4 秒）再查一次——不然同一個網址冷開與熱開會是兩台
+        if (AMS.getag && AMS.getag.pending()) { res.gePending = true; res.notfound = true; res.key = IX.norm(q); res.status = '查詢中：GE 原廠編號對照表下載中…'; return res; }
+        const gh = this.geHit(q);
+        if (numc) { if (gh && gh.via === 'key') return this.geLookup(q, res, gh, rs); }
+        else {
+          // 順序：氣動閥清單的命中（位號／GE 舊位號／去附件後綴／去機組／包含／訊號名分段；閥卡下面接 GE 對照）→ GE 原廠編號（整串相等；
+          // 清單只有多顆閥共用的廠商代號時 GE 優先）→ AMS 的模糊對應
+          // 清單的「包含／訊號名分段」命中若是另一顆（GE 編號 20VA41-21 內含閥位號 VA41-21：電磁閥 vs 閥本體），GE 的整串命中優先
+          const vh = this.valveHit(q, rs);
+          const vSame = !!vh && (!/^(contain|token)$/.test(vh.via) || (!!gh && gh.ids.some((i) => AMS.getag.G.j.entries[i]._c.includes(vh.k))));
+          if (gh && (!vh || vh.via === 'weak' || !vSame)) return this.geLookup(q, res, gh);
+          const hu = gh ? gh.unit : ((AMS.getag && AMS.getag.unitOf(IX.compact(q))) || {}).unit; // G12.／GT12_ 這類機組前綴給閥卡判斷機組用（不然會把 GE 的 20／90 字頭當機組）
+          const vr = this.valveLookup(q, res, rs, hu); if (vr) { if (gh && vr.valve) vr.ge = gh; return vr; }
+          // 清單讓給 AMS 的模糊對應（那顆閥自己的設備）時，GE 的命中帶著機組（G12.a_90va21 → G12 那台），比模糊對應（只會開 G11）準
+          if (gh) return this.geLookup(q, res, gh);
+          fuzzyBlocked = !!rs.key && ((!vh && this.valveBlocksFuzzy(q, rs)) || (!gh && this.geBlocksFuzzy(q, rs)));
+          // 對照表慢或失敗而這次走 AMS 的模糊對應：狀態列講明，載到後再查一次（可能其實是 GE 編號）
+          if (rs.key && !fuzzyBlocked && AMS.getag && D.manifest && !AMS.getag.ready()) res.geLate = true;
+        }
       }
       const i5 = rs.key && !fuzzyBlocked ? IX.first.get(rs.key) : null;
       if (i5 == null) {
@@ -291,32 +325,61 @@
       res.status = (rs.how !== 'exact' && M.found_via ? fill(M.found_via, { q: IX.norm(q), key: k }) : '') + fill(M.found, { src: res.src, key: k });
       if (res.i3 == null) res.status += M.no_device;
       else res.status += fill(M.device, { tag: U.text(DV.sheet.rows[res.i3][L.target_tag_col]) });
+      // 04 的 GE 編號（來源類型 8）開到 AMS 設備，而 GE 對照表另一個範圍也有同編號、那一顆 AMS 沒有（汽機發電機 PT-2950 是 AMS 設備，燃機發電機的 PT-2950 不是）；
+      // 對照表還沒載到時記下鍵，run() 載到後補上這一句（冷開與熱開同一個結果）
+      if (IX.ge && IX.ge.has(k)) { res.geKey = k; res.status += this.geOtherNote(k); }
       return res;
     }
-    run(q) {
-      const sig = String(q == null ? '' : q) + '|' + ((this.route && this.route.params && this.route.params.get('a')) || '');
+    /** 04 的 GE 鍵 k 在對照表另一個範圍、沒有 AMS 設備的同編號 → 狀態列的一句；沒有（或對照表還沒載）回 '' */
+    geOtherNote(k) {
+      if (!AMS.getag || !AMS.getag.G) return '';
+      const gh = AMS.getag.hit(k);
+      const e = gh ? gh.ids.map((i) => AMS.getag.G.j.entries[i]).find((x) => !(x.ams || []).length) : null;
+      return e ? `；GE 文件中${e.sys || '另一個範圍'}也有同編號 ${e.t}（AMS 沒有那一顆；打 ${e.sc === 'S' ? 'S10' : 'G11'}_${e.t} 看它的 GE 編號卡）` : '';
+    }
+    run(q, bg) { // bg：對照表載到後背景重查（不是使用者送出／換網址）
+      const prm = (n) => (this.route && this.route.params && this.route.params.get(n)) || '';
+      const sig = String(q == null ? '' : q) + '|' + prm('a') + '|' + prm('sc');
       const changed = this.lastSig !== undefined && this.lastSig !== sig; // 換了位號或切到另一台（卡片內的 chip／相近建議／最近查過）→ 捲回頂端
       this.lastQuery = q; this.lastSig = sig;
       // 查詢一律由路由驅動（送出、站內連結、上一頁、網址列貼深連結都會經過這裡）→ 框內文字無條件同步成目前查詢；
       // 以前「框內有焦點就不覆寫」會讓按「上一頁」後卡片換了、框裡還是上一個位號
       const qs = q == null ? '' : String(q);
-      if (this.input && this.input.value !== qs) this.input.value = qs;
+      // 背景重查時使用者可能已經在框裡打下一個：不要蓋掉
+      if (this.input && this.input.value !== qs && !(bg && document.activeElement === this.input)) this.input.value = qs;
       const res = (this.res = this.lookup(q));
-      if (res.notfound && !res.valve) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
+      const GEm = AMS.getag;
+      const rerunWhenLoaded = () => { // 對照表慢或失敗過：背景再抓（失敗的等 15 秒冷卻過了再抓），抓到而畫面還是這一張就重查
+        const go = () => GEm.load().then((G) => { if (G && !this.destroyed && this.lastQuery === q && this.res === res) this.run(q, true); });
+        if (GEm.state === 'error') setTimeout(go, Math.max(500, GEm.errAt + 15500 - Date.now())); else go();
+      };
+      if (res.gePending) { // GE 對照表還在下載：最多等 4 秒再查一次；等不到（slow）就照沒有 GE 的方式顯示，載完再補
+        GEm.wait(4000).then(() => { if (!this.destroyed && this.lastQuery === q) this.run(q, true); });
+      } else if (res.geLate) {
+        res.status += '（GE 原廠編號對照表還沒載到，這是 AMS 的模糊對應；載到後會自動再查一次）';
+        rerunWhenLoaded();
+      } else if (res.geKey && GEm && !GEm.G && D.manifest && GEm.state !== 'none') { // 冷開 04 的 GE 鍵：載到後補「另一個範圍也有同編號」那一句
+        GEm.load().then(() => { if (!this.destroyed && this.res === res) { const n = this.geOtherNote(res.geKey); if (n) { res.status += n; this.root.querySelector('.cq-status').textContent = res.status; } } });
+      } else if (res.notfound && !res.valve && !res.ge) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
+        if (GEm && (GEm.slow || GEm.state === 'error') && !GEm.G && D.manifest) rerunWhenLoaded();
         if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
         try { res.vsg = AMS.valves.suggest(this.spec.valve, res.q, 12); } catch (e) { res.vsg = []; }
+        try { const have = new Set(res.sg.concat(res.vsg).map((x) => AMS.index.compact(x.key))); res.gsg = GEm ? GEm.suggest(res.q, 12).filter((x) => !have.has(AMS.index.compact(x.key))) : []; } catch (e) { res.gsg = []; }
         res.fz = [];
-        if (!res.sg.length && !res.vsg.length && AMS.fuzzy) { try { res.fz = AMS.fuzzy(this.spec.valve || null, res.q, 8); } catch (e) { res.fz = []; } }
-        if ((res.sg.length || res.vsg.length) && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
+        if (!res.sg.length && !res.vsg.length && !res.gsg.length && AMS.fuzzy) { try { res.fz = AMS.fuzzy(this.spec.valve || null, res.q, 8); } catch (e) { res.fz = []; } }
+        if ((res.sg.length || res.vsg.length || res.gsg.length) && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
         else if (res.fz.length) res.status = '找不到這個字串，可能打錯字：相近的鍵列在下方。';
         else if (this.spec.valve) res.status += '；氣動閥可到側欄「氣動閥清單」（57／58）搜尋，GE 舊位號在 Legacy/GE Tag 欄';
+        if (GEm && (GEm.G || GEm.slow || GEm.state === 'error')) res.status = res.status.replace(/：$/, '。');
+        if (GEm && GEm.G) res.status += '（GE 原廠編號對照表也比對過了）';
+        else if (GEm && (GEm.slow || GEm.state === 'error')) res.status += '（GE 原廠編號對照表還沒載到，載到後會自動再查一次）';
       }
       this.aux = null; this.statsReady = false;
       const root = this.root;
       const L = this.spec.lookup;
       if (this.scrollEl) this.scrollEl.classList.toggle('landing', !!res.empty);
       root.querySelector('.cq-status').textContent = res.status;
-      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve ? ' bad' : '');
+      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve && !res.ge && !res.gePending ? ' bad' : '');
       const row = res.i3 != null ? AMS.devices.sheet.rows[res.i3] : null;
       // alias / count
       const countStyle = this.ruleStyleFor('count', row, res);
@@ -362,8 +425,11 @@
             box.appendChild(ch); body.appendChild(box);
           }
         }
+        if (res.ge) body.appendChild(this.renderGeOnly(res, true)); // 閥清單與 GE 對照表都有這個編號：閥卡下面接 GE 文件的對照
         document.title = String(q) + '（氣動閥清單） · 設備查詢卡 · AMS'; return;
       }
+      if (res.ge) { body.appendChild(this.renderGeOnly(res)); document.title = String(q) + '（GE 原廠編號） · 設備查詢卡 · AMS'; return; }
+      if (res.gePending) { body.appendChild(U.h('p', { class: 'muted cl-empty' }, '載入中…')); return; }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) {
         body.appendChild(this.renderLanding());
@@ -467,12 +533,13 @@
      *  - AMS 的模糊對應（包含／唯一建議）指到的正是這顆閥自己的 AMS 設備（11HAD10QN005 → G11HAD10QN005；只有一台的核心）→ 讓 AMS 照舊開那台；
      *  - 輸入帶機組（G11…）且該機組恰有一台 AMS 設備 → 顯示那台；
      *  - 否則顯示閥卡（一鍵對多列時每列一塊）。狀態列說明經由哪一種識別碼對到。 */
-    valveLookup(q, res, rs) {
+    valveLookup(q, res, rs, hintUnit) {
       const vh = this.valveHit(q, rs); if (!vh) return null;
       const IX = AMS.index; const M = this.spec.lookup.msg; const V = this.spec.valve;
       const als = this.valveAliases(vh);
-      // 使用者打的機組：G11…（整串或去前綴）→ 'G11'；只打數字（11HAD10QN005、…QN005.PV 這類「包含」命中）→ 取鍵前面的兩位數 '11'
-      let unit = vh.unit || '';
+      // 使用者打的機組：G11…（整串或去前綴）→ 'G11'；只打數字（11HAD10QN005、…QN005.PV 這類「包含」命中）→ 取鍵前面的兩位數 '11'；
+      // hintUnit＝查詢字串開頭的機組（G12.／GT12_，AMS.getag.unitOf）：有就用它，不去猜鍵前面的數字（GE 的 20／90 字頭不是機組）
+      let unit = vh.unit || hintUnit || '';
       if (!unit) {
         const um = /^[GCS]\d\d(?=[A-Z])/.exec(vh.k || vh.c); // 命中的鍵本身帶機組（展開位號 G12HAD10QN001，含貼上 .PV 的「包含」命中）
         if (um) unit = um[0];
@@ -606,6 +673,171 @@
       } catch (err) { console.error(err); grid.innerHTML = `<p class="muted cl-empty">無法載入氣動閥清單：${U.esc(err.message)}</p>`; }
     }
 
+    /* ---------- GE 原廠編號卡（card/getag.json；core.js AMS.getag） ---------- */
+    geHit(q) { return AMS.getag && AMS.getag.G ? AMS.getag.hit(q) : null; }
+    /** 去分隔符才對到純數字的鍵（設備鍵 DeviceKey／裝置 ID）而輸入本身不是純數字：74-1 → 741 多半是打 GE 編號，不是設備鍵 */
+    numCompact(q, rs) { return !!rs && rs.how === 'compact' && /^\d+$/.test(rs.key) && /[^0-9]/.test(AMS.index.norm(q)); }
+    /** 位號索引的模糊對應要不要採用：GE 對照表整串命中 → 不採用（交給 geLookup）；只是唯一的 AMS 建議、而 GE 有「不在 04 的」開頭相符編號
+     *  （打一半的 CTDA）→ 也不採用，改列兩邊的候選。GE 的候選本身就是 04 的鍵（對到 AMS 設備的 GE 編號）時照舊直接開（PDT-273 → PDT-273A） */
+    geBlocksFuzzy(q, rs) {
+      const GEm = AMS.getag; if (!GEm || !GEm.G) return false;
+      if (GEm.hit(q)) return true;
+      const IX = AMS.index;
+      return !!rs && rs.how === 'suggest' && GEm.suggest(q, 12).some((x) => x.m === 'pre' && !IX.compactMap.has(IX.compact(x.key)));
+    }
+    /** AMS 位號索引沒有、GE 對照表有：命中的條目恰好對到一台 AMS 設備（輸入帶本站機組時只看該機組）→ 直接開那台，狀態列說明經由哪個 GE 編號；
+     *  否則顯示 GE 編號卡（res.ge＝AMS.getag.hit 的結果、res.geAms＝這些條目的 AMS 設備、res.geTw＝同一 KKS 的另一個編號是 AMS 設備）。
+     *  rsNum：去分隔符才對到純數字設備鍵的那個解析結果（74-1 → 741），狀態列交代那是另一台。網址 ?sc=G／S（卡內 chips 帶的）只留該範圍 */
+    geLookup(q, res, gh, rsNum) {
+      const IX = AMS.index; const E = AMS.getag.G.j.entries;
+      const sc = this.route && this.route.params ? this.route.params.get('sc') : null;
+      if (sc) { const f = gh.ids.filter((i) => E[i].sc === sc); if (f.length) gh = Object.assign({}, gh, { ids: f }); }
+      const ents = gh.ids.map((i) => E[i]);
+      const VIA = { key: 'GE 原廠編號', unit: `${gh.unit} 的 GE 原廠編號`, 90: '去掉字頭 90 後的 GE 原廠編號（推論：90 多半是定位器，對照表只有閥本體）',
+        kks: 'GE 文件寫的 KKS', 'kks-sub': 'GE 文件寫的 KKS 加子件尾碼', oldkks: '其他文件寫的 KKS（舊版或其他文件）', signal: 'Mark VIe 訊號名' };
+      const v0 = VIA[gh.via] || 'GE 原廠編號';
+      const what = (/^[A-Za-z0-9]/.test(v0) ? ' ' : '') + v0; // 中英之間留空格（同閥卡的「是 GE 舊位號」）
+      const qq = gh.via === 'signal' ? gh.raw : IX.norm(q); // 訊號名照原寫法（a_ctda1 不改成大寫）
+      const unitOf = (tag) => (/^([GS]\d\d)/.exec(IX.compact(tag)) || [])[1] || '';
+      const ams = []; const tw = []; const seen = new Set();
+      for (const e of ents) for (const [al, tag, how] of e.ams || []) if (!seen.has(al)) { seen.add(al); ams.push({ alias: al, tag, how, unit: unitOf(tag), ge: e.t }); }
+      const offSite = !!gh.unit && !AMS.getag.siteUnit(gh.unit);
+      for (const e of ents) {
+        for (const [al, tag, t2] of e.tw || []) {
+          if (seen.has(al) || (gh.unit && !offSite && unitOf(tag) !== gh.unit)) continue; // 帶本站機組：同 KKS 的設備也只列那一部
+          seen.add(al); tw.push({ alias: al, tag, how: `推論：與 ${e.t} 共用同一個 KKS 的 GE 編號 ${t2}`, unit: unitOf(tag), ge: t2 });
+        }
+      }
+      const mine = offSite ? [] : gh.unit ? ams.filter((x) => x.unit === gh.unit) : ams;
+      // 直接開那台的條件：只有一台，而且沒有「另一個範圍、沒有 AMS 設備」的同編號（a_96pdt292_dp 燃機發電機與汽機發電機都有，只開汽機那台會漏講）
+      const sc0 = mine.length ? mine[0].unit[0] : '';
+      if (mine.length === 1 && ents.every((e) => (e.ams || []).length || e.sc === sc0) && !rsNum && !this._inGe) {
+        this._inGe = true;
+        let r2; try { r2 = this.lookup(mine[0].alias); } finally { this._inGe = false; }
+        if (r2 && !r2.notfound) { r2.status = `「${qq}」是${what}，對應 GE 編號 ${mine[0].ge}＝AMS 設備 ${mine[0].tag}。` + r2.status; return r2; }
+      }
+      const names = [...new Set(ents.map((e) => { const x = [ents.length > 1 ? e.sys : '', e.svc].filter(Boolean).join('：'); return e.t + (x ? '（' + x + '）' : ''); }))].join('、');
+      res.ge = gh; res.geAms = ams; res.geTw = tw; res.notfound = true; res.key = IX.norm(q);
+      let st = `「${qq}」是${what}：${names}`;
+      if (ents.every((e) => e.gone)) st += '（最新版 GE 清單已無此編號）';
+      if (offSite) st += `；本站只有 1 號機（G11／G12／S10），${gh.unit} 與它們同設計，下面列的是 1 號機的對照`;
+      if (rsNum) {
+        const r0 = IX.sheet.rows[IX.first.get(rsNum.key)]; const al = r0 ? U.text(r0[this.spec.lookup.alias_col]) : '';
+        const i3 = al ? AMS.devices.byAlias.get(al) : null; const t3 = i3 != null ? U.text(AMS.devices.sheet.rows[i3][this.spec.lookup.target_tag_col]) : '';
+        st += `；「${rsNum.key}」另外是 AMS 的設備鍵（DeviceKey）${t3 ? '，那是 ' + t3 : ''}，要查那一台請直接打 ${rsNum.key}`;
+      }
+      st += ams.length ? '；AMS 資料庫的設備見下方。'
+        : tw.length ? `；AMS 資料庫沒有以這個編號建的設備，但同一個 KKS 的 ${tw[0].ge} 是 AMS 設備 ${tw[0].tag}（推論，見下方）。`
+          : offSite ? '；AMS 資料庫沒有以這個編號或 KKS 建的設備。' : '；AMS 資料庫沒有以這個編號或 KKS 建的設備，以下是 GE 文件的對照。';
+      res.status = st;
+      return res;
+    }
+    /** GE 編號卡：GE 文件的對照（各機組相同的列＋逐機組的 KKS／Mark VIe 訊號，逐格來源）＋連結（signal-atlas、相關裝置、同一 KKS 的其他編號、氣動閥清單）。
+     *  below＝接在閥卡下面：不出標頭（位號、說明、AMS 設備在閥卡上已有） */
+    renderGeOnly(res, below) {
+      const G = AMS.getag.G; const gh = res.ge; const mode = this.currentMode();
+      const ents = gh.ids.map((i) => G.j.entries[i]);
+      const geAms = res.geAms || []; const geTw = res.geTw || [];
+      const site = gh.unit && AMS.getag.siteUnit(gh.unit) ? gh.unit : ''; // 輸入帶本站機組：連結也帶著，下一張卡才會停在同一部
+      const href = (t, e) => '#/card/' + encodeURIComponent(site && (!e.sc || e.sc === site[0]) ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : '');
+      const wrap = U.h('section', { class: 'csec sum ge-only' + (below ? ' ge-below' : '') });
+      const V = this.spec.valve;
+      if (!below) {
+        const hero = U.h('div', { class: 'sum-hero' });
+        hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, [...new Set(ents.map((e) => e.t))].join('／'))));
+        const syss = [...new Set(ents.map((e) => e.sys).filter(Boolean))];
+        hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, 'GE 原廠編號'), syss.length ? U.h('span', { class: 'sum-subi' }, syss.join('／')) : null,
+          U.h('span', { class: 'sum-subi' }, geAms.length ? 'AMS 設備見下方' : geTw.length ? '同一 KKS 有 AMS 設備（推論）' : '不在 AMS 資料庫')));
+        const svcs = [...new Set(ents.map((e) => e.svc).filter(Boolean))];
+        if (svcs.length) hero.appendChild(U.h('div', { class: 'sum-svc ge-svc' }, svcs.join('／')));
+        if (ents.every((e) => e.gone)) hero.appendChild(U.h('div', { class: 'sum-flags' }, U.h('span', { class: 'pill warn' }, '最新版 GE 清單已無此編號（舊版文件才有）')));
+        const devChips = (label, list) => {
+          if (!list.length) return;
+          const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, label));
+          for (const x of list) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(x.alias), title: x.how }, U.h('span', { class: 'mono' }, x.tag), U.h('span', { class: 'muted small' }, ' ' + [x.unit, x.alias].filter(Boolean).join(' · '))));
+          hero.appendChild(ch);
+        };
+        devChips('AMS 資料庫的設備：', geAms);
+        devChips('同一個 KKS 的另一個 GE 編號在 AMS 的設備（推論）：', geTw);
+        // 氣動閥清單也有這個編號（訊號名、KKS 對到這裡時）：連到閥卡
+        const vt = V ? ents.filter((e) => { try { const vh = AMS.valves.hit(V, e.t, 0); return vh && /^(key|suffix|unit)$/.test(vh.via); } catch (err) { return false; } }).map((e) => e.t) : [];
+        if (vt.length) {
+          const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, '氣動閥清單也有：'));
+          for (const t of [...new Set(vt)]) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(t) }, U.h('span', { class: 'mono' }, t), U.h('span', { class: 'muted small' }, ' 閥卡')));
+          hero.appendChild(ch);
+        }
+        wrap.appendChild(hero);
+      }
+      const groups = U.h('div', { class: 'sum-groups' });
+      const sec = U.h('section', { class: 'sum-g sum-ge' });
+      sec.appendChild(U.h('h3', { class: 'sum-gh' }, 'GE 原廠編號對照（GE 文件）'));
+      const grid = U.h('div', { class: 'sum-body' });
+      const ix = { docs: G.j.docs || {}, doc_no: {} };
+      const WIDE = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS|Mark VIe 訊號)/; // 長的值佔兩格，不要擠在五分之一寬裡
+      const MULTI_DOC = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS)/;
+      const chips = (label, items) => {
+        if (!items.length) return null;
+        const ch = U.h('div', { class: 'nf-chips ge-links' }, U.h('span', { class: 'muted small' }, label));
+        for (const it of items) {
+          const kids = [U.h('span', { class: 'mono' }, it.text), it.sub ? U.h('span', { class: 'muted small' }, ' ' + it.sub) : null];
+          ch.appendChild(it.href ? U.h('a', Object.assign({ class: 'chip-btn', href: it.href, title: it.title || '' }, it.ext ? { target: '_blank', rel: 'noopener noreferrer' } : {}), ...kids)
+            : U.h('span', { class: 'chip-btn plain', title: '這個範圍的對照表沒有這個名稱的條目（只列出名稱）' }, ...kids));
+        }
+        return ch;
+      };
+      ents.forEach((e, k) => {
+        const box = U.h('div', { class: 'sum-sig' });
+        const head = U.h('div', { class: 'sum-sigh' });
+        if (ents.length > 1) head.appendChild(U.h('span', { class: 'pill plain' }, `${k + 1}/${ents.length}`));
+        head.appendChild(U.h('span', { class: 'sum-sigi key mono', title: 'GE 原廠編號' }, e.t));
+        if (e.sys) head.appendChild(U.h('span', { class: 'sum-sigi', title: '範圍' }, e.sys));
+        if (e.gone && (below || ents.length > 1)) head.appendChild(U.h('span', { class: 'pill warn' }, '最新版清單已無此編號')); // 只有一筆時標頭已經講了
+        box.appendChild(head);
+        // 輸入帶本站的機組（G12_CT-DA-1、G12.a_ctda1）→ 只列那一台；其他（G21…、沒帶機組）→ 本站各機組都列
+        const us = (e.u || []).filter(([un]) => !site || un === site);
+        const units = us.length ? us : (e.u || []);
+        const blocks = [Object.assign({ rule: G.j.rule }, e.c)].concat(units.map(([un, rows]) => ({ h: un, lvl: e.c.lvl, src: e.c.src, d: e.c.d, rule: G.j.rule_unit, rows })));
+        blocks.forEach((ent, bi) => {
+          if (bi) box.appendChild(U.h('div', { class: 'sum-sigh ge-unit' }, U.h('span', { class: 'sum-sigi key mono' }, ent.h), U.h('span', { class: 'sum-sigi' }, '本機組的 KKS 與訊號')));
+          const sg = U.h('div', { class: 'cfields sumgrid' });
+          for (const r of ent.rows) {
+            const det = this.docDetail(ix, ent.d, [['比對規則', ent.rule]]); // 每一格各自一份（明細裡的「開啟檔案」連結是 DOM 節點，共用會被搬到最後一格）
+            // 列了好幾份文件的格（其他出處、文件狀態…）：值不連到主出處（那不是它講的檔），改在明細逐份列出能開的
+            const multi = MULTI_DOC.test(r[0]);
+            const lk = multi ? {} : this.valueLink(ix, r[1], ent.d, det);
+            if (multi) {
+              const named = Object.values(ix.docs).filter((d) => d.title && d.url && String(r[1]).includes(d.title));
+              if (named.length) {
+                const box = U.h('span', {});
+                named.forEach((d, i) => { if (i) box.appendChild(U.h('span', {}, '；')); box.appendChild(U.h('a', { class: 'lk', href: d.url, target: '_blank', rel: 'noopener noreferrer' }, d.title + ' ↗')); });
+                det.push(['本格提到的文件', box]);
+              }
+            }
+            sg.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: WIDE.test(r[0]) ? 2 : undefined, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
+          }
+          box.appendChild(sg);
+        });
+        const sigs = [];
+        for (const [un, list] of Object.entries(e.lg || {})) {
+          if (site && us.length && un !== site) continue;
+          for (const n of list) sigs.push({ text: n, href: 'https://momobacon-wq.github.io/signal-atlas/#/v/' + encodeURIComponent(n), title: '在 signal-atlas 開啟 ' + n, ext: true });
+        }
+        const links = [
+          chips('Mark VIe 訊號（signal-atlas）：', sigs),
+          chips('相關裝置：', (e.ln || []).map(([t, rel, to]) => ({ text: t, sub: rel, href: to ? href(to, e) : null }))),
+          chips('同一個 KKS 的其他 GE 編號（推論：常是同一套設備的閥本體／定位器／電磁閥，或改過編號的同一顆）：', (e.sib || []).map((t) => ({ text: t, href: href(t, e) }))),
+        ].filter(Boolean);
+        if (links.length) box.appendChild(U.h('div', { class: 'ge-linkbox' }, ...links));
+        grid.appendChild(box);
+      });
+      sec.appendChild(grid);
+      sec.appendChild(U.h('p', { class: 'muted small aux-note' }, `GE 原廠編號對照表（建於 ${G.j.built_at}，共 ${U.int(G.j.n)} 個編號）：從 GE 各版設備清單、型錄總表、Mark VIe I/O 清單等文件逐列抽出。`
+        + 'GE 編號只在一部機台內唯一（燃機、汽機可能各有一顆同編號）；KKS 的 XX／YY 換成本站機組。說明是 GE 文件的英文原文。來源點開可看出處文件與頁次，引用前以原文件為準。'));
+      groups.appendChild(sec);
+      wrap.appendChild(groups);
+      return wrap;
+    }
+
     /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */
     renderNotFound(res) {
       const box = U.h('section', { class: 'csec nf' });
@@ -632,8 +864,16 @@
         }
         for (const sid of Object.keys(V.sheets || {})) inner.appendChild(U.h('p', {}, U.h('a', { class: 'lk', href: '#/s/' + encodeURIComponent(sid) + '?q=' + encodeURIComponent(q) }, `在 ${V.sheets[sid]} 搜尋「${q}」（所有欄位）›`)));
       }
+      // GE 原廠編號對照表裡相近的編號（開頭／包含／英文說明）：AMS 沒有的元件也開得到 GE 編號卡
+      const gs = Array.isArray(res.gsg) ? res.gsg : [];
+      if (gs.length) {
+        const blk = U.h('div', { class: 'nf-ge' }, U.h('p', {}, 'GE 原廠編號中相近的編號：'));
+        const ch = U.h('div', { class: 'nf-chips' });
+        for (const it of gs) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + (it.alias || ''))));
+        blk.appendChild(ch); inner.appendChild(blk);
+      }
       // 兩邊都沒有包含這個字串的鍵：列打錯字的相近鍵（S/5、O/0 這類易混字元、差一兩個字）。只列出，不自動開
-      if (!sg.length && !inner.querySelector('.nf-valves') && AMS.fuzzy) {
+      if (!sg.length && !inner.querySelector('.nf-valves') && !inner.querySelector('.nf-ge') && AMS.fuzzy) {
         let fz = Array.isArray(res.fz) ? res.fz : null;
         if (!fz) { try { fz = AMS.fuzzy(V || null, q, 8); } catch (e) { fz = []; } }
         if (fz.length) {
@@ -988,11 +1228,11 @@
               U.h('span', { class: 'sub-h' }, ent.h), ent.rule ? U.h('span', { class: 'muted small' }, ' · 規則 ' + ent.rule) : null,
               ent.note ? U.h('div', { class: 'muted small sub-note' }, ent.note) : null);
             grid.appendChild(sub);
-            const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
             for (const r of ent.rows) {
               const st = r[2];
               const flags2 = CMP_TEXT[st] && st !== 'ok' ? [{ t: CMP_TEXT[st], cls: cmpCls(st) }] : [];
-              const det = detail.slice(); const lk = this.valueLink(ix, r[1], ent.d, det);
+              // 每一格各自一份來源明細：裡面的「開啟檔案」連結是 DOM 節點，整段共用一份時會被搬到最後一格，其他格只剩空的「Google 雲端硬碟」
+              const det = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]); const lk = this.valueLink(ix, r[1], ent.d, det);
               grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
             }
           }
@@ -1067,7 +1307,7 @@
       const wb = D.manifest.workbook || {};
       wrap.appendChild(U.h('h2', { class: 'ld-h' }, '輸入位號，查一台設備'));
       const ge = (this.spec.sections_aux || []).some((s) => s && s.key === 'getag'); // 只有 db 站（02 有 GE 原廠編號段、04 有 GE 列）才說可以打 GE 編號
-      wrap.appendChild(U.h('p', { class: 'ld-p muted' }, `可輸入現行／舊 AMS 位號、識別時位號、HostTag、裝置 ID、設備鍵${ge ? '、別名或 GE 原廠編號（例 96PG-5B，連字號可省略；大小寫不拘）' : '或別名（大小寫不拘）'}；打字時會列出建議，按 Enter 或點選即可。${n ? `資料庫共 ${U.int(n)} 台設備` : ''}${wb.source ? `（資料：${wb.source}）` : ''}。`));
+      wrap.appendChild(U.h('p', { class: 'ld-p muted' }, `可輸入現行／舊 AMS 位號、識別時位號、HostTag、裝置 ID、設備鍵${ge ? '、別名或 GE 原廠編號（例 96PG-5B、CT-DA-1，連字號可省略；大小寫不拘）' : '或別名（大小寫不拘）'}；打字時會列出建議，按 Enter 或點選即可。${ge ? 'AMS 沒有的元件（熱電偶、開關、閥本體…）打 GE 編號、Mark VIe 訊號名或 KKS 也查得到它在 GE 文件裡是哪個元件。' : ''}${n ? `資料庫共 ${U.int(n)} 台設備` : ''}${wb.source ? `（資料：${wb.source}）` : ''}。`));
       const chips = (title, list, clear) => {
         const box = U.h('div', { class: 'ld-chips' }, U.h('span', { class: 'ld-ct muted small' }, title));
         for (const it of list) {
@@ -1330,11 +1570,11 @@
         (g.head || []).forEach((hk, i) => { const v = this.rowVal(ent, hk); if (v) head.appendChild(U.h('span', { class: 'sum-sigi' + (i === 0 ? ' key' : ''), title: hk }, v)); });
         sig.appendChild(head);
         const sg = U.h('div', { class: 'cfields sumgrid' });
-        const detail = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]);
         for (const key of g.items || []) {
           const stt = this.rowStatus(ent, key);
           const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
-          const v = this.rowVal(ent, key); const det = detail.slice(); const lk = this.valueLink(ix, v, ent.d, det);
+          // 每一格各自一份來源明細（「開啟檔案」連結是 DOM 節點，共用會被搬到最後一格）
+          const v = this.rowVal(ent, key); const det = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]); const lk = this.valueLink(ix, v, ent.d, det);
           sg.appendChild(this.fieldEl({ label: key, val: v, text: lk.text, flags, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
         }
         sig.appendChild(sg);

@@ -6,7 +6,7 @@
 Written without importing encrypt_data's crypto (only its key-file reader): re-derives the key from the passphrase, opens
 meta.check, decrypts EVERY .bin with AAD = its relative path, gunzips, parses JSON; asserts no plaintext *.json besides
 meta.json; every file listed in manifest (sheets[].files, aux.card.index and its files, plus card/index.json's hmi.files
-= the HMI screen images and pid.files = the P&ID sheet images) exists as .bin and vice versa;
+= the HMI screen images, pid.files = the P&ID sheet images and getag.files = the GE tag card data) exists as .bin and vice versa;
 recomputes build from the plaintext the way the generators do (sheets/*.json by basename, then card/**/*.json by rel path,
 plus manifest without build) and requires meta.build == manifest.build == version.json.build == index.html's
 <meta name="ams-build">; the meta.json preload ?v= == build + key tag (key_tag(meta), also <meta ams-build data-key> and
@@ -111,6 +111,9 @@ def verify_site(docs, pw):
                 refs.add(f)
             # card/index.json 的 pid.files = P&ID 圖紙影像（card/pid/<slug>.json；CONTRACT.md「P&ID 圖面位置」）
             for f in ((ix.get("pid") or {}).get("files")) or []:
+                refs.add(f)
+            # card/index.json 的 getag.files = GE 編號卡的整份對照表（card/getag.json；CONTRACT.md「v8」）
+            for f in ((ix.get("getag") or {}).get("files")) or []:
                 refs.add(f)
     missing = sorted(r for r in refs if r not in texts)
     orphan = sorted(r for r in texts if r != "manifest.json" and r not in refs)

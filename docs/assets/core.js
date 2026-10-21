@@ -828,7 +828,9 @@
 
   /* ------------------------------------------------------------------ 位號索引（05）與設備總表（03） */
   const IX = (AMS.index = {});
-  IX.norm = (q) => String(q == null ? '' : q).replace(/=/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+  // 全形英數與符號（中文輸入法全形模式、從中文文件貼上的 ＣＴＤＡ－１）先折成半形：只折 U+FF01–FF5E 與全形空白，不做 NFKC（04 有些舊鍵帶 º ½ 這類字，NFKC 會改掉它們）
+  IX.norm = (q) => String(q == null ? '' : q).replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/\u3000/g, ' ')
+    .replace(/=/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
   IX.compact = (q) => IX.norm(q).replace(/[^A-Z0-9]/g, ''); // 去掉分隔符（- _ . / 空白…）只留英數：貼上 G12-HAP70-BT001 也對得到
   IX.load = function (onProgress) { // onProgress(0..1)：只有第一個呼叫者的回呼接到下載進度；之後的呼叫者在完成時收到 1
     if (IX._p) { if (onProgress) IX._p.then(() => onProgress(1), () => {}); return IX._p; }
@@ -1059,7 +1061,7 @@
   class Autocomplete {
     /** opts: {fetch(q) → Promise<items>|items, render(item,q) → html, onPick(item), onEnter(text), prepare() → Promise} */
     constructor(input, opts) {
-      this.input = input; this.o = opts; this.items = []; this.active = -1;
+      this.input = input; this.o = opts; this.items = []; this.active = -1; this.gen = 0; // gen：每次 hide 加一，比它舊的建議回來就丟掉
       this.id = 'ac-' + (++acSeq);
       this.list = U.h('ul', { class: 'ac-list', role: 'listbox', id: this.id, hidden: true });
       const wrap = input.parentElement;
@@ -1093,8 +1095,9 @@
         return;
       }
       let items;
+      const gen = this.gen;
       try { items = await this.o.fetch(q); } catch (e) { items = []; }
-      if (q !== this.input.value) return;
+      if (q !== this.input.value || gen !== this.gen) return; // 等建議的期間已按 Enter／點選／Esc／離開（hide）：不要在新的卡片上再把清單打開
       this.items = items || []; this.active = -1;
       if (!this.items.length) {
         this.list.innerHTML = `<li class="ac-empty" role="option" aria-disabled="true">${this.o.emptyText || '無符合的鍵'}</li>`;
@@ -1102,9 +1105,11 @@
         this.list.innerHTML = this.items.map((it, i) => `<li role="option" id="${this.id}-${i}" data-i="${i}" aria-selected="false">${this.o.render(it, q)}</li>`).join('');
       }
       this.show();
+      // 建議來源還有東西在下載（GE 對照表）：fetch 在陣列上掛 later（Promise），載完後框內字沒變、清單也沒被收起就重查一次
+      if (items && items.later) items.later.then(() => { if (gen === this.gen && q === this.input.value && document.activeElement === this.input) this.update(); }, () => {});
     }
     show() { this.list.hidden = false; this.input.setAttribute('aria-expanded', 'true'); }
-    hide() { this.list.hidden = true; this.input.setAttribute('aria-expanded', 'false'); this.input.removeAttribute('aria-activedescendant'); }
+    hide() { this.upd.cancel(); this.gen++; this.list.hidden = true; this.input.setAttribute('aria-expanded', 'false'); this.input.removeAttribute('aria-activedescendant'); }
     setActive(i) {
       const lis = this.list.querySelectorAll('li[data-i]');
       if (!lis.length) return;
@@ -1247,6 +1252,159 @@
     }
     return out;
   };
+  /* ---------- GE 原廠編號卡（card/getag.json；tools/db/build_card_aux.py ge_card_data，CONTRACT.md「v8」）----------
+   * 整份 GE 原廠編號對照表（約 4 千個編號）：AMS 沒有的元件（熱電偶 CT-DA-1、開關、閥本體…）打 GE 編號、Mark VIe 訊號名或 KKS
+   * 也查得到是哪個元件。只在 db 站（card/index.json 有 getag）；查詢卡開啟、搜尋框聚焦時開始抓，抓完建四個索引：
+   * keys＝{去分隔符的寫法: [條目序號…]}、sig＝{去分隔符的 Mark VIe 訊號名: […]}、kb＝{範圍|現行 KKS 本體: […]}、okb＝{範圍|其他文件寫的 KKS 本體: […]}。
+   * 比對一律整串相等（去分隔符、不分大小寫），不做「包含」：CTDA1 不可中 CTDA10。
+   * 狀態：idle → loading → ready｜none（這個站沒有對照表）｜error（下載失敗：15 秒後再呼叫 load 會重抓）。
+   * slow＝等過一次還沒載完（網路慢、卡住）：之後的查詢不再等它，照沒有 GE 的方式先顯示，載完再補。 */
+  const GE = (AMS.getag = { state: 'idle', G: null, slow: false, errAt: 0 });
+  GE.settled = () => GE.state === 'ready' || GE.state === 'none' || GE.state === 'error';
+  /** 這次查詢要不要先等對照表：還沒開始或還在下載，而且沒有等過頭（slow） */
+  GE.pending = () => !!D.manifest && !GE.slow && (GE.state === 'idle' || GE.state === 'loading');
+  /** 已經知道答案：載好了，或這個站本來就沒有。慢（slow）、失敗（error）都不算——那時的模糊對應不可寫進網址 */
+  GE.ready = () => GE.state === 'ready' || GE.state === 'none';
+  GE.load = function () {
+    if (GE._p) return GE._p;
+    if (!D.manifest) return Promise.resolve(null); // manifest 還沒載（密語視窗時就聚焦搜尋框）：不要把「沒有」記住
+    if (GE.state === 'error' && Date.now() - GE.errAt < 15000) return Promise.resolve(null); // 剛失敗過：不要每打一個字就重抓
+    const aux = D.manifest.aux && D.manifest.aux.card;
+    if (!aux || !aux.index) { GE.state = 'none'; GE._p = Promise.resolve(null); return GE._p; } // 沒有查詢卡附加資料的站
+    GE.state = 'loading';
+    GE._p = (async () => {
+      const ix = await D.loadAuxIndex(aux.index);
+      const f = ix && ix.getag && ix.getag.files && ix.getag.files[0];
+      if (!f) { GE.state = 'none'; return null; } // 主站：index 沒有 getag
+      GE.build(await D.fetchJSON(f));
+      GE.state = 'ready';
+      return GE.G;
+    })().catch(() => { GE._p = null; GE.state = 'error'; GE.errAt = Date.now(); return null; });
+    return GE._p;
+  };
+  /** 最多等 ms 毫秒：載完回 GE.G，等不到回 null（並記 slow，之後的查詢不再等） */
+  GE.wait = function (ms) {
+    if (GE.settled()) return Promise.resolve(GE.G);
+    return Promise.race([GE.load(), new Promise((r) => setTimeout(() => r(undefined), ms))]).then((g) => {
+      if (g === undefined) { GE.slow = true; return null; }
+      return g;
+    });
+  };
+  GE.build = function (j) {
+    const keys = new Map(); const sig = new Map(); const kb = new Map(); const okb = new Map();
+    const put = (m, k, i) => { if (!k) return; const a = m.get(k); if (!a) m.set(k, [i]); else if (!a.includes(i)) a.push(i); };
+    (j.entries || []).forEach((e, i) => {
+      e._c = [e.t].concat(e.f || []).map((x) => IX.compact(x)).filter(Boolean);
+      for (const c of e._c) put(keys, c, i);
+      for (const s of e.sig || []) put(sig, IX.compact(s), i);
+      for (const b of e.kb || []) put(kb, e.sc + '|' + b, i);
+      for (const b of e.okb || []) put(okb, e.sc + '|' + b, i);
+    });
+    GE.G = { j, keys, sig, kb, okb };
+    return GE.G;
+  };
+  const GE_KKS = /^([A-Z]\d\d|XX|YY)?([A-Z]{3}\d\d[A-Z]{2}\d{3}[A-Z]??)([A-Z]{1,2}\d\d)?$/; // 同 build_card_aux.GE_KKS_RE（XX＝燃機通用、YY＝汽機通用）
+  // Mark VIe 控制器名 → 機組：G11／G11S → G11；S1／S1S／SAMP1 → S10（S2…→ S20）
+  const GE_CTRL = /^(?:G([123][12])S?|S([123])S?|SAMP([123]))$/;
+  /** 去分隔符的輸入開頭是機組（G11／GT11／S10／ST10…，全廠 6 部燃機、3 部汽機）→ { unit:'G11'|'S10'…, rest }；不是回 null。 */
+  GE.unitOf = function (c) {
+    let m = /^GT?([123][12])(.+)$/.exec(c);
+    if (m) return { unit: 'G' + m[1], rest: m[2] };
+    m = /^ST?([123]0)(.+)$/.exec(c);
+    return m ? { unit: 'S' + m[1], rest: m[2] } : null;
+  };
+  GE.siteUnit = (u) => !!(u && GE.G && Object.values(GE.G.j.units || {}).some((l) => l.includes(u))); // 本站（1 號機）有沒有這部
+  /** 輸入字串 → { ids:[條目序號…], via, unit, k, raw } | null。via：key（GE 編號的任一寫法）｜unit（去機組前綴 G11_／GT12.／S10_，只留該範圍）｜
+   *  90（去字頭 90 後的編號；90 多半是定位器、對照表只有閥本體）｜kks／kks-sub（現行 KKS 本體相同；-sub＝輸入多了子件尾碼 KH01／MB01…）｜
+   *  oldkks（其他文件寫的 KKS）｜signal（Mark VIe 訊號名，可帶控制器 G11.；不帶控制器又不含底線時，要沒有其他鍵以它開頭才算——打一半的 96QV- 不算）。 */
+  GE.hit = function (q) {
+    const G = GE.G; if (!G) return null;
+    const c = IX.compact(q); if (!c) return null;
+    const E = G.j.entries;
+    const mk = (ids, via, unit, k) => (ids && ids.length ? { ids: ids.slice(), via, unit: unit || '', k, raw: String(q).trim() } : null);
+    const inScope = (ids, unit) => (unit ? ids.filter((i) => !E[i].sc || E[i].sc === unit[0]) : ids);
+    if (G.keys.has(c)) return mk(G.keys.get(c), 'key', '', c);
+    const um = GE.unitOf(c);
+    if (um && um.rest.length >= 2) {
+      const r = (G.keys.has(um.rest) && mk(inScope(G.keys.get(um.rest), um.unit), 'unit', um.unit, um.rest))
+        || (/^90./.test(um.rest) && G.keys.has(um.rest.slice(2)) && mk(inScope(G.keys.get(um.rest.slice(2)), um.unit), '90', um.unit, um.rest.slice(2)));
+      if (r) return r;
+    }
+    const m9 = /^90(.{2,})$/.exec(c);
+    if (m9 && G.keys.has(m9[1])) return mk(G.keys.get(m9[1]), '90', '', m9[1]);
+    const p = GE_KKS.exec(c);
+    if (p && p[1]) {
+      const pu = GE.unitOf(p[1] + 'X');
+      const sc = p[1] === 'XX' ? 'G' : p[1] === 'YY' ? 'S' : pu ? pu.unit[0] : '';
+      if (sc) {
+        const unit = pu ? pu.unit : '';
+        const r = mk(G.kb.get(sc + '|' + p[2]) || G.kb.get('|' + p[2]), p[3] ? 'kks-sub' : 'kks', unit, p[2])
+          || mk(G.okb.get(sc + '|' + p[2]) || G.okb.get('|' + p[2]), 'oldkks', unit, p[2]);
+        if (r) return r;
+      }
+    }
+    const toks = String(q == null ? '' : q).trim().split(/[\s.:/\\]+/).filter(Boolean); // G11.a_ctda1、G11 CTDA1、96CTDA1_CTDA1_TP1
+    let unit = '';
+    if (toks.length > 1) {
+      const cm = GE_CTRL.exec(IX.compact(toks[0]));
+      if (cm) { unit = cm[1] ? 'G' + cm[1] : 'S' + (cm[2] || cm[3]) + '0'; toks.shift(); }
+    }
+    while (toks.length > 1 && /^(PV|VALUE)$/i.test(toks[toks.length - 1])) toks.pop(); // 從 ToolboxST／HMI 貼上的 d_14hri.PV
+    if (toks.length !== 1) return null; // 控制器（可省）＋一個訊號名；多出別的字就不算
+    const k = IX.compact(toks[0]);
+    if (k.length < 3 || !G.sig.has(k)) return null;
+    if (!unit && !toks[0].includes('_')) { // 不帶控制器、不含底線：有其他鍵以它開頭（96QV → 96QV-2）就當打一半，不搶
+      const kc = IX.keysCompact || [];
+      for (let i = 0; i < kc.length; i++) if (kc[i] !== k && kc[i].startsWith(k)) return null;
+      for (const x of G.keys.keys()) if (x !== k && x.startsWith(k)) return null;
+    }
+    return mk(unit ? inScope(G.sig.get(k), unit) : G.sig.get(k), 'signal', unit, k);
+  };
+  /** 打一半的字 → 相近的 GE 編號。項目形狀同 IX.suggest：{key, src:'GE 原廠編號', alias:<範圍 · 說明>, tag:'', ge:序號, m:'pre'|'sub'|'name'}；
+   *  比對（去分隔符）：任一寫法開頭 → 包含（≥3 字元）；輸入帶機組（G11_CTDA、GT11 CTDA）時去前綴再比、只取該範圍、key 補回機組；
+   *  輸入 ≥3 字元時另比英文說明（以空白分段、每段都要出現）。同一編號在燃機、汽機各一筆時只列一次（範圍併在一起）。 */
+  GE.suggest = function (q, limit) {
+    limit = limit || 8;
+    const G = GE.G; const out = [];
+    if (!G) return out;
+    const n = IX.norm(q); const c = IX.compact(q);
+    if (c.length < 2) return out;
+    const forms = [{ c, unit: '' }];
+    const um = GE.unitOf(c);
+    if (um && um.rest.length >= 2) forms.push({ c: um.rest, unit: um.unit });
+    const toks = n.split(/\s+/).filter(Boolean);
+    const pre = []; const sub = []; const nm = [];
+    G.j.entries.forEach((e, i) => {
+      let got = null;
+      for (const f of forms) {
+        if (f.unit && e.sc && e.sc !== f.unit[0]) continue;
+        const key = f.unit ? f.unit + '_' + e.t : e.t;
+        if (e._c.some((x) => x.startsWith(f.c))) { got = { key, m: 'pre', l: Math.min.apply(null, e._c.map((x) => x.length)) }; break; }
+        if (f.c.length >= 3 && e._c.some((x) => x.includes(f.c))) { got = { key, m: 'sub', l: 0 }; break; }
+      }
+      if (!got && e.svc && n.length >= 3 && toks.every((t) => e.svc.toUpperCase().includes(t))) got = { key: e.t, m: 'name', l: 0 };
+      if (got) (got.m === 'pre' ? pre : got.m === 'sub' ? sub : nm).push(Object.assign(got, { src: 'GE 原廠編號', alias: GE.label([e]), tag: '', ge: i }));
+    });
+    pre.sort((a, b) => a.l - b.l || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)); // CTDA → CT-DA-1…CT-DA-9 在 CT-DA-10 之前
+    return GE.merge(pre.concat(sub, nm), limit);
+  };
+  /** 條目 → 建議的說明「燃機 · COMPRESSOR …」；同編號多個範圍 →「燃機／汽機 · 第一筆的說明」；最新版清單已無此編號的加註 */
+  GE.label = function (ents) {
+    const sys = [...new Set(ents.map((e) => e.sys).filter(Boolean))].join('／');
+    const svc = (ents.find((e) => e.svc) || {}).svc || '';
+    return [sys, svc, ents.every((e) => e.gone) ? '（最新版清單已無此編號）' : ''].filter(Boolean).join(' · ');
+  };
+  /** 同一個 key（去分隔符）只留一筆、說明改成合併範圍；最多 limit 筆 */
+  GE.merge = function (items, limit) {
+    const E = GE.G.j.entries; const seen = new Map(); const out = [];
+    for (const it of items) {
+      const k = IX.compact(it.key);
+      if (seen.has(k)) { const f = seen.get(k); f._ids.push(it.ge); f.alias = GE.label(f._ids.map((i) => E[i])); continue; }
+      it._ids = [it.ge]; seen.set(k, it);
+      if (out.length < limit) out.push(it);
+    }
+    return out;
+  };
   /** 打錯字的相近鍵（AMS 位號索引＋氣動閥清單）。只當建議：呼叫端只在「完全相符／開頭／包含」都沒有結果時才用，永遠不自動開。
    *  先把易混字元視為相同（S/5、O/Q/0、I/L/1、B/8、Z/2），再算編輯距離（含相鄰對調）：≤1；比的那一段長度 ≥9 可到 2；只回傳最接近的那一層，清單每列只出一筆。
    *  帶機組的輸入（G11…、G11_90…）另以去掉前綴的字串比清單的去機組核心／別名，只取涵蓋該機組的列，key 補回機組。
@@ -1328,6 +1486,19 @@
         if (add(sc, { key: k, src: '氣動閥清單', alias: (it && (it[4] || it[5])) || '', tag: it ? it[2] : '', valve: [e[0], e[1]] })) seenRows.add(e[0] + ':' + e[1]);
       }
     }
+    if (GE.G && c.length >= 5) { // GE 原廠編號（db 站）：每個條目只出一筆，取最接近的寫法；帶機組的輸入去前綴再比、只取該範圍。
+      // GE 有大量 4 字以內的短編號（LS-12、PS-3…）：比的兩邊都要 ≥5 字，否則打短位號會冒出一堆鄰號
+      const um = GE.unitOf(c);
+      GE.G.j.entries.forEach((e) => {
+        let best = null; let bk = '';
+        for (const x of e._c) {
+          if (x.length < 5 || numKey(x)) continue;
+          const sc = score(c, x); if (better(sc, best)) { best = sc; bk = e.t; }
+          if (um && um.rest.length >= 5 && (!e.sc || e.sc === um.unit[0])) { const s2 = score(um.rest, x); if (better(s2, best)) { best = s2; bk = um.unit + '_' + e.t; } }
+        }
+        if (best) add(best, { key: bk, src: 'GE 原廠編號', alias: GE.label([e]), tag: '' });
+      });
+    }
     if (!found.length) return [];
     const top = Math.min.apply(null, found.map((x) => x[0])); // 只留最接近的一層：有「易混字元」等級的就不列差一個字的鄰號
     return found.filter((x) => x[0] === top).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).slice(0, limit).map((x) => x[3]);
@@ -1340,22 +1511,34 @@
     fetch: async (q) => { await IX.load(); return IX.suggest(q, 12, (k) => IX.ge && IX.ge.has(k)); },
     render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${acHint(it)}</span>`,
   };
-  /** 查詢卡與頂列搜尋：AMS 位號索引＋氣動閥清單。AMS 在前；兩邊都有時 AMS 至少 8 筆、清單最多 4～6 筆；兩邊都沒有時列打錯字的相近鍵 */
+  /** 查詢卡與頂列搜尋：AMS 位號索引＋氣動閥清單＋GE 原廠編號（db 站）。AMS 在前；AMS 有 8 筆以上時至少留 8 筆，其餘名額先給清單（最多 6 筆）、
+   *  再給 GE（兩邊都有時 GE 至少拿到一半，用不完的還給清單）；都沒有時列打錯字的相近鍵。GE 對照表還在下載時不等它：先列 AMS 與清單，
+   *  陣列掛 later，載完由 Autocomplete 重查一次 */
   AMS.searchSuggestSource = {
-    prepare: () => { VS.load(); return IX.load().catch(() => {}); },
+    prepare: () => { VS.load(); GE.load(); return IX.load().catch(() => {}); },
     fetch: async (q) => {
       const [, V] = await Promise.all([IX.load(), VS.load()]);
+      const later = GE.pending() ? GE.load() : null;
+      const done = (items) => { if (later) items.later = later; return items; };
       const a = IX.suggest(q, 12);
       const have = new Set(a.map((x) => IX.compact(x.key)));
       const v = VS.suggest(V, q, 12).filter((x) => !have.has(IX.compact(x.key)));
-      if (!a.length && !v.length) {
+      for (const x of v) have.add(IX.compact(x.key));
+      const g = GE.suggest(q, 12).filter((x) => !have.has(IX.compact(x.key))); // 對到 AMS 的 GE 編號已在 04（來源類型 8），不重列
+      if (!a.length && !v.length && !g.length) {
         const rs = IX.resolve(q); // 去分隔符／帶前後綴就對得到（G12-HAP70-BT001、….PV）：列 Enter 會開的那一個，不列相近鍵
-        if (rs.key) return IX.suggest(rs.key, 1);
-        if (VS.hit(V, q, 0)) return [];
-        return AMS.fuzzy(V, q, 6); // 兩邊都沒有：列打錯字的相近鍵（只列出，不自動開）
+        if (rs.key && rs.how !== 'contain' && rs.how !== 'suggest') return done(IX.suggest(rs.key, 1));
+        const gh = GE.hit(q); // Mark VIe 訊號名、KKS：列它對到的 GE 編號（Enter 會開 GE 編號卡）
+        if (gh) return done(GE.merge(gh.ids.map((i) => ({ key: gh.unit ? gh.unit + '_' + GE.G.j.entries[i].t : GE.G.j.entries[i].t, src: 'GE 原廠編號', alias: GE.label([GE.G.j.entries[i]]), tag: '', m: 'pre', ge: i })), 12));
+        if (rs.key) return done(IX.suggest(rs.key, 1));
+        if (VS.hit(V, q, 0)) return done([]);
+        return done(AMS.fuzzy(V, q, 6)); // 都沒有：列打錯字的相近鍵（只列出，不自動開）
       }
-      const nv = Math.min(v.length, a.length >= 8 ? 4 : 6);
-      return a.slice(0, 12 - nv).concat(v.slice(0, nv));
+      const room = 12 - Math.min(a.length, 8);
+      const ng0 = Math.min(g.length, Math.floor(room / 2));
+      const nv = Math.min(v.length, 6, room - ng0);
+      const ng = Math.min(g.length, room - nv);
+      return done(a.slice(0, 12 - nv - ng).concat(v.slice(0, nv), g.slice(0, ng)));
     },
     render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${acHint(it)}</span>`,
   };

@@ -315,11 +315,19 @@
         try {
           const IX = AMS.index; await IX.load();
           const rs = IX.resolve(t);
-          // 氣動閥清單位號（02.json valve.index）優先於模糊對應（包含／唯一建議），交給查詢卡判斷是 AMS 設備還是只在清單
+          // 氣動閥清單位號（02.json valve.index）、GE 原廠編號（db 站的 GE 對照表）優先於模糊對應（包含／唯一建議），交給查詢卡判斷；
+          // 去分隔符才對到純數字設備鍵的（74-1 → 741）也一樣。GE 對照表還沒載完就不改寫（不等它：查詢卡自己會等）
           let vx = false;
-          if (rs.key && rs.how !== 'exact' && rs.how !== 'compact') {
-            // 清單有命中、或有「開頭相符」的候選：保留原字串，由查詢卡 lookup() 決定（開 AMS 設備、閥卡，或列兩邊候選）
-            try { const V = await AMS.valves.load(); vx = !!AMS.valves.hit(V, t, AMS.valves.amsLen(rs)) || AMS.valves.suggest(V, t, 12).some((x) => x.m === 'pre'); } catch (e) { /* 規格載入失敗 → 照舊 */ }
+          const numc = rs.how === 'compact' && /^\d+$/.test(rs.key) && /[^0-9]/.test(IX.norm(t));
+          if (rs.key && ((rs.how !== 'exact' && rs.how !== 'compact') || numc)) {
+            const G = AMS.getag;
+            if (G && !G.ready()) { vx = true; G.load(); } // 下載中、慢、失敗：還不知道 GE 有沒有這個編號，不把模糊對應寫進網址
+            else if (G && G.G && G.hit(t)) vx = true;
+            else if (G && G.G && rs.how === 'suggest' && G.suggest(t, 12).some((x) => x.m === 'pre' && !IX.compactMap.has(IX.compact(x.key)))) vx = true;
+            if (!vx && !numc) {
+              // 清單有命中、或有「開頭相符」的候選：保留原字串，由查詢卡 lookup() 決定（開 AMS 設備、閥卡，或列兩邊候選）
+              try { const V = await AMS.valves.load(); vx = !!AMS.valves.hit(V, t, AMS.valves.amsLen(rs)) || AMS.valves.suggest(V, t, 12).some((x) => x.m === 'pre'); } catch (e) { /* 規格載入失敗 → 照舊 */ }
+            }
           }
           if (rs.key && !vx) key = rs.key;
         } catch (e) { /* 索引載入失敗 → 照原字串查詢 */ }

@@ -895,6 +895,15 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-dcs, .sum-ctrl, .sum-draw, .sum-docs, .sum-search, .sum-valve, .sum-hmi, .sum-pid { grid-column: 1 / -1; border-right: 0 !important; }
 .sum-valve .sum-sigh .lk { margin-left: auto; }
 .valve-only .valve-ams { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+/* GE 原廠編號卡（card.js renderGeOnly）：對照組佔整列；機組小標、連結列（signal-atlas／相關裝置／同一 KKS 的其他編號） */
+.sum-ge { grid-column: 1 / -1; border-right: 0 !important; }
+.ge-only .valve-ams { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.ge-only.ge-below { margin-top: 12px; }
+.sum-sigh.ge-unit { background: transparent; border-top: 1px dashed var(--grid); }
+.ge-linkbox { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--grid); }
+.ge-links { align-items: center; }
+.ge-links .chip-btn.plain { cursor: default; border-style: dashed; } /* 對照表沒有這個名稱的條目：只列名稱，不是連結 */
+.ge-links .chip-btn.plain:hover { border-color: var(--border); color: var(--text); }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */
 details.sum-g > summary.sum-gh { cursor: pointer; list-style: none; user-select: none; min-height: 28px; box-sizing: border-box; }
 details.sum-g > summary.sum-gh::-webkit-details-marker { display: none; }
