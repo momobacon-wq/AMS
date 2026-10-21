@@ -19,14 +19,15 @@
 
 `20260912.ams_bckup` 是 AMS 的 SQL Server 2014 原生備份（資料庫 AmsDb）。還原後逐表倒成 SQLite，經多代理解讀／對抗驗證／稽核，產出 `20260912_AMS資料庫解析.xlsx`（55 張表）與同內容的網站（同一套前端，資料放在 `docs/db/data/`）。比文字匯出多出：實體網路位置（MUX／通道／COM 埠／FF LD）、完整事件稽核（29,773 筆 vs 13,682）、警報定義、使用者權限、範本參數、SnapOn 檔案資訊、資料表與程式碼字典。
 
-- 02_設備查詢卡：輸入目前／舊位號、識別時位號、HostTag、裝置 ID、設備鍵、GUID 或別名（D0xxxx，與前一版相同）。
+- 02_設備查詢卡：輸入目前／舊位號、識別時位號、HostTag、裝置 ID、設備鍵、GUID、別名（D0xxxx，與前一版相同）或 GE 原廠編號（例 `96PG-5B`，連字號可省略）。
+- **GE 原廠編號**：GE 供貨範圍（燃機、汽機、發電機與附屬撬）的設備，查詢卡「設備」組多一格 GE 原廠編號，完整資料多一段（GE 說明、KKS、MLI、Mark VIe 訊號、同一套設備的其他編號，每筆附 GE 文件出處）。來源是 hst-docsearch 的 GE 編號對照表（`paths.GE_TAGS`，不在 repo）；`rebuild.py` 每次重算，對照表重建後重跑即可。格式見 CONTRACT.md「v7」。
 - 各表都有「設備別名 (alias)」欄，可在兩個資料集之間互相對照。
 - 未收錄於網站（只在 Excel 明細活頁簿）：範本參數現值 306,891 列、全部警報定義 140,438 列。
 - **氣動閥清單**（側欄群組，57～61）：Google 試算表「興達全廠氣動閥LIST_v2.6」併入——57 主表／58 水處理（每列附 AMS 設備連結與定位器廠牌比對）、59 兩讀並列、60 推翻紀錄、61 刪除紀錄。查詢卡：對到清單的 AMS 設備多一組「氣動閥」（閥體／執行器／定位器／SOV／極限開關／失效動作…，每格附出處、可開雲端文件）；AMS 沒有的閥位號（開關閥等）改顯示閥卡，不再是「查無」。試算表改了：`rclone backend copyid gdrive: <試算表 ID＝本機 site_terms.json 的 PNEUVALVE_SHEET_ID> <xlsx> --drive-export-formats xlsx`（或 fill26 的 build_v26.py 輸出）→ `py tools/db/rebuild.py --only-pneuvalve --e2e`。格式見 CONTRACT.md「v4」。
 
 ### 重建（拿到新的 .ams_bckup 時）
 
-所有 repo 外的路徑只寫在 `tools/db/paths.py`（環境變數 `AMS_SQLITE`／`AMS_CARDWORK`／`AMS_PDFTXT_CACHE`／`AMS_LIBRARY_ROOT`／`AMS_PREV_XLSX`／`AMS_BUILD_DIR` 可覆寫；`py tools/db/paths.py` 印出目前解析到的每一個與是否存在）。P&ID 的五個路徑是衍生的、沒有自己的環境變數：`PID_JSON`／`PID_SHOTS` 跟著 `AMS_CARDWORK`，`PID_TEXT_CACHE`（`pidtext\`）／`PID_OCR_CACHE`（`pidocr\`）固定在 `%LOCALAPPDATA%\AMS\`（各工具的 `--text-cache`／`--cache` 可改），`PID_OCR_MAP` 就是 repo 裡的 `tools/db/pid_ocr_map.json`。`order.json` 已在 repo，`make_order.py` 不必重跑。
+所有 repo 外的路徑只寫在 `tools/db/paths.py`（環境變數 `AMS_SQLITE`／`AMS_CARDWORK`／`AMS_PDFTXT_CACHE`／`AMS_LIBRARY_ROOT`／`AMS_PREV_XLSX`／`AMS_BUILD_DIR`／`AMS_GE_TAGS` 可覆寫；`py tools/db/paths.py` 印出目前解析到的每一個與是否存在）。P&ID 的五個路徑是衍生的、沒有自己的環境變數：`PID_JSON`／`PID_SHOTS` 跟著 `AMS_CARDWORK`，`PID_TEXT_CACHE`（`pidtext\`）／`PID_OCR_CACHE`（`pidocr\`）固定在 `%LOCALAPPDATA%\AMS\`（各工具的 `--text-cache`／`--cache` 可改），`PID_OCR_MAP` 就是 repo 裡的 `tools/db/pid_ocr_map.json`。`order.json` 已在 repo，`make_order.py` 不必重跑。
 
 | 步驟 | 指令 | 輸入 | 輸出 | 約 |
 |---|---|---|---|---|
@@ -37,7 +38,7 @@
 | 3. 網站資料 | `py tools/db/extract_db.py <sheets_final.pkl> docs/db/data` | `sheets_final.pkl` | `docs/db/data/manifest.json`、`sheets/*.json`（結尾加密＋戳記；一條龍裡用 `--no-encrypt` 留明文給下面的產生器） | 2 分 |
 | 4. 各產生器 → cardwork | `card_ams_extra.py`、`docmap_terminal.py`、`docmap_instlist.py`、`docmap_eomr.py`、`docmap_docindex.py`（引數見各檔檔頭） | `AmsDb.sqlite`、明文 `sheets/`、工程文件庫（`LIBRARY_ROOT`）、pdftotext 快取（`PDFTXT_CACHE`） | `CARDWORK/ams.json`、`terminal.json`、`instlist.json`、`eomr.json`、`docindex.json` | 15 分（首次 pdftotext 更久） |
 | 5. 全文檢索 | `py tools/db/docmap_docsearch.py --data docs/db/data` | hst-docsearch 的 FTS 索引、`drive_map.json` | `CARDWORK/docsearch.json` | 4 分 |
-| 6. 查詢卡附加資料 | `py tools/db/build_card_aux.py <CARDWORK> docs/db/data` | cardwork 五份＋docsearch、`%LOCALAPPDATA%\dcdas\index.sqlite`、`drive_map.json` | `docs/db/data/card/*.json` → 加密＋戳記 | 3 分 |
+| 6. 查詢卡附加資料 | `py tools/db/build_card_aux.py <CARDWORK> docs/db/data` | cardwork 五份＋docsearch、`%LOCALAPPDATA%\dcdas\index.sqlite`、`drive_map.json`、GE 編號對照表 `ge_tags.json`（`paths.GE_TAGS`） | `docs/db/data/card/*.json`、04 位號索引的 GE 編號列 → 加密＋戳記 | 3 分 |
 | 6b. 圖控 HMI 畫面位置 | `py tools/db/hmi_shots.py` → `py tools/db/hmi_nav.py` → `py tools/db/hmi_index.py`（順序固定；`rebuild.py` 在第 6 步之前自動跑，`--skip-hmi` 略過）。前置的 `py tools/db/hmi_runtime_map.py` **不在重建流程裡**：它是離線工具（要 rapidocr；重建流程本身沒有一步需要 OCR，要 rapidocr 的只有它和 6c 的 `pid_ocr.py` 兩支離線工具），輸出 `tools/db/hmi_runtime_map.json` 已 commit，只有使用者重拍／補拍圖控畫面時才要重跑 | `AMS_HMI_SCREENS`（圖控 `.cim` 畫面檔目錄＋`圖控\*.xlsx` 執行時截圖，唯讀）、`tools/db/hmi_runtime_map.json`、`AmsDb.sqlite`、dcdas 索引 | `CARDWORK/hmi_shots/`（440 張 webp＝155 設計時＋285 執行時，約 22 MB）、`hmi_nav.json`、`hmi.json` → 第 6 步併成 `sec.hmi` 與 `card/hmi/*.json` | 2 分 |
 | 6c. P&ID 圖面位置 | `py tools/db/pid_index.py` → `py tools/db/pid_shots.py`（順序固定，與圖控相反：先定位才知道要出哪些圖；`rebuild.py` 在 6b 之後、第 6 步之前自動跑，`--skip-pid` 略過）。`py tools/db/pid_ocr.py` **不在重建流程裡**：它是離線工具（要 rapidocr-onnxruntime），蒸餾出的 `tools/db/pid_ocr_map.json` 已 commit、`pid_index` 只讀它；文件庫的 P&ID 換版或新增圖面時才要重跑（步驟見下面「P&ID 圖面位置」）。這兩步要 PyMuPDF 與 Pillow（實測 1.27.1／12.2.0）。OCR 對照表有過期的頁、或上一次靠 OCR 定位的位號這次不見了，`pid_index` 會印 `!!` 開頭的行點名是哪幾份圖，`rebuild.py` 在結尾再框起來印一次——**不中止、回傳碼不變**，要自己看 | `LIBRARY_ROOT`（工程文件庫現行的 P&ID PDF，現場走訪、唯讀）、`tools/db/pid_ocr_map.json`、`AmsDb.sqlite`（現行位號） | `CARDWORK/pid.json`（0.5 MB）、`CARDWORK/pid_shots/`（117 張轉正後的四階灰階 webp，10.5 MB，＋`index.json`）；文字層快取 `%LOCALAPPDATA%\AMS\pidtext\`（712 檔 14 MB）→ 第 6 步併成 `sec.pid` 與 `card/pid/*.json` | 10 秒（2026-10-10 實測：`pid_index` 9.6 秒＋`pid_shots` 全部沿用快取 0.1 秒；首次——沒有文字層快取、要抽 712 份 PDF，117 張圖全部重出——是 `pid_index` 16.5 秒＋`pid_shots` 3.2 秒：約 20 秒） |
 | 7. 戳記＋驗證 | `py tools/db/rebuild.py --only-stamp` | — | 兩站 `index.html`／`version.json`；`verify_encrypted` 0 錯誤 | 1 分 |
@@ -161,7 +162,7 @@ py tools/tests/run_e2e.py --keep-server --only card                 # 只跑某�
 py tools/tests/test_pid_wording.py                                  # P&ID 建置端的文案與關卡：不開瀏覽器、不碰資料目錄，可單獨跑（run_e2e 也會收它：--only pid_wording）
 ```
 密語與 `encrypt_data.py` 同一來源：環境變數 `AMS_WEB_KEY` → `AMS_WEB_KEY_FILE` 指向的檔 → `%LOCALAPPDATA%\AMS\web.key` 第一行；測試員工代號用 `tools/auth/mock_users.csv`。
-2026-10-10 的實際結果：7 個模組全過、383 項檢查（`test_auth` 17、`test_card` 180、`test_main` 13、`test_pid_wording` 83、`test_pneuvalve` 69、`test_stock` 10、`test_sw` 11），約 80 秒。
+2026-10-21 的實際結果：8 個模組全過、401 項檢查（`test_auth` 17、`test_card` 180、`test_getag` 18、`test_main` 13、`test_pid_wording` 83、`test_pneuvalve` 69、`test_stock` 10、`test_sw` 11），約 87 秒。`test_getag`：GE 原廠編號的正式寫法／不打連字號／小寫加空白都開到那台、兩台時有切換按鈕、設備組那一格有值與來源點、非 GE 設備沒有這格、完整資料有那一段、頂列搜尋、下拉建議、備品庫存的位號正規化不收 GE 列。
 涵蓋：登入閘門（錯代號、錯密語）、查詢卡（文件全文檢索收合組與 Google 雲端硬碟連結、DCS 不符旗標、查無位號的相近建議、上一頁同步查詢框、手機無橫向捲動；圖控 HMI 畫面的縮圖、標記與逐選單機組的截圖）、**P&ID 圖面位置**（`test_card` 的 `pid_*` 幾段：摘要組排在圖控之前、圖紙標頭與 PDF 連結、細部視窗對準標記 ①、小地圖、縮放拖曳的燈箱與「下一處」、影像捲到／展開才抓、多張圖紙只先展開第一張、引用（註記／旗標／用氣點／迴路詳圖）講明不是儀器符號、紅字看整張圖最低的辨識信心並點名、`ocr-fix`、JK 位號寫「不在比對範圍」、查無文案的數字取自 `index.pid.stats`、換卡／雙胞胎共用／離開時的影像釋放、手機版面與雙指縮放、**照網站的 CSP 執行一遍**（其餘測試略過 CSP）；`PID_PIN` 把 G12HSD10QN101 的標記 ① 釘在 D0027 Rev.4 第 2 頁的絕對座標 (0.4666, 0.7083)±0.003——其餘幾何檢查都只拿畫面與資料自己的 `marks` 互比，轉正角或座標換算錯了照樣全綠，只有這一筆抓得到。`test_pid_wording`：以合成的命中直接呼叫 `build_card_aux` 的 `pid_rows`／`pid_shared_boxes`／`pid_check`／`pid_doc`／`pid_collect`，把 rel 五種、note 代碼 0～4、「與本台位號相同」的條件、`ocr-fix` 的 raw、`conf`／`conf_min`／`confs`、同一個框被不相干的位號認領就以非 0 結束、`card/pid/` 失敗時原封不動，逐項釘住）、備品庫存（`test_stock`：卡片領取 1 顆、位號自動帶入 → `#/stock/` 數量 −1 → 紀錄有位號；錯的 `stockToken` 回「未授權」——mock 以 `AMS_MOCK_STOCK_TOKEN`（`run_e2e` 用密語＋salt 算出，與 Worker 的 `STOCK_TOKEN` 同算法）比對，密語輪替後忘了換 Worker 的 secret 在這裡就會露餡）、版本橫幅與 Service Worker（`test_sw`：假 `version.json`＋時鐘快轉 6 分鐘 → 「資料已更新」；植入舊版本快取 → 重載後被 keep 清單刪掉、另一站的 `data/` 不動）、舊站（`test_main`：`#/s/03?q=GT11` 有列與 facet 下拉、01 六張圖表、點連結儲存格 → `?r=` 且目標列高亮、手機無橫向捲動）、錯誤回報、console 零錯誤。截圖在 `tools/tests/out/`（不進 repo）。push 前統一跑 `py tools/db/rebuild.py --only-stamp --e2e`（戳記＋驗證＋這套測試）。
 
 ## 前端快取與錯誤回報

@@ -9,7 +9,7 @@ staged=$(git diff --cached --name-only --diff-filter=ACMR)
 [ -z "$staged" ] && exit 0
 
 # 機密：密語檔、Cloudflare .dev.vars、AMS 備份、SQL Server sa 密碼、真實庫存 csv、匯入 SQL
-secret=$(printf '%s\n' "$staged" | grep -E 'web\.key$|\.key$|\.dev\.vars$|\.ams_bckup$|\.ams_sa_pw|tools/stock/.*\.csv$|import.*\.sql$|(^|/)site_terms\.json$|^tools/db/(order|pid_ocr_map|hmi_runtime_map)\.json$|^tools/db/sheets_[^/]*\.py$|^tools/db/make_order\.py$')
+secret=$(printf '%s\n' "$staged" | grep -E 'web\.key$|\.key$|\.dev\.vars$|\.ams_bckup$|\.ams_sa_pw|tools/stock/.*\.csv$|import.*\.sql$|(^|/)site_terms\.json$|(^|/)ge_tags[^/]*\.json$|(^|/)ge_tag_rows[^/]*\.jsonl$|^tools/db/(order|pid_ocr_map|hmi_runtime_map)\.json$|^tools/db/sheets_[^/]*\.py$|^tools/db/make_order\.py$')
 # 明文資料：docs/*/data 底下只准 meta.json 是 .json，其餘資料應是加密後的 .bin
 plain=$(printf '%s\n' "$staged" | grep -E '^docs/(.*/)?data/.*\.json$' | grep -vE '(^|/)meta\.json$')
 

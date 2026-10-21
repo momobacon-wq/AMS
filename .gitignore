@@ -41,4 +41,6 @@ tools/db/pid_ocr_map.json
 tools/db/hmi_runtime_map.json
 tools/db/sheets_*.py
 tools/db/make_order.py
+ge_tags*.json
+ge_tag_rows*.jsonl
 site_terms.json

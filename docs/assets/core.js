@@ -839,12 +839,14 @@
       const kc = cfg.key_col ?? 0; const ac = cfg.alias_col ?? 4;
       IX.sheet = j; IX.sid = sid; IX.kc = kc; IX.ac = ac;
       IX.srcCol = cfg.src_col ?? 2; IX.tagCol = cfg.tag_col ?? 3; IX.countCol = cfg.count_col ?? 7;
-      const first = new Map(); const keys = [];
+      const first = new Map(); const keys = []; const ge = new Set();
       j.rows.forEach((r, i) => {
         const k = U.text(r[kc]);
-        if (!first.has(k)) { first.set(k, i); keys.push(k); }
+        if (!first.has(k)) { first.set(k, i); keys.push(k); if (/^8 /.test(U.text(r[IX.srcCol]))) ge.add(k); }
       });
       IX.first = first; IX.keys = keys;
+      IX.ge = ge; // 04 的 GE 原廠編號鍵（來源類型 8，build_card_aux 加的；這種鍵 04 裡只有 GE 列）；主站 05 沒有
+
       // 去分隔符後的鍵 → 原鍵（第一個）；與 keys 同序的 compact 陣列給「輸入字串包含鍵」掃描用
       const cmap = new Map(); const kc2 = [];
       keys.forEach((k) => { const c = IX.compact(k); kc2.push(c); if (c && !cmap.has(c)) cmap.set(c, k); });
@@ -891,14 +893,22 @@
     const sg = IX.suggest(n, 12);
     return { key: sg.length === 1 ? sg[0].key : '', how: sg.length ? 'suggest' : 'none', candidates: sg.map((x) => x.key), suggestions: sg };
   };
-  IX.suggest = function (q, limit) {
+  /** skip(k)：掃描時就跳過的鍵（不是先取 limit 筆再濾，否則被跳過的鍵會把名額佔光） */
+  IX.suggest = function (q, limit, skip) {
     limit = limit || 12;
     const n = IX.norm(q);
     if (!n) return [];
     const ex = []; const pre = []; const sub = [];
-    for (const k of IX.keys) {
+    const cq = IX.compact(n); const kc = IX.keysCompact || []; const ge = IX.ge || new Set();
+    // GE 原廠編號鍵（96PG-5B）：輸入不帶分隔符（96PG5）時，去分隔符後的前綴也算開頭相符。只對 GE 鍵、只在輸入本身沒有分隔符且含字母時——
+    // 其他帶分隔符的鍵（HostTag「50 BL001」、時間戳、尾端底線的位號）與帶分隔符的輸入（C10-LAF71-QN001）維持原本的比法
+    const geOk = ge.size && cq.length >= 3 && cq === n && /[A-Z]/.test(cq);
+    for (let i = 0; i < IX.keys.length; i++) {
+      const k = IX.keys[i];
+      if (skip && skip(k)) continue;
       if (k === n) ex.push(k);
       else if (k.startsWith(n)) { if (pre.length < limit) pre.push(k); }
+      else if (geOk && ge.has(k) && kc[i].startsWith(cq)) { if (pre.length < limit) pre.push(k); }
       else if (sub.length < limit && k.includes(n)) sub.push(k);
       if (pre.length >= limit && sub.length >= limit && ex.length) break;
     }
@@ -1323,10 +1333,11 @@
     return found.filter((x) => x[0] === top).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).slice(0, limit).map((x) => x[3]);
   };
   const acHint = (it) => `${it.m === 'fuzzy' ? '相近 · ' : ''}${U.esc(it.src || '')}${it.alias ? ' · ' + U.esc(it.alias) : ''}${it.rows > 1 ? ` · <b>${it.rows} 列</b>` : it.tag && it.tag !== it.key ? ' · ' + U.esc(it.tag) : ''}${it.n > 1 ? ` · <b class="warn">${it.n} 台</b>` : ''}`;
-  /** 只有 AMS 位號索引（備品庫存的 KKS 正規化用這個：氣動閥清單的別名／Gxx 位號不能被當成安裝位號寫進紀錄） */
+  /** 只有 AMS 位號索引（備品庫存的 KKS 正規化用這個：氣動閥清單的別名／Gxx 位號不能被當成安裝位號寫進紀錄）。
+   *  04 的 GE 原廠編號列（來源類型 8）也濾掉：一個 GE 編號常對到 G11、G12 兩台，S.normKks 會把它默默改寫成第一台的位號 */
   AMS.tagSuggestSource = {
     prepare: () => IX.load().catch(() => {}),
-    fetch: async (q) => { await IX.load(); return IX.suggest(q, 12); },
+    fetch: async (q) => { await IX.load(); return IX.suggest(q, 12, (k) => IX.ge && IX.ge.has(k)); },
     render: (it, q) => `<span class="ac-key">${AMS.hilite(it.key, q)}</span><span class="ac-hint">${acHint(it)}</span>`,
   };
   /** 查詢卡與頂列搜尋：AMS 位號索引＋氣動閥清單。AMS 在前；兩邊都有時 AMS 至少 8 筆、清單最多 4～6 筆；兩邊都沒有時列打錯字的相近鍵 */

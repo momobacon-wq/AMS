@@ -410,6 +410,8 @@ def main():
     p04 = os.path.join(a.sheets, '04.json')
     if os.path.exists(p04):
         for r in json.load(open(p04, encoding='utf-8'))['rows']:
+            if str(r[2] or '').startswith('8 '):   # GE 原廠編號列（build_card_aux 加的）不是位號，不拿來比對
+                continue
             s = str(r[1] or '').strip()
             if s and r[4] and s not in tag2alias:
                 idx04.setdefault(s, (r[4], str(r[2] or '')))

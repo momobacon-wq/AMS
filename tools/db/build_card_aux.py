@@ -72,7 +72,7 @@ sec.dcdas、sec.docsearch（有給時）、sec.hmi 與畫面影像（有給時�
 sec.pid／index.pid／card/pid/*.json／stats.pid）、compare 與 flags.cmp，並補 Drive url。限制：舊資料沒有 compare 的設備（既無 DCS 寫入也無端子表），儀器清單／EOMR 的量程數值已不可得，
 只比 AMS 現值與控制器組態；要完整比對請重跑各產生器後用一般模式。
 """
-import os, sys, json, re, math, glob, argparse
+import os, sys, json, re, math, glob, argparse, hashlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -90,7 +90,7 @@ SRC_DEFS = {
     'hmi': {'label': '圖控', 'desc': '圖控 HMI 畫面檔（GE CIMPLICITY／ActivePoint .cim，唯讀原檔）解析：這台儀器畫在哪一頁、畫面上哪個位置'},
 }
 KIND_LABEL = {'dcdas': 'DCS 控制器組態', 'terminal': 'DCS 端子表', 'instlist': '儀器清單', 'eomr': '出廠證書 EOMR', 'docindex': '文件索引', 'docsearch': '文件全文檢索', 'hmi': '圖控 HMI 畫面',
-              'pid': 'P&ID 圖面'}
+              'pid': 'P&ID 圖面', 'getag': 'GE 原廠編號'}
 DOCSEARCH_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'docsearch.json')
 DRIVE_MAP_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'drive_map.json')
 HMI_DEFAULT = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'AMS', 'cardwork', 'hmi.json')
@@ -396,6 +396,295 @@ def dcdas_doc(dc):
     s = {'doc_id': 'signal-atlas', 'rev': co_list, 'ref': '控制器 checkout %s（signal-atlas 索引 %s）' % (co_span, dc['built_at']),
          'title': 'signal-atlas 訊號索引（ToolboxST checkout I/O 組態）', 'folder': '（本機索引 %LOCALAPPDATA%\\dcdas，不在工程文件庫）', 'used': True, 'why': why}
     return s, {dc['doc_key']: {'title': s['title'], 'folder': s['folder'], 'why': why}}
+
+
+# ------------------------------------------------------------------ getag：GE 原廠設備編號（hst-docsearch 的 ge_tags 對照表，本機 JSON）
+# 對照表是從 GE Device Summary（儀器／閥／負載／設備／配管清單）、型錄總表、Mark VIe I/O 清單等文件抽出的「GE 編號（Legacy Tag）↔ KKS」，
+# 每筆帶出處（文件庫相對路徑＋頁／列）。AMS 位號有兩種寫法對得到它：GE 名稱（G11_96PG-5B）與 KKS（S10LBA12BP003）。
+GE_DEFAULT = paths.GE_TAGS
+GE_SRC = '8 GE 原廠編號（GE 文件）'   # 04 位號索引的來源類型：排在 0～7 之後；只有對到 AMS 設備的 GE 編號才加
+GE_KKS_RE = re.compile(r'^([A-Z]\d{2}|XX|YY)?([A-Z]{3}\d{2}[A-Z]{2}\d{3}[A-Z]??)([A-Z]{1,2}\d{2})?$')   # 比對前已去分隔符；XX＝燃機通用、YY＝汽機通用
+GE_SUFFIX = {'KH': '定位器', 'MB': '電磁閥', 'BG': '極限開關', 'BL': '液位探棒', 'MA': '馬達'}
+GE_SYSTEM = {'GT': '燃機', 'ST': '汽機', 'GT-GEN': '燃機發電機', 'ST-GEN': '汽機發電機'}
+GE_RELATED_MAX = 4      # 同 KKS 本體的其他 GE 編號最多列幾筆
+GE_SHARED_MAX = 3       # 一個本體被超過這麼多個 GE 編號共用（盤箱、多點溫度元件）就不列「相關」
+
+
+def ge_cmp(s):
+    return re.sub(r'[^A-Z0-9]', '', str(s or '').upper())
+
+
+def ge_kks(k):
+    """'XXMBV01GP001-MA01' → ('XX', 'MBV01GP001', 'MA01')；不是 KKS 形狀回 None。"""
+    m = GE_KKS_RE.match(ge_cmp(k))
+    return (m.group(1) or '', m.group(2), m.group(3) or '') if m else None
+
+
+def ge_scope(e):
+    """'G'（燃機範圍）／'S'（汽機範圍）：先看對照表的 system，再看 KKS 前綴。GE 編號只在一部機台內唯一（燃機、汽機各有一顆 45HG-CB-7A）。"""
+    s = e.get('system') or ''
+    if s.startswith('GT'):
+        return 'G'
+    if s.startswith('ST'):
+        return 'S'
+    for k in e.get('kks') or []:
+        p = ge_kks(k)
+        if p and p[0]:
+            return 'G' if p[0] == 'XX' or p[0].startswith('G') else 'S' if p[0] == 'YY' or p[0].startswith('S') else None
+    return None
+
+
+def ge_unit_kks(k, unit):
+    """對照表的 KKS 換成這台的機組前綴：GT 清單只印 G11（G11=G12=…）、GE 原版清單印 XX／YY。看不出前綴就原樣。"""
+    k = re.sub(r'\s+', '', str(k or ''))
+    m = re.match(r'^(XX|YY|[GS]\d\d)(?=[A-Z]{3}\d\d)', k)
+    if m and unit and m.group(1) != unit and (m.group(1) in ('XX', 'YY') or m.group(1)[0] == unit[0]):
+        return unit + k[len(m.group(1)):]
+    return k
+
+
+def ge_doc_key(doc):
+    return 'ge|%s|' % hashlib.sha1(str(doc or '').encode('utf-8')).hexdigest()[:12]
+
+
+def ge_ff_only(e):
+    """條目只出自 Mark VIe I/O 清單的 FF H1 裝置報告：那份報告的「說明」欄其實是裝置型號（848 Fieldbus Temperature Device、Logix 3840）。"""
+    srcs = e.get('src') or []
+    return bool(srcs) and all('IMI01-A0002' in (s.get('doc') or '') for s in srcs) and 'FFB Segments' in (e.get('note') or '')
+
+
+def load_ge(path, dcdas_path=None):
+    """ge_tags.json → 名稱索引 (範圍, 去分隔符的 GE 編號) 與 KKS 本體索引 (範圍, 本體)；檔案不存在回 None。
+    另讀 signal-atlas 索引的變數名（vars）：對照表的 Mark VIe 訊號常只列 G11（GE 文件只印 G11 的 KKS），G12 那台要確認 G12 有同名變數才列。"""
+    if not path or not os.path.exists(path):
+        return None
+    j = load(path)
+    if not isinstance(j.get('entries'), list):
+        raise SystemExit('!! %s 不是 GE 編號對照表（缺 entries）' % path)
+    name, body = {}, {}
+    for i, e in enumerate(j['entries']):
+        e['_i'], e['_scope'] = i, ge_scope(e)
+        for f in {e.get('tag') or ''} | set(e.get('forms') or []):
+            if f:
+                name.setdefault((e['_scope'], ge_cmp(f)), {})[i] = e
+        for k in e.get('kks') or []:
+            p = ge_kks(k)
+            if p:
+                body.setdefault((e['_scope'], p[1]), {})[i] = (e, k, p[2])
+    vars_ = None
+    if dcdas_path and os.path.exists(dcdas_path):
+        import sqlite3
+        c = sqlite3.connect('file:%s?mode=ro' % dcdas_path, uri=True)
+        vars_ = {('%s.%s' % (ct, nm)).upper() for ct, nm in c.execute("select ctrl, name from variable where ctrl like 'G%' or ctrl like 'S%'")}
+        c.close()
+    return {'entries': j['entries'], 'name': {k: list(v.values()) for k, v in name.items()},
+            'body': {k: list(v.values()) for k, v in body.items()}, 'built_at': str(j.get('built_at') or ''),
+            'n_rows': j.get('n_rows') or 0, 'n_docs': len(j.get('sources') or []), 'docs': {}, 'vars': vars_, 'own': set()}
+
+
+def ge_match(tag, ge):
+    """AMS 位號 → ([(條目, 規則, lvl, 子件尾碼)]（主條目排第一）, 機組前綴)。
+    G11_96PG-5B 這類以 GE 名稱命名的位號比名稱（去機組前綴、去尾端 _01 這類 AMS 同位號的另一筆設備紀錄）；對不到而以 90 開頭時去 90 再比
+    （定位器 90VAST-11 在對照表只有閥本體 VAST-11，lvl 降為推論）。KKS 寫法的位號（不帶子件尾碼）比 KKS 本體（對照表那邊去機組前綴與子件尾碼），
+    範圍要相同：G11LBA10BT001（HRSG）與汽機的 TE-227-1（LBA10BT001）是兩台不同的設備。汽機的 GE 名稱寫法位號（S10_…）現在 AMS 沒有，未支援。"""
+    t = re.sub(r'\s+', '', str(tag or '')).upper()
+    if not ge or not t:
+        return [], ''
+    m = re.match(r'^(G\d\d)_(.+?)(_0\d)?$', t)
+    if m:
+        unit, nm, dup = m.group(1), m.group(2), m.group(3)
+        hits = ge['name'].get(('G', ge_cmp(nm)))
+        if hits:
+            why = 'AMS 位號＝%s_＋GE 編號' % unit + ('（尾端 %s 是 AMS 同位號的另一筆設備紀錄）' % dup if dup else '')
+            return [(e, why, 'doc', '') for e in hits], unit
+        if nm.startswith('90'):
+            hits = ge['name'].get(('G', ge_cmp(nm[2:])))
+            if hits:
+                why = 'AMS 位號去 %s_ 與 90 字頭後＝GE 編號（對照表沒有 %s 這個編號，以閥本體代表）' % (unit, nm)
+                return [(e, why, 'inferred', '') for e in hits], unit
+        return [], unit
+    p = ge_kks(t)
+    if p and p[0] and not p[2]:
+        unit = p[0]
+        sc = 'G' if unit.startswith('G') else 'S' if unit.startswith('S') else None
+        hits = sorted(ge['body'].get((sc, p[1])) or [], key=lambda x: (x[2] != '', x[0]['_i'])) if sc else []
+        return [(e, 'KKS 本體相同（去機組前綴；對照表寫 %s）' % k, 'doc', suf) for e, k, suf in hits], unit
+    return [], ''
+
+
+def ge_prepass(ge, tags):
+    """先對全部位號比一次：記下「本身就是某台 AMS 設備主條目」的條目（ge['own']），列相關編號時跳過——那台有自己的卡
+    （96PGT-3B、3C 是三台不同的傳送器，舊版文件把 KKS 寫重了，不可說成同一套設備）。"""
+    if ge is None:
+        return
+    for t in tags:
+        for e, _w, _l, _s in ge_match(t, ge)[0]:
+            ge['own'].add(e['_i'])
+
+
+def ge_logic(e, unit, ge):
+    """→ (訊號清單, 註記)：只列本台機組控制器的訊號；對照表只列同設計的姊妹機組（GE 文件只印 G11 的 KKS，所以 KKS 別名只連到 G11）時，
+    換成本台控制器、而且 signal-atlas 索引裡確實有這個變數才列；確認不了就不列（不可把 G11 的訊號掛在 G12 的卡上）。"""
+    ctrls = PREFIX_CTRL.get(unit) or ()
+    logic = e.get('logic') or []
+    mine = [n for n in logic if n.split('.', 1)[0] in ctrls]
+    if mine or not ctrls or not ge.get('vars'):
+        return mine, ''
+    out = []
+    for n in logic:
+        c, _, nm = n.partition('.')
+        m = re.match(r'^([A-Z])\d\d(S?)$', c)
+        tgt = next((t for t in ctrls if m and re.match(r'^%s\d\d%s$' % (m.group(1), m.group(2)), t)), None)
+        if tgt and ('%s.%s' % (tgt, nm)).upper() in ge['vars'] and '%s.%s' % (tgt, nm) not in out:
+            out.append('%s.%s' % (tgt, nm))
+    return out, ('對照表只列同設計的 %s，本台同名變數經 signal-atlas 索引確認' % '、'.join(sorted({n.split('.', 1)[0] for n in logic})) if out else '')
+
+
+def ge_entry(e, rule, lvl, unit, suf, ge):
+    s0 = (e.get('src') or [{}])[0]
+    sysname = GE_SYSTEM.get(e.get('system') or '', e.get('system') or '')
+    role = GE_SUFFIX.get(re.sub(r'\d', '', suf or ''), '')
+    ff = ge_ff_only(e)
+    rows = [['GE 編號', e['tag']]]
+    items = e.get('items') or []
+    if len(items) > 1:
+        for it in items:
+            rows.append(['GE 說明（%s）' % ge_unit_kks(it.get('kks'), unit), it.get('service') or ''])
+    elif e.get('service'):
+        rows.append(['GE 裝置類型（FF H1 Device Name）' if ff else 'GE 說明 (Service)', e['service']])
+    kks = [ge_unit_kks(k, unit) for k in e.get('kks') or []]
+    if kks:
+        rows.append(['KKS（GE 文件）', ' / '.join(kks)])
+    if role:
+        rows.append(['子件', '%s（KKS 尾碼 -%s）' % (role, suf)])
+    if sysname:
+        rows.append(['範圍', sysname])
+    if e.get('mli'):
+        rows.append(['MLI', e['mli']])
+    lg, lnote = ge_logic(e, unit, ge)
+    if lg:
+        rows.append(['Mark VIe 訊號', '、'.join(lg[:8]) + (' …' if len(lg) > 8 else '') + ('（%s）' % lnote if lnote else '')])
+    for x in (e.get('linked') or [])[:4]:
+        rows.append(['相關裝置', '%s（%s）' % (x.get('tag'), x.get('rel'))])
+    if e.get('old_kks'):
+        rows.append(['其他文件寫的 KKS（照原文）', '；'.join('%s（%s）' % (o.get('kks'), o.get('src')) for o in e['old_kks'][:3])])
+    if e.get('conflict'):
+        rows.append(['文件不一致', e['conflict']])
+    more = (e.get('src') or [])[1:]
+    if more:
+        rows.append(['其他出處', '；'.join('%s %s' % (os.path.basename(s.get('doc') or ''), s.get('loc') or '') for s in more[:4])
+                     + ('（另 %d 處）' % (len(more) - 4) if len(more) > 4 else '')])
+    d = None
+    if s0.get('doc'):
+        d = ge_doc_key(s0['doc'])
+        fo, _, ti = s0['doc'].replace('\\', '/').rpartition('/')
+        ge['docs'][d] = {'title': ti, 'folder': fo, 'why': 'GE 原廠編號對照表的出處（%s）' % (s0.get('rev') or '版次未標')}
+    svc = '' if ff else ((items[0].get('service') if len(items) == 1 else e.get('service')) or '')
+    ent = {'h': '%s%s' % (e['tag'], (' · ' + svc[:48]) if svc else ''), 'lvl': lvl, 'rule': rule, 'rows': rows,
+           'src': '%s · %s %s' % (SRC_DEFS[lvl]['label'], os.path.basename(s0.get('doc') or ''), s0.get('loc') or '')}
+    if d:
+        ent['d'] = d
+    return ent
+
+
+def ge_entries(tag, ge):
+    """→ (entries, 主條目的 GE 編號)。主條目在前（前端摘要格取 entries[0]），之後是現行 KKS 本體相同的其他 GE 編號（lvl 推論）：
+    只看現行 KKS（舊版文件的 KKS 可能是誤植）、跳過本身就是另一台 AMS 設備主條目的編號（ge['own']，那台有自己的卡）。"""
+    hits, unit = ge_match(tag, ge)
+    if not hits:
+        return [], []
+    ents, seen, prim = [], set(), []
+    for e, why, lvl, suf in hits:
+        if e['_i'] not in seen:
+            seen.add(e['_i'])
+            ents.append(ge_entry(e, why, lvl, unit, suf, ge))
+            prim.append(e['tag'])
+    rel = []
+    for e, _why, _lvl, _suf in hits:
+        for k in e.get('kks') or []:
+            p = ge_kks(k)
+            group = ge['body'].get((e['_scope'], p[1])) if p else None
+            if not group or len(group) > GE_SHARED_MAX:
+                continue
+            for e2, _k2, suf2 in group:
+                if e2['_i'] not in seen and e2['_i'] not in ge['own'] and len(rel) < GE_RELATED_MAX:
+                    seen.add(e2['_i'])
+                    rel.append(ge_entry(e2, '與 %s 在 GE 文件中共用同一個 KKS 本體（%s）的另一個編號：常是同一套設備（閥本體、定位器、電磁閥）'
+                                            '或同一盒的另一顆，也可能是文件誤植；以出處為準' % (e['tag'], p[1]), 'inferred', unit, suf2, ge))
+    return ents + rel, prim
+
+
+def ge_apply(sec, ge, tag, by_tag, al):
+    """sec.getag（以現行 AMS 位號對照）；主條目的 GE 編號記進 by_tag（{GE 編號: [alias…]}，給 04 位號索引）。"""
+    if ge is None:
+        return
+    ents, prim = ge_entries(tag, ge)
+    if ents:
+        sec['getag'] = {'entries': ents}
+        for t in prim:
+            by_tag.setdefault(t, []).append(al)
+
+
+def ge_doc(ge, stats):
+    """index.searched['getag'] 的一筆：對照表本身（不含本機路徑）。"""
+    why = ('GE 原廠設備編號（Legacy Tag／GE No.）↔ KKS 對照表，建於 %s：%d 列原列、%d 份 GE 文件（Device Summary 儀器／閥／負載／設備／配管清單各版、'
+           '型錄總表、Mark VIe I/O 清單、Interconnection、發電機接線圖），各組經反方抽查。對照方式：AMS 位號是 GE 名稱寫法（G11_96PG-5B）比名稱，'
+           'KKS 寫法（S10LBA12BP003）比 KKS 本體（去機組前綴與子件尾碼），燃機與汽機範圍分開。HRSG／BOP 等非 GE 供貨的設備沒有 GE 編號。'
+           '本站對到 %d 台。' % (ge['built_at'], ge['n_rows'], ge['n_docs'], stats['sections'].get('getag', 0)))
+    return {'doc_id': 'ge-tags', 'rev': ge['built_at'], 'ref': 'GE 原廠設備編號對照表 %s' % ge['built_at'],
+            'title': 'GE 原廠設備編號對照表（hst-docsearch ge_tags）', 'folder': '（本機對照表，不在工程文件庫）', 'used': True, 'why': why}
+
+
+def ge_index_plan(outdir, by_tag):
+    """04 位號索引加「GE 編號 → 設備」列（來源類型 GE_SRC）的新內容——只算、不寫：write_output 等分塊與 index 都自檢過才寫檔。
+    by_tag＝{GE 編號: [alias, …]}。先拿掉上次加的列（冪等）；鍵與 04 既有鍵相同、或去分隔符後相同（core.js compactMap 先到先得，會搶走既有鍵）的跳過並列出；
+    穩定排序只用 (鍵, 是否 GE 列, GE 列的目前位號)——既有列保持 sheets_index 給的順序，同一 GE 鍵內 G11 在 G12 前（搜尋預設開 G11 那台）。
+    列數改寫在 04 說明、00 目錄、manifest。回傳 (加入的列數, 加入的鍵數, 跳過的鍵, [(路徑, 位元組)…]，manifest 物件)。"""
+    p = os.path.join(outdir, 'sheets', '04.json')
+    s04 = load(p)
+    rows = [r for r in s04['rows'] if r[2] != GE_SRC]
+    have = {r[0] for r in rows}
+    have_c = {ge_cmp(k) for k in have}
+    by_alias = {r[4]: r for r in rows if str(r[2]).startswith('1 ')}   # 1 設備別名：每台一列，帶目前位號、DeviceKey、型號
+    new, keys, skipped = [], 0, []
+    for tag, aliases in sorted(by_tag.items()):
+        key = re.sub(r'\s+', ' ', tag.replace('=', '')).strip().upper()
+        if not key:
+            continue
+        if key in have or ge_cmp(key) in have_c:
+            skipped.append(key)
+            continue
+        als = [al for al in dict.fromkeys(aliases) if al in by_alias]
+        for al in als:
+            b = by_alias[al]
+            new.append([key, tag, GE_SRC, b[3], al, b[5], b[6], len(als)])
+        keys += 1 if als else 0
+    rows += new
+    rows.sort(key=lambda r: (r[0], r[2] == GE_SRC, r[3] if r[2] == GE_SRC else ''))
+    s04['rows'] = rows
+    n = len(rows)
+    s04['notes'] = [re.sub(r'列數 [\d,]+', '列數 {:,}'.format(n), x, count=1) if k == 0 else x for k, x in enumerate(s04.get('notes') or [])]
+    note = ('GE 原廠編號（來源類型 8）：GE 文件的設備編號（例 96PG-5B）→ 對到的 AMS 設備；只收對到設備的編號，對照方式見查詢卡「GE 原廠編號」段。'
+            '這類列的「此字串對應設備數」>1 多半是 G11、G12 兩台（或 AMS 同位號的另一筆設備紀錄），不是歧義')
+    s04['notes'] = [x for x in s04['notes'] if not x.startswith('GE 原廠編號（來源類型 8）')] + ([note] if new else [])
+    b04 = dumps(s04).encode('utf-8')
+    s00p = os.path.join(outdir, 'sheets', '00.json')
+    s00 = load(s00p)
+    for row in s00.get('rows') or []:
+        cells = row.get('cells') or []
+        if any(isinstance(c.get('l'), dict) and c['l'].get('s') == '04' for c in cells):
+            for c in cells:
+                if c.get('c') == 5 and isinstance(c.get('v'), int):
+                    c['v'] = n
+    b00 = dumps(s00).encode('utf-8')
+    man = load(os.path.join(outdir, 'manifest.json'))
+    for s in man['sheets']:
+        if s['id'] == '04':
+            s['rows'] = s['toc_rows'] = n
+            s['bytes'] = len(b04)
+        elif s['id'] == '00':
+            s['bytes'] = len(b00)
+    return len(new), keys, skipped, [(p, b04), (s00p, b00)], man
 
 
 # ------------------------------------------------------------------ 文件全文檢索（docsearch）與 Drive 連結
@@ -1876,7 +2165,12 @@ def main():
     ap.add_argument('--pid', default=PID_DEFAULT, help='pid_index.py 的輸出（預設 paths.PID_JSON＝<CARDWORK>\\pid.json）')
     ap.add_argument('--pid-shots', default=PID_SHOTS_DEFAULT, help='pid_shots.py 的圖紙影像目錄（預設 paths.PID_SHOTS；缺 index.json 或缺任何一張被引用的圖紙都以非 0 結束）')
     ap.add_argument('--no-pid', action='store_true', help='不收 P&ID 圖面位置（--recompare 時保留舊的 sec.pid、index.pid 與 card/pid 影像）')
+    ap.add_argument('--ge-tags', default=GE_DEFAULT, help='GE 原廠設備編號對照表 ge_tags.json（預設 paths.GE_TAGS＝hst-docsearch config.json 的 ge_tags_dir）')
+    ap.add_argument('--no-ge', action='store_true', help='不收 GE 原廠編號（--recompare 時保留舊的 sec.getag 與 04 位號索引的 GE 列）')
     a = ap.parse_args()
+    ge = None if a.no_ge else load_ge(a.ge_tags, None if a.no_dcdas else a.dcdas)
+    print('getag: %s' % ('略過' if a.no_ge else ('沒有 %s' % a.ge_tags) if ge is None else
+                         '%s，%d 筆 GE 編號（對照表建於 %s）' % (a.ge_tags, len(ge['entries']), ge['built_at'])))
     dc = None if a.no_dcdas else load_dcdas(a.dcdas)
     hm = None if a.no_hmi else load_hmi(a.hmi, a.hmi_shots, a.hmi_nav)
     if a.no_hmi:
@@ -1923,6 +2217,8 @@ def main():
         missing.append(('pid_shots', pm['_shots_index'], '--no-pid'))
     if drive is None and not a.no_drive_map:
         missing.append(('drive_map', a.drive_map, '--no-drive-map'))
+    if ge is None and not a.no_ge:
+        missing.append(('ge_tags', a.ge_tags or '（paths.GE_TAGS 未設定）', '--no-ge'))
     if missing:
         for name, path, _flag in missing:
             print('!! 缺 %s（%s）' % (name, path))
@@ -1930,7 +2226,7 @@ def main():
     if a.recompare:
         if len(a.paths) != 1:
             ap.error('--recompare 只給 <outdir>')
-        recompare(a.paths[0], dc, ds, drive, hm, a.no_hmi, a.chunk_kb, a.no_stamp, pm=pm, no_pid=a.no_pid)
+        recompare(a.paths[0], dc, ds, drive, hm, a.no_hmi, a.chunk_kb, a.no_stamp, pm=pm, no_pid=a.no_pid, ge=ge, no_ge=a.no_ge)
         return
     if len(a.paths) != 2:
         ap.error('需要 <cardwork_dir> <outdir>')
@@ -1947,6 +2243,8 @@ def main():
 
     stats = new_stats(aliases)
     out = {}
+    ge_by_tag = {}
+    ge_prepass(ge, [tag_of.get(al, '') for al in aliases])
     for al in aliases:
         A = ams['by_alias'].get(al) or {}
         sec = {}
@@ -2085,6 +2383,8 @@ def main():
         hmi_apply(sec, hm, tag_of.get(al, ''))
         # ---- pid（P&ID 圖面位置；同樣以現行 AMS 位號對照）
         pid_apply(sec, pm, tag_of.get(al, ''))
+        # ---- getag（GE 原廠編號；以現行 AMS 位號對照 ge_tags 對照表）
+        ge_apply(sec, ge, tag_of.get(al, ''), ge_by_tag, al)
 
         # ---- dcdas（控制器 I/O 組態）
         dc_entries, dc_primary = dcdas_entries(tag_of.get(al, ''), dc)
@@ -2111,10 +2411,10 @@ def main():
     src_stats = {k: {kk: vv for kk, vv in (j.get('stats') or {}).items() if kk in ('aliases_matched', 'rows', 'notes', 'per_category_aliases')} for k, j in kinds.items()}
     src_stats['ams'] = {'notes': (ams.get('stats') or {}).get('notes', []), 'backup_date': ams.get('backup_date')}
     searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, a.chunk_kb, a.no_stamp, pm=pm)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, a.chunk_kb, a.no_stamp, pm=pm, ge=ge, ge_by_tag=ge_by_tag)
 
 
-def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no_pid=False):
+def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no_pid=False, ge=None, no_ge=False):
     """讀已發布的 card/*.json：保留各文件區段，重算 sec.dcdas、compare、flags.cmp；有給 docsearch 就換掉 sec.docsearch、
     有給 hmi 就換掉 sec.hmi 並重寫 card/hmi/*.json（--no-hmi 保留舊的；限制見檔頭）；有給 pid 就換掉 sec.pid 並重寫 card/pid/*.json
     （--no-pid 保留舊的 sec.pid、index.pid、影像與 stats.pid）。"""
@@ -2130,6 +2430,8 @@ def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no
     stats = new_stats(aliases)
     out = {}
     n_lost = 0
+    ge_by_tag = {}
+    ge_prepass(ge, [tag_of.get(al, '') for al in aliases])
     for al in aliases:
         o = old.get(al) or {'sec': {}, 'compare': [], 'flags': {}}
         sec = o.get('sec') or {}
@@ -2145,6 +2447,11 @@ def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no
             pid_apply(sec, pm, tag_of.get(al, ''))
         elif 'pid' in sec:   # --no-pid：內容原封不動，但放回與重算時相同的鍵序（否則 docsearch／hmi 被重新附加後 pid 會跑到它們前面，
             sec['pid'] = sec.pop('pid')   # 同樣的資料產出不同的位元組與 build 雜湊）
+        if ge is not None:
+            sec.pop('getag', None)
+            ge_apply(sec, ge, tag_of.get(al, ''), ge_by_tag, al)
+        elif 'getag' in sec:   # --no-ge：同上，原封不動但鍵序與重算時相同
+            sec['getag'] = sec.pop('getag')
         for kk in ('terminal', 'instlist', 'eomr'):  # 去掉舊的比對狀態
             for ent in (sec.get(kk) or {}).get('entries', []):
                 for row in ent['rows']:
@@ -2244,7 +2551,8 @@ def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no
             if k.split('|')[0] in ('terminal', 'instlist', 'eomr', 'docindex'):
                 v.pop('url', None)
                 v.pop('url_note', None)
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=old_hmi, pm=pm, keep_pid=old_pid)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=old_hmi, pm=pm, keep_pid=old_pid,
+                 ge=ge, ge_by_tag=ge_by_tag, keep_ge=(ge is None and no_ge), keep_ge_stats=(index.get('stats') or {}).get('getag'))
 
 
 def doc_keys_used(o, acc):
@@ -2274,7 +2582,8 @@ def chunk_docs(p, docs, doc_no):
     return {k: docs[k] for k in sorted(keys) if k in docs}, sub_no
 
 
-def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=None, pm=None, keep_pid=None):
+def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=None, pm=None, keep_pid=None,
+                 ge=None, ge_by_tag=None, keep_ge=False, keep_ge_stats=None):
     """分塊寫 card/aux-NN.json 與 index.json → manifest.build → 加密 → stamp。
     index.json 只留全廠 alias map 與 searched／stats 等小東西；docs（title／folder／why／Drive url）與 doc_no 隨各分塊攜帶該塊用到的子集
     （P3：docs 每筆含 33 字元 Drive ID 不可壓縮，原本全放 index 佔第一張卡下載量近半；前端 D.loadAux 把分塊的 docs／doc_no 併回 ix）。"""
@@ -2316,6 +2625,32 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         searched = dict(searched, dcdas=[s])
         docs = dict(docs, **d)
         src_stats = dict(src_stats, dcdas={'aliases_matched': stats['sections'].get('dcdas', 0), 'rows': dc['channels'], 'notes': s['why']})
+    # ---- GE 原廠編號：出處文件登記進 docs（add_drive_urls 才補得到 url）；searched／source_stats 的 getag 一律「拿掉再附加在最後」，
+    #      重算與 --no-ge 保留兩條路的鍵序才會相同。--no-ge 的 --recompare（keep_ge）保留上次發布的 sec.getag（已在 old 裡）、docs 的 ge|…、
+    #      04 的 GE 列與 stats.getag。--no-drive-map 時 ge|… 沿用上次補的 url（其他類別的文件也是保留舊 url）
+    if ge is not None:
+        gs = ge_doc(ge, stats)
+        gdocs = {k: dict(v) for k, v in ge['docs'].items()}
+        if drive is None:
+            for k, v in gdocs.items():
+                for f in ('url', 'url_note'):
+                    if (docs.get(k) or {}).get(f):
+                        v[f] = docs[k][f]
+        docs = dict({k: v for k, v in docs.items() if not k.startswith('ge|')}, **gdocs)
+        searched = dict({k: v for k, v in searched.items() if k != 'getag'}, getag=[gs])
+        src_stats = dict({k: v for k, v in src_stats.items() if k != 'getag'},
+                         getag={'aliases_matched': stats['sections'].get('getag', 0), 'rows': ge['n_rows'], 'notes': gs['why']})
+    elif keep_ge:
+        if 'getag' in searched:
+            searched = dict({k: v for k, v in searched.items() if k != 'getag'}, getag=searched['getag'])
+        if 'getag' in src_stats:
+            src_stats = dict({k: v for k, v in src_stats.items() if k != 'getag'}, getag=src_stats['getag'])
+        if keep_ge_stats:
+            stats['getag'] = keep_ge_stats
+    else:
+        docs = {k: v for k, v in docs.items() if not k.startswith('ge|')}
+        searched = {k: v for k, v in searched.items() if k != 'getag'}
+        src_stats = {k: v for k, v in src_stats.items() if k != 'getag'}
     docs = {k: dict(v) for k, v in docs.items()}
     _n, n_alt = add_drive_urls(docs, drive)
     n_alt -= pid_own_urls_only(docs, drive)   # P&ID 圖紙的 PDF 只連自己那一份檔；退而求其次連到別版次的拿掉
@@ -2358,6 +2693,17 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         for al in p:
             alias_map[al] = k
     stats['docs_unreferenced'] = len(set(docs) - used_keys)  # searched 有列但沒有任何欄位引用的文件（只在 index.searched 出現）
+    # ---- 04 位號索引的 GE 編號列：這裡只算（含 stats.getag，要進 index），等分塊與 index 自檢過、card/ 寫完才寫 04／00／manifest。
+    #      --no-ge 保留時不動；沒有對照表又不保留時清掉上次加的列
+    ge_plan = None
+    if not keep_ge:
+        n_rows, n_keys, skipped, writes, man_new = ge_index_plan(outdir, (ge_by_tag or {}) if ge is not None else {})
+        ge_plan = (writes, man_new)
+        if ge is not None:
+            stats['getag'] = {'aliases': stats['sections'].get('getag', 0), 'ge_keys': n_keys, 'index_rows': n_rows, 'skipped_keys': len(skipped)}
+            print('getag: %d 台有 GE 原廠編號；04 位號索引加 %d 列（%d 個 GE 編號）' % (stats['sections'].get('getag', 0), n_rows, n_keys))
+            if skipped:
+                print('getag: !! %d 個 GE 編號與 04 既有鍵相同（或去分隔符後相同）而沒加進位號索引：%s' % (len(skipped), '、'.join(skipped[:20])))
     index = {'version': 2, 'parts': len(parts), 'part_width': width, 'files': ['card/aux-%0*d.json' % (width, k) for k in range(len(parts))],
              'alias': alias_map, 'src_defs': SRC_DEFS, 'kind_label': KIND_LABEL, 'doc_cat_order': DOC_CAT_ORDER,
              'searched': searched, 'source_stats': src_stats, 'stats': stats, 'compare_rule': COMPARE_RULE}
@@ -2378,6 +2724,10 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     if pid_blobs is not None:
         pid_write_images(outdir, pid_blobs)
     open(os.path.join(card_dir, 'index.json'), 'wb').write(idata.encode('utf-8'))
+    if ge_plan is not None:
+        for path, data in ge_plan[0]:
+            open(path, 'wb').write(data)
+        open(os.path.join(outdir, 'manifest.json'), 'wb').write(dumps(ge_plan[1]).encode('utf-8'))
     print('card aux: %d aliases, %d parts, max %d KB, total %d KB, index %d KB' % (len(alias_map), len(parts), max(sizes) // 1024, sum(sizes) // 1024, len(idata.encode('utf-8')) // 1024))
     print(json.dumps(stats, ensure_ascii=False))
     cs = stats['compare_status']

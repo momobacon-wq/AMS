@@ -192,6 +192,8 @@ def crosswalk(valves, s03, s04, overrides):
     """→ {valve_tag: [{unit, alias, ams_tag, how, note}]}（同一閥同一 alias 只留一筆）"""
     keys = collections.defaultdict(list)
     for r in s04['rows']:
+        if str(r[2]).startswith('8 '):   # GE 原廠編號列（build_card_aux 加的）：閥清單另有自己的 GE 舊位號對照，不用它（否則一個鍵同時對到 G11、G12）
+            continue
         keys[str(r[0]).upper()].append((str(r[2]), str(r[4])))
     dev = {str(r[1]): r for r in s03['rows']}
     out = collections.OrderedDict()

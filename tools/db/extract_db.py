@@ -295,6 +295,9 @@ def summary_spec(ci3, ci13):
         'groups': [
             {'key': 'dev', 'label': '設備', 'items': [
                 T('現行 AMS 位號 (KKS)', '現行AMS位號', 'decoded', 'ExtBlockTags.ExtBlockTag（BlockAsgms EventIdDayOut=49710，清除殘碼）', big=True),
+                # GE 原廠編號（card aux 的 sec.getag，2026-10-21）：GE 供貨範圍的設備在 GE 圖面、Trip List、警報與邏輯用 GE 自己的編號；
+                # hide_empty＝這台沒有就整格拿掉（HRSG／BOP 等非 GE 設備佔多數，不要每張卡多一格「—」）；備援取儀器清單的 GE No.
+                K('GE 原廠編號', 'getag', 'GE 編號', big=True, hide_empty=True, alt={'kind': 'instlist', 'key': 'GE 編號'}),
                 T('AMS 廠牌／型號', '製造商 (', 'raw', 'Manufacturers.Name + DeviceTypes.Name（Devices.AmsDevRevId → DeviceRevisions → DeviceTypes → MfrProtocols）', col=[ci3('製造商 ('), ci3('型號 (')], join=' '),
                 K('設計廠牌（儀器清單）', 'instlist', '廠牌', alt=DS('廠牌（文件）')),
                 K('設計完整型號碼（儀器清單）', 'instlist', '完整型號碼', alt=DS('型號（文件）')),
@@ -504,6 +507,16 @@ SECTIONS_AUX = [
         {'key': 'dcdas', 'label': '控制系統（控制器 I/O 組態 checkout 快照，signal-atlas 索引）', 'kind': 'dcdas', 'note': 'ToolboxST checkout 快照的類比輸入通道組態（非即時）；位號對照：DeviceTag 相同 → 訊號名＝位號+XQnn → DeviceTag 去機組前綴。FF 設備與 HART 多工器本體不在 I/O 索引。'},
         {'key': 'terminal', 'label': '控制系統（DCS 端子表，設計文件）', 'kind': 'terminal', 'note': '端子表為設計文件（GE IO Signal Report），不代表 DCS 現行組態。'},
         {'key': 'instlist', 'label': '設計規格（儀器清單）', 'kind': 'instlist'},
+        {'key': 'getag', 'label': 'GE 原廠編號（GE 文件對照）', 'kind': 'getag',
+         'note': 'GE 供貨範圍（燃機、汽機、發電機與附屬撬）的設備在 GE 的 Device Summary、P&ID、Trip List、警報與 Mark VIe 邏輯裡用 GE 自己的編號（Legacy Tag／GE No.），'
+                 '同一顆元件常有好幾種寫法（清單 CT-DA-1、邏輯 CTDA1、FF 傳送器 96CTDA-1）。來源是 GE 原廠設備編號對照表：從 GE 各版清單、型錄總表、'
+                 'Mark VIe I/O 清單等文件逐列抽出，每筆附出處（點數值開 PDF）。對照方式：位號是 GE 名稱寫法（G11_96PG-5B）的比名稱，'
+                 'KKS 寫法（S10LBA12BP003）的比 KKS 本體（去機組前綴與 -KH01 這類子件尾碼）；燃機與汽機分開比（兩邊各有同名的設備）。'
+                 'GE 清單只印 G11 或通用前綴 XX／YY，KKS 一欄已換成本台機組；Mark VIe 訊號只列本台控制器的（對照表只列同設計的 G11 時，'
+                 '經控制器索引確認本台有同名變數才列並註明）。第一筆是本台；「推論」那幾筆是 GE 文件中共用同一個 KKS 本體的其他編號——'
+                 '常是同一套設備（閥本體、定位器、電磁閥）或同一盒的另一顆，也可能是文件誤植，請看出處；本身另有查詢卡的設備不列在這裡。'
+                 'HRSG、BOP 等非 GE 供貨的設備沒有 GE 編號，這一段就是查無。'
+                 '搜尋框打 GE 編號（可不打連字號）也找得到這張卡。'},
         {'key': 'eomr', 'label': '出廠紀錄（EOMR 校正證書）', 'kind': 'eomr', 'note': '目前只解析 Rosemount/Emerson 格式證書；銘牌序號後 7 碼與 AMS final_assembly_number 比對。'},
         {'key': 'docindex', 'label': '文件索引（PDF 頁碼）', 'kind': 'docindex', 'note': 'PDF 文字層逐頁比對；p.N 為 PDF 頁序。R2/R3 為 GE/ST 不分機組編號（同編號各機組共用此頁）。'},
         {'key': 'docsearch', 'label': '文件全文檢索（hst-docsearch 索引）', 'kind': 'docsearch',

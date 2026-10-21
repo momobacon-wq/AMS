@@ -107,6 +107,16 @@ def pid_flags(a):
     return ['--no-pid']
 
 
+def ge_flags(a):
+    """build_card_aux 的 GE 原廠編號旗標：對照表 paths.GE_TAGS 在就明指；不在（換了機器、hst-docsearch 沒裝）或 --skip-ge 時走 --no-ge
+    （--recompare 保留上次發布的 sec.getag 與 04 的 GE 列；完整建置則沒有這一段），並大聲說出來。"""
+    if not a.skip_ge and paths.GE_TAGS and os.path.exists(paths.GE_TAGS):
+        return ['--ge-tags', paths.GE_TAGS]
+    why = '--skip-ge' if a.skip_ge else '沒有 GE 編號對照表 %s' % (paths.GE_TAGS or '（paths.GE_TAGS 未設定：hst-docsearch config.json 沒有 ge_tags_dir）')
+    print('\n!! %s → build_card_aux 走 --no-ge：沿用上次發布的「GE 原廠編號」；從沒發布過就沒有這一段' % why, flush=True)
+    return ['--no-ge']
+
+
 def run_pid(a):
     """P&ID 圖面位置兩步，順序固定（與圖控相反：先定位才知道要出哪些圖）：
     位號定位（pid_index：走訪工程文件庫現行的 P&ID，PDF 文字層＋pid_ocr_map.json → cardwork/pid.json）→ 圖紙影像（pid_shots：只替
@@ -195,30 +205,42 @@ def loud_print(msgs, again=False):
     print(bar, flush=True)
 
 
-def spec_lacks_pid():
-    """已發布（此時已解密）的 02.json 的「P&ID 圖面位置」規格是不是該重套：回傳原因（空字串＝不用）。
-      * 還沒有摘要組或附加區段 → '還沒有…'。build_card_aux 不寫 02.json：extract_db 的 summary_spec／SECTIONS_AUX 在本機這條路只靠
-        patch_site_spec 進得了站；少了它，sec.pid 與圖紙影像照樣發布，卡片卻沒有任何地方顯示。
-      * 區段那一筆（標題、說明文字）與 extract_db.SECTIONS_AUX 現在的內容不同 → '…與現在的規格不同'。2026-10-10 稽核後區段說明改寫過
-        （引用不是儀器符號、紅字看整張圖的最低辨識信心、OCR 校正要講明、JK 不在比對範圍）；只查「有沒有」的話，已經發布過 P&ID 的站
-        永遠拿不到新的說明，除非有人記得加 --spec。
-    讀不到 02.json、載不了 extract_db 時回空字串（不亂套）。"""
+def spec_lacks_pid(check_pid=True, check_ge=True):
+    """已發布（此時已解密）的 02.json 的「P&ID 圖面位置」與「GE 原廠編號」規格是不是該重套：回傳原因（空字串＝不用）。
+      * 還沒有摘要組／摘要格或附加區段 → '還沒有…'。build_card_aux 不寫 02.json：extract_db 的 summary_spec／SECTIONS_AUX 在本機這條路只靠
+        patch_site_spec 進得了站；少了它，sec.pid／sec.getag 照樣發布，卡片卻沒有任何地方顯示。
+      * 附加區段那一筆（標題、說明文字）或 GE 那一格的規格與 extract_db 現在的內容不同 → '…與現在的規格不同'。2026-10-10 稽核後 P&ID 區段說明改寫過；
+        只查「有沒有」的話，已經發布過的站永遠拿不到新的說明，除非有人記得加 --spec。
+      check_pid／check_ge＝這次會發布該來源（--no-pid／--no-ge 時不查，兩者各自獨立）。讀不到 02.json、載不了 extract_db 時回空字串（不亂套）。"""
     try:
         with open(os.path.join(ROOT, DATA, 'sheets', '02.json'), encoding='utf-8') as f:
             s02 = json.load(f)
     except (OSError, ValueError):
         return ''
-    groups = {g.get('key') for g in (s02.get('summary') or {}).get('groups') or []}
+    groups = {g.get('key'): g for g in (s02.get('summary') or {}).get('groups') or []}
     secs = {s.get('key'): s for s in s02.get('sections_aux') or [] if isinstance(s, dict)}
-    if 'pid' not in groups or 'pid' not in secs:
+    dev_ge = next((it for it in (groups.get('dev') or {}).get('items') or [] if it.get('kind') == 'getag'), None)
+    if check_pid and ('pid' not in groups or 'pid' not in secs):
         return '還沒有「P&ID 圖面位置」的摘要組／區段'
+    if check_ge and ('getag' not in secs or dev_ge is None):
+        # GE 原廠編號（2026-10-21）：sec.getag 由 build_card_aux 每次重算，規格（dev 組那一格與附加區段）同樣只靠 patch_site_spec 進站
+        return '還沒有「GE 原廠編號」的摘要格／區段'
     try:
         import extract_db   # 只為了比對規格；載入失敗（少了 pandas 之類）就當作不用重套
         want = next((s for s in extract_db.SECTIONS_AUX if s.get('key') == 'pid'), None)
+        want_ge = next((s for s in extract_db.SECTIONS_AUX if s.get('key') == 'getag'), None)
+        # dev 組 GE 那一格：kind 型的格子不用欄索引，拿假的 ci 叫 summary_spec 取出來比
+        spec = extract_db.summary_spec(lambda pre: 0, lambda pre: 0)
+        dev = next((g for g in spec['groups'] if g.get('key') == 'dev'), {})
+        want_item = next((it for it in dev.get('items') or [] if it.get('kind') == 'getag'), None)
     except Exception:   # noqa: BLE001
         return ''
-    if want is not None and want != secs['pid']:
+    if check_pid and want is not None and want != secs['pid']:
         return '的「P&ID 圖面位置」區段（標題／說明文字）與 extract_db 現在的規格不同'
+    if check_ge and want_ge is not None and want_ge != secs['getag']:
+        return '的「GE 原廠編號」區段（標題／說明文字）與 extract_db 現在的規格不同'
+    if check_ge and want_item is not None and want_item != dev_ge:
+        return '的「GE 原廠編號」摘要格與 extract_db 現在的規格不同'
     return ''
 
 
@@ -278,7 +300,7 @@ def rebuild_from_sqlite(a, t0):
         run_hmi(a)
         run_pid(a)
         run('查詢卡附加資料（build_card_aux 完整：%s → card/*.json，加密、戳記）' % cardwork, PY, os.path.join(db, 'build_card_aux.py'), cardwork, DATA,
-            '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP, *hmi_flags(a), *pid_flags(a))
+            '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP, *hmi_flags(a), *pid_flags(a), *ge_flags(a))
         run_pneuvalve(a)
     except BaseException:
         if is_plaintext():
@@ -297,6 +319,7 @@ def main():
     ap.add_argument('--skip-docsearch', action='store_true')
     ap.add_argument('--skip-hmi', action='store_true', help='略過圖控 HMI 三步（hmi_shots／hmi_nav／hmi_index）；沿用 cardwork 裡上次的 hmi.json／hmi_shots')
     ap.add_argument('--skip-pid', action='store_true', help='略過 P&ID 圖面位置兩步（pid_index／pid_shots）；沿用 cardwork 裡上次的 pid.json／pid_shots')
+    ap.add_argument('--skip-ge', action='store_true', help='不讀 GE 編號對照表（build_card_aux --no-ge：沿用上次發布的 GE 原廠編號）')
     ap.add_argument('--skip-drive-map', action='store_true')
     ap.add_argument('--cardwork', metavar='DIR', help='各產生器輸出目錄：做完整 build_card_aux 而非 --recompare')
     ap.add_argument('--only-stamp', action='store_true', help='只重新戳記兩站並驗證（前端程式有改、資料沒改）')
@@ -332,14 +355,14 @@ def main():
             run('文件全文檢索（docmap_docsearch，約 4 分鐘）', PY, os.path.join('tools', 'db', 'docmap_docsearch.py'), '--data', DATA)
         run_hmi(a)
         run_pid(a)
-        aux = hmi_flags(a) + pid_flags(a)
+        aux = hmi_flags(a) + pid_flags(a) + ge_flags(a)
         # 站台規格排在各產生器之後、build_card_aux 之前：patch_site_spec 改寫 02／13 但不重算 manifest.build（交給 build_card_aux），
         # 所以「改了規格」到「build_card_aux 跑完」之間越短越好；這段時間失敗就把 02／13 換回原樣（見下面 except）
         spec = a.spec
-        why = '' if (spec or '--no-pid' in aux) else spec_lacks_pid()
+        why = '' if spec else spec_lacks_pid(check_pid='--no-pid' not in aux, check_ge='--no-ge' not in aux)
         if why:
-            # 這次會發布 P&ID 圖面位置，而已發布的 02.json 還不認得它、或它的區段說明是舊的 → 等同 --spec
-            # （規格其餘部分本來就該與 02 相同，所以只會動到 pid 的摘要組與區段）
+            # 這次會發布 P&ID 圖面位置／GE 原廠編號，而已發布的 02.json 還不認得它、或它的區段說明／摘要格是舊的 → 等同 --spec
+            # （規格其餘部分本來就該與 02 相同，所以只會動到 pid 的摘要組與區段、getag 的摘要格與區段）
             print('\n== 已發布的 02.json %s → 自動套用站台規格（等同 --spec） ==' % why, flush=True)
             spec = True
         if spec:

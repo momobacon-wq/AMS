@@ -1066,7 +1066,8 @@
       const n = AMS.devices && AMS.devices.sheet ? AMS.devices.sheet.rows.length : 0;
       const wb = D.manifest.workbook || {};
       wrap.appendChild(U.h('h2', { class: 'ld-h' }, '輸入位號，查一台設備'));
-      wrap.appendChild(U.h('p', { class: 'ld-p muted' }, `可輸入現行／舊 AMS 位號、識別時位號、HostTag、裝置 ID、設備鍵或別名（大小寫不拘）；打字時會列出建議，按 Enter 或點選即可。${n ? `資料庫共 ${U.int(n)} 台設備` : ''}${wb.source ? `（資料：${wb.source}）` : ''}。`));
+      const ge = (this.spec.sections_aux || []).some((s) => s && s.key === 'getag'); // 只有 db 站（02 有 GE 原廠編號段、04 有 GE 列）才說可以打 GE 編號
+      wrap.appendChild(U.h('p', { class: 'ld-p muted' }, `可輸入現行／舊 AMS 位號、識別時位號、HostTag、裝置 ID、設備鍵${ge ? '、別名或 GE 原廠編號（例 96PG-5B，連字號可省略；大小寫不拘）' : '或別名（大小寫不拘）'}；打字時會列出建議，按 Enter 或點選即可。${n ? `資料庫共 ${U.int(n)} 台設備` : ''}${wb.source ? `（資料：${wb.source}）` : ''}。`));
       const chips = (title, list, clear) => {
         const box = U.h('div', { class: 'ld-chips' }, U.h('span', { class: 'ld-ct muted small' }, title));
         for (const it of list) {
@@ -1221,7 +1222,7 @@
     }
     rowVal(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? U.cardValue(r[1]) : ''; }
     rowStatus(ent, key) { const r = ((ent && ent.rows) || []).find((x) => x[0] === key); return r ? r[2] : null; }
-    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索', hmi: '圖控 HMI 畫面', pid: 'P&ID 圖面' }[kind] || kind; }
+    kindLabel(kind) { const kl = (this.auxIx && this.auxIx.kind_label) || {}; return kl[kind] || { dcdas: 'DCS 控制器組態', dcdas_ch: '控制器組態（其他通道）', terminal: 'DCS 端子表', instlist: '儀器清單', eomr: 'EOMR', docindex: '文件索引', docsearch: '文件全文檢索', hmi: '圖控 HMI 畫面', pid: 'P&ID 圖面', getag: 'GE 原廠編號' }[kind] || kind; }
     async fillSummary(row, res, pend, svcEl) {
       const S = this.spec.summary; const alias = res.alias; const st = this.spec.stats;
       let r13 = null; let aux = null; let ix = null;
@@ -1263,6 +1264,8 @@
             o = { label: it.label, val, cmp: it.cmp, src: it.src ? { lvl: it.src.lvl, text: this.fillSrc(it.src.text, r13) } : null };
           }
         } else if (it.kind) o = this.sumDocItem(it, pickEntry, ix, secOf);
+        // hide_empty（例：GE 原廠編號，非 GE 供貨的設備沒有）：沒有值就整格拿掉，不留「—」
+        if (o && it.hide_empty && (o.val == null || /^\s*(—|-|N\/?A)?\s*$/i.test(String(o.val)))) { p.el.remove(); continue; }
         if (o) { const el = this.fieldEl(o, mode); if (it.big) el.classList.add('big'); p.el.replaceWith(el); }
       }
       this.applyCmp();

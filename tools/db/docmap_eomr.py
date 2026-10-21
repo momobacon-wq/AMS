@@ -49,6 +49,8 @@ def load_ams(sheets, sqlite_path):
     if os.path.exists(p04):
         for r in json.load(open(p04, encoding='utf-8'))['rows']:
             k, typ, alias, n = V(r[0]), V(r[2]), V(r[4]), V(r[7])
+            if str(typ or '').startswith('8 '):   # GE 原廠編號列（build_card_aux 加的）不是位號，不拿來比對
+                continue
             if k and alias and n == 1:
                 idx04.setdefault(str(k).upper(), (alias, str(typ)))
     fan = {}

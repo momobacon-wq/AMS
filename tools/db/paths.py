@@ -15,6 +15,8 @@
                     預設 <LIBRARY_ROOT>\\AMS\\Screens
   AMS_PNEUVALVE_XLSX  全廠氣動閥清單 xlsx（試算表「興達全廠氣動閥LIST_v2.6」匯出；pneuvalve_site.py 的輸入）
                     預設 ~\\.claude\\skills\\notebooklm-batch5-Research\\data\\興達全廠氣動閥LIST_v2.6.xlsx
+  AMS_GE_TAGS       GE 原廠設備編號對照表 ge_tags.json（hst-docsearch 的 build_ge_tags.py 產生；build_card_aux --ge-tags）
+                    預設 hst-docsearch config.json 的 ge_tags_dir 下的 ge_tags.json
 
   py tools/db/paths.py     # 印出目前解析到的每個路徑與是否存在（接手新機器時先跑這個）
 
@@ -54,6 +56,16 @@ def _fts_default():
         return ''
 
 
+def _ge_tags_default():
+    cfg = os.path.join(os.path.expanduser('~'), '.claude', 'skills', 'hst-docsearch', 'config.json')
+    try:
+        with open(cfg, encoding='utf-8') as f:
+            d = json.load(f).get('ge_tags_dir')
+        return os.path.join(os.path.normpath(d), 'ge_tags.json') if d else ''
+    except Exception:
+        return ''
+
+
 LIBRARY_ROOT = _env('AMS_LIBRARY_ROOT', _library_root_default())
 
 
@@ -74,6 +86,7 @@ FTS_DB = _env('AMS_FTS_DB', _fts_default())
 PNEUVALVE_XLSX = _env('AMS_PNEUVALVE_XLSX', os.path.join(os.path.expanduser('~'), '.claude', 'skills', 'notebooklm-batch5-Research', 'data',
                                                         '興達全廠氣動閥LIST_v2.6.xlsx'))
 HMI_SCREENS = _env('AMS_HMI_SCREENS', os.path.join(LIBRARY_ROOT, 'AMS', 'Screens'))  # 圖控 HMI 畫面檔（GE CIMPLICITY／ActivePoint .cim，唯讀）
+GE_TAGS = _env('AMS_GE_TAGS', _ge_tags_default())   # GE 原廠設備編號 ↔ KKS 對照表（hst-docsearch，不在工程文件庫）
 
 # 衍生路徑（由上面推得，不另設環境變數）
 SHEETS_OUT = os.path.join(BUILD_DIR, 'out')                       # sheets_*.py 直接執行時的 csv 傾印
@@ -94,7 +107,7 @@ ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFT
        ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB),
        ('PNEUVALVE_XLSX', PNEUVALVE_XLSX), ('HMI_SCREENS', HMI_SCREENS), ('HMI_JSON', HMI_JSON), ('HMI_SHOTS', HMI_SHOTS),
        ('PID_JSON', PID_JSON), ('PID_SHOTS', PID_SHOTS), ('PID_TEXT_CACHE', PID_TEXT_CACHE), ('PID_OCR_CACHE', PID_OCR_CACHE),
-       ('PID_OCR_MAP', PID_OCR_MAP)]
+       ('PID_OCR_MAP', PID_OCR_MAP), ('GE_TAGS', GE_TAGS)]
 
 
 def report():
