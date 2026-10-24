@@ -94,6 +94,7 @@ def run(ctx):
         nk = page.evaluate("async (q) => AMS.Stock && AMS.Stock.normKks ? AMS.Stock.normKks(q) : null", two['raw'])
         ck('stock normKks: a two-device GE key is not rewritten to one device', nk is None or not nk.get('found'), nk)
         ge_card(page, ctx, ck)
+        ge_spec(page, ctx, ck)
         ck('no page errors', not errors, errors[:3])
         ck('no console errors', not [m for t, m in console if t == 'error'], console[:3])
     with browser(ctx, mobile=True) as (page, errors, console):
@@ -102,6 +103,10 @@ def run(ctx):
         ov = page.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
         ck('mobile: GE tag card has no horizontal page scroll', ov[0] <= ov[1], ov)
         shot(page, ctx, 'getag_gecard_mobile')
+        page.goto(ctx['base'] + '/db/#/card/' + quote(SPEC_TAG)); page.wait_for_selector('.ge-only .ge-spec', timeout=60000); page.wait_for_timeout(500)
+        ov = page.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
+        ck('mobile: %s card with spec blocks and related valves has no horizontal page scroll' % SPEC_TAG, ov[0] <= ov[1], ov)
+        shot(page, ctx, 'getag_spec_mobile')
         ck('mobile: no page errors', not errors, errors[:3])
     return ck.fails
 
@@ -151,6 +156,66 @@ GE_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'
   valve: !!document.querySelector('.valve-only'), below: !!document.querySelector('.ge-below'), nfge: [...document.querySelectorAll('.nf-ge .chip-btn .mono')].map((x) => x.textContent) }; }"""
 
 SETTLED = "document.querySelector('.ge-only, .nf, .sum-tagtext') && !/查詢中/.test((document.querySelector('.cq-status') || {}).textContent || '')"
+
+# ---- 元件詳細資料與相關閥（CONTRACT v9）：使用者 2026-10-24 指名的 96FG-1A（P1 腔壓力傳送器，AMS 沒有這台）
+SPEC_TAG = '96FG-1A'
+SPEC_WANT = ('EMERSON', '3051CG5A22A1AK7M5Q4Z1', '-14.2 to 800 psi-g')   # A0102 rev C／rev T 的廠牌、型號、校正範圍（xlsb 第 239 列同值）
+SPEC_VALVE = 'VA13-25'      # P1 排氣閥（氣動閥清單也有 → 點了開閥卡）
+SPEC_STATE = """() => { const g = document.querySelector('.ge-only'); if (!g) return null; const rel = [...g.querySelectorAll('.ge-rel')];
+  const cfs = [...g.querySelectorAll('.ge-spec')].flatMap((h) => { const out = []; let n = h.nextElementSibling; while (n && !n.classList.contains('sum-sigh')) { out.push(...n.querySelectorAll('.cf.has-src')); n = n.nextElementSibling; } return out; });
+  return { spec: g.querySelectorAll('.ge-spec').length, text: g.textContent,
+    rel: rel.map((r) => ({ label: (r.firstElementChild || {}).textContent || '', items: [...r.querySelectorAll('.ge-rel-i')].map((i) => ({ href: decodeURIComponent((i.querySelector('a') || {}).getAttribute ? i.querySelector('a').getAttribute('href') : ''), lvl: ((i.querySelector('.src-chip') || {}).textContent || ''), text: i.textContent })) })),
+    specSrcs: cfs.length, specDrive: cfs.filter((cf) => [...cf.querySelectorAll('.cf-src a')].some((a) => /drive\\.google\\.com/.test(a.href))).length }; }"""
+# 功能組區塊（.ge-prot：腔室／管段、保護功能）：標題開頭相符的那一段 → [{fn, roles, tags}]；收合的先打開
+PROT_JS = """(head) => { const g = document.querySelector('.ge-below') || document.querySelector('.ge-only'); if (!g) return null;
+  const p = [...g.querySelectorAll('.ge-prot')].find((x) => ((x.querySelector('summary') || x.firstElementChild || {}).textContent || '').startsWith(head));
+  if (!p) return null; if (p.tagName === 'DETAILS') p.open = true;
+  return [...p.querySelectorAll('.ge-prot-i')].map((i) => ({ fn: ((i.querySelector('.ge-prot-h b') || {}).textContent || ''),
+    roles: [...i.querySelectorAll('a.chip-btn .muted')].map((x) => x.textContent.trim()).filter(Boolean).length,
+    tags: [...i.querySelectorAll('a.chip-btn')].map((a) => decodeURIComponent(a.getAttribute('href')).split('?')[0]) })); }"""
+SPEC_PICK_JS = """async () => { const G = await AMS.getag.load(); if (!G) return null; const E = G.j.entries;
+  const out = { sp: E.filter((e) => (e.sp || []).length).length, vl: E.filter((e) => (e.vl || []).length).length, vi: E.filter((e) => (e.vi || []).length).length,
+    pr: E.filter((e) => (e.pr || []).length).length, pi: E.filter((e) => (e.pi || []).length).length,
+    ps: E.filter((e) => (e.ps || []).length).length, pv: E.filter((e) => (e.pv || []).length).length };
+  const e = E.find((x) => (x.ams || []).length && (x.sp || []).length); if (e) { out.amsAlias = e.ams[0][0]; out.amsTag = e.ams[0][1]; out.amsGe = e.t; }
+  return out; }"""
+
+
+def ge_spec(page, ctx, ck):
+    pk = page.evaluate(SPEC_PICK_JS)
+    ck('GE card data has spec blocks, related valves and protection functions (sp／vl／vi／pr／pi)',
+       bool(pk) and pk['sp'] >= 1000 and pk['vl'] >= 100 and pk['vi'] >= 50 and pk['pr'] >= 100 and pk['pi'] >= 10 and pk['ps'] >= 50 and pk['pv'] >= 20, pk)
+    s = ge_query(page, ctx, SPEC_TAG)
+    ck('「%s」→ GE card' % SPEC_TAG, s['ge'] and s['tag'] == SPEC_TAG, (s['tag'], s['status'][:60]))
+    sp = page.evaluate(SPEC_STATE)
+    ck('%s: spec blocks shown (廠牌／型號／校正範圍)' % SPEC_TAG, bool(sp) and sp['spec'] >= 1 and all(w in sp['text'] for w in SPEC_WANT), sp and [w for w in SPEC_WANT if w not in sp['text']])
+    ck('%s: every spec field has a source with a Google Drive link' % SPEC_TAG, bool(sp) and sp['specSrcs'] >= 3 and sp['specDrive'] == sp['specSrcs'], sp and (sp['specDrive'], sp['specSrcs']))
+    # 所在腔室（P&ID 137T9782 Sheet 3）：P1 腔＝VS4-4 → VGS-1／VSC-1，排放閥 VA13-25
+    po = page.evaluate(PROT_JS, '所在腔室')
+    ck('%s: 所在腔室 P1 腔 lists VS4-4, VGS-1 and %s with roles' % (SPEC_TAG, SPEC_VALVE),
+       bool(po) and any(x['fn'] == 'P1 腔' and {'#/card/VS4-4', '#/card/VGS-1', '#/card/' + SPEC_VALVE} <= set(x['tags']) and x['roles'] for x in po), po)
+    # 參與的保護功能：通風 SIF（P1 腔壓力啟用）跳機時連同 SSOV VS4-4 與 P1 排放閥 VA13-25 動作（308T9574 §15.1）
+    pr = page.evaluate(PROT_JS, '參與的保護功能')
+    ck('%s: 參與的保護功能 has a function actuating VS4-4 and VA13-25' % SPEC_TAG,
+       bool(pr) and any('#/card/VS4-4' in x['tags'] and '#/card/' + SPEC_VALVE in x['tags'] for x in pr), pr and [x['fn'] for x in pr])
+    shot(page, ctx, 'getag_spec')
+    # 點腔室裡的 VA13-25 → 那顆閥的閥卡（氣動閥清單有），下面接 GE 對照：邊界的腔室 P1 腔列出 96FG-1A，相關儀器有它的極限開關
+    page.locator('.ge-prot a.chip-btn[href^="#/card/%s"]' % SPEC_VALVE).first.click()
+    page.wait_for_function(SETTLED, timeout=30000); page.wait_for_timeout(800)
+    st = page.evaluate(GE_STATE)
+    ck('click %s → valve card + GE block below' % SPEC_VALVE, st['valve'] and st['below'], st['status'][:60])
+    pv = page.evaluate(PROT_JS, '這顆閥邊界的腔室')
+    ck('%s valve card: 邊界的腔室 P1 腔 lists %s' % (SPEC_VALVE, SPEC_TAG), bool(pv) and any('#/card/' + SPEC_TAG in x['tags'] for x in pv), pv)
+    vi = page.evaluate("""() => { const g = document.querySelector('.ge-below'); if (!g) return null;
+      const r = [...g.querySelectorAll('.ge-rel')].find((x) => /^相關儀器/.test((x.firstElementChild || {}).textContent || ''));
+      return r ? [...r.querySelectorAll('a.chip-btn')].map((a) => decodeURIComponent(a.getAttribute('href')).split('?')[0]) : []; }""")
+    ck('%s valve card: 相關儀器 lists its limit switch 33VG-8 (KKS -BG02)' % SPEC_VALVE, bool(vi) and '#/card/33VG-8' in vi, vi)
+    # AMS 設備卡：完整資料區的 GE 原廠編號段也有規格塊
+    if pk and pk.get('amsAlias'):
+        load_card(page, ctx, quote(pk['amsAlias']))
+        page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1500)
+        a = page.evaluate("() => { const s = document.querySelector('.aux-getag'); return s ? s.textContent : null; }")
+        ck('AMS device %s (GE %s): full data getag section has a spec block' % (pk['amsTag'], pk['amsGe']), bool(a) and '規格' in a, (a or '')[:80])
 
 
 def ge_query(page, ctx, q):

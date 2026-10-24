@@ -902,6 +902,14 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-sigh.ge-unit { background: transparent; border-top: 1px dashed var(--grid); }
 .ge-linkbox { display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--grid); }
 .ge-links { align-items: center; }
+.ge-rel { display: flex; flex-direction: column; gap: 4px; }
+.ge-rel-i { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.ge-rel-i .small { min-width: 0; overflow-wrap: anywhere; }
+.ge-prot { display: flex; flex-direction: column; gap: 8px; }
+details.ge-prot > summary { cursor: pointer; color: var(--muted); }
+.ge-prot-i { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; border-left: 2px solid var(--grid); }
+.ge-prot-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ge-prot-t { overflow-wrap: anywhere; }
 .ge-links .chip-btn.plain { cursor: default; border-style: dashed; } /* 對照表沒有這個名稱的條目：只列名稱，不是連結 */
 .ge-links .chip-btn.plain:hover { border-color: var(--border); color: var(--text); }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */

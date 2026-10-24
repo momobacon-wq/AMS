@@ -773,7 +773,7 @@
       sec.appendChild(U.h('h3', { class: 'sum-gh' }, 'GE 原廠編號對照（GE 文件）'));
       const grid = U.h('div', { class: 'sum-body' });
       const ix = { docs: G.j.docs || {}, doc_no: {} };
-      const WIDE = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS|Mark VIe 訊號)/; // 長的值佔兩格，不要擠在五分之一寬裡
+      const WIDE = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS|Mark VIe 訊號|備註|設定值|其他欄|對照方式|可調範圍|校正範圍)/; // 長的值佔兩格，不要擠在五分之一寬裡
       const MULTI_DOC = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS)/;
       const chips = (label, items) => {
         if (!items.length) return null;
@@ -796,9 +796,13 @@
         // 輸入帶本站的機組（G12_CT-DA-1、G12.a_ctda1）→ 只列那一台；其他（G21…、沒帶機組）→ 本站各機組都列
         const us = (e.u || []).filter(([un]) => !site || un === site);
         const units = us.length ? us : (e.u || []);
-        const blocks = [Object.assign({ rule: G.j.rule }, e.c)].concat(units.map(([un, rows]) => ({ h: un, lvl: e.c.lvl, src: e.c.src, d: e.c.d, rule: G.j.rule_unit, rows })));
+        // 規格塊（e.sp）：一份 GE 清單一塊，各自的出處（lvl／src／d）；規則文字在檔頭 rule_spec。排在共同列之後、逐機組的列之前
+        const blocks = [Object.assign({ rule: G.j.rule }, e.c)].concat(
+          (e.sp || []).map((b) => ({ h: b.h, lvl: b.lvl, src: b.src, d: b.d, rule: (G.j.rule_spec || '') + (b.ev ? '；這一塊：' + b.ev : ''), rows: b.rows, sp: true })),
+          units.map(([un, rows]) => ({ h: un, lvl: e.c.lvl, src: e.c.src, d: e.c.d, rule: G.j.rule_unit, rows })));
         blocks.forEach((ent, bi) => {
-          if (bi) box.appendChild(U.h('div', { class: 'sum-sigh ge-unit' }, U.h('span', { class: 'sum-sigi key mono' }, ent.h), U.h('span', { class: 'sum-sigi' }, '本機組的 KKS 與訊號')));
+          if (bi && ent.sp) box.appendChild(U.h('div', { class: 'sum-sigh ge-unit ge-spec' }, U.h('span', { class: 'sum-sigi' }, '規格'), U.h('span', { class: 'sum-sigi', title: '出處文件' }, ent.h)));
+          else if (bi) box.appendChild(U.h('div', { class: 'sum-sigh ge-unit' }, U.h('span', { class: 'sum-sigi key mono' }, ent.h), U.h('span', { class: 'sum-sigi' }, '本機組的 KKS 與訊號')));
           const sg = U.h('div', { class: 'cfields sumgrid' });
           for (const r of ent.rows) {
             const det = this.docDetail(ix, ent.d, [['比對規則', ent.rule]]); // 每一格各自一份（明細裡的「開啟檔案」連結是 DOM 節點，共用會被搬到最後一格）
@@ -822,7 +826,60 @@
           if (site && us.length && un !== site) continue;
           for (const n of list) sigs.push({ text: n, href: 'https://momobacon-wq.github.io/signal-atlas/#/v/' + encodeURIComponent(n), title: '在 signal-atlas 開啟 ' + n, ext: true });
         }
+        // 相關閥／相關儀器（e.vl／e.vi：[GE 編號, 關係種類, 說明, lvl, 出處]）：一列一筆，連到那顆的卡（氣動閥清單有的開閥卡）
+        const srcLink = (src, d) => {
+          const doc = d ? (G.j.docs || {})[d] : null;
+          if (!src) return null;
+          return doc && doc.url ? U.h('a', { class: 'lk', href: doc.url, target: '_blank', rel: 'noopener noreferrer', title: '在 Google 雲端硬碟開啟出處文件' }, `（${src} ↗）`)
+            : U.h('span', {}, `（${src}）`);
+        };
+        const rel = (label, list) => {
+          if (!list || !list.length) return null;
+          const rb = U.h('div', { class: 'ge-rel' }, U.h('div', { class: 'muted small' }, label));
+          for (const [t, kind, txt, lv, src, d] of list) {
+            const l2 = lvlOf(lv === 'inferred' ? 'inferred' : 'doc');
+            rb.appendChild(U.h('div', { class: 'ge-rel-i' },
+              U.h('a', { class: 'chip-btn', href: href(t, e), title: '開啟 ' + t }, U.h('span', { class: 'mono' }, t)),
+              U.h('span', { class: 'src-chip lvl-' + l2, title: (this.srcDefs[l2] && this.srcDefs[l2].desc) || '' }, this.srcLabel(l2)),
+              U.h('span', { class: 'small' }, (kind ? kind + '：' : '') + txt, srcLink(src, d))));
+          }
+          return rb;
+        };
+        // 保護功能（e.pr：這顆儀器參與的功能與它動作的閥；e.pi：會動作這顆閥的功能與觸發它的儀器）：[功能, 本顆角色, 說明, [[編號, 角色]…], 出處]
+        // 一項一塊：功能名＋本顆角色＋對方的編號 chips（超過 10 個先藏，按鈕展開）＋說明與出處；超過 4 項整段收合
+        const prot = (label, list, other) => {
+          if (!list || !list.length) return null;
+          const items = list.map(([fn, role, txt, xs, src, d]) => {
+            const it = U.h('div', { class: 'ge-prot-i' },
+              U.h('div', { class: 'ge-prot-h' }, U.h('b', {}, fn), role ? U.h('span', { class: 'pill plain', title: '這一顆在本功能的角色' }, role) : null,
+                U.h('span', { class: 'src-chip lvl-doc', title: G.j.rule_prot || '' }, this.srcLabel('doc'))));
+            const ch = U.h('div', { class: 'nf-chips ge-links' }, U.h('span', { class: 'muted small' }, other));
+            const MAXC = 10;
+            xs.forEach(([t, r], i) => {
+              const a = U.h('a', { class: 'chip-btn' + (i >= MAXC ? ' ge-more' : ''), href: href(t, e), title: r ? `${t}：${r}` : t },
+                U.h('span', { class: 'mono' }, t), r ? U.h('span', { class: 'muted small' }, ' ' + r) : null);
+              if (i >= MAXC) a.hidden = true;
+              ch.appendChild(a);
+            });
+            if (xs.length > MAXC) {
+              const b = U.h('button', { type: 'button', class: 'chip-btn plain ge-more-btn' }, `等 ${xs.length} 個，全部列出`);
+              b.addEventListener('click', () => { ch.querySelectorAll('.ge-more').forEach((x) => { x.hidden = false; }); b.remove(); });
+              ch.appendChild(b);
+            }
+            it.appendChild(ch);
+            if (txt || src) it.appendChild(U.h('div', { class: 'muted small ge-prot-t' }, txt, srcLink(src, d)));
+            return it;
+          });
+          if (list.length <= 4) return U.h('div', { class: 'ge-prot' }, U.h('div', { class: 'muted small' }, label + '：'), ...items);
+          return U.h('details', { class: 'ge-prot' }, U.h('summary', { class: 'small' }, `${label}（${list.length} 項，點開）`), ...items);
+        };
         const links = [
+          prot('所在腔室／管段（P&ID）', e.ps, '邊界閥：'),
+          rel('相關閥（點編號開那顆閥的卡）：', e.vl),
+          rel('相關儀器：', e.vi),
+          prot('這顆閥邊界的腔室／管段（P&ID）', e.pv, '腔內儀器：'),
+          prot('參與的保護功能', e.pr, '動作的閥：'),
+          prot('會動作這顆閥的保護功能', e.pi, '觸發／啟用的儀器：'),
           chips('Mark VIe 訊號（signal-atlas）：', sigs),
           chips('相關裝置：', (e.ln || []).map(([t, rel, to]) => ({ text: t, sub: rel, href: to ? href(to, e) : null }))),
           chips('同一個 KKS 的其他 GE 編號（推論：常是同一套設備的閥本體／定位器／電磁閥，或改過編號的同一顆）：', (e.sib || []).map((t) => ({ text: t, href: href(t, e) }))),

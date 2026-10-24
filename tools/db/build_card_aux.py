@@ -479,7 +479,8 @@ def load_ge(path, dcdas_path=None):
         c.close()
     return {'entries': j['entries'], 'name': {k: list(v.values()) for k, v in name.items()},
             'body': {k: list(v.values()) for k, v in body.items()}, 'built_at': str(j.get('built_at') or ''),
-            'n_rows': j.get('n_rows') or 0, 'n_docs': len(j.get('sources') or []), 'docs': {}, 'vars': vars_, 'own': set()}
+            'n_rows': j.get('n_rows') or 0, 'n_docs': len(j.get('sources') or []), 'docs': {}, 'vars': vars_, 'own': set(),
+            'spec_fields': j.get('spec_fields') or {}}
 
 
 def ge_match(tag, ge):
@@ -587,18 +588,96 @@ def ge_entry(e, rule, lvl, unit, suf, ge):
     return ent
 
 
+GE_SPEC_RULE = ('GE 清單逐列抽出的元件詳細資料（廠牌、型號、量程、設定值、P&ID…）：一份文件一塊；後面的塊不重列前面相同的值，'
+                '同一份清單的舊版只補新版沒有的欄。PDF 依文字座標分欄、xlsx 讀儲存格，各組經獨立核對者開圖或讀儲存格抽查；引用前以原文件為準')
+GE_REL_MAX = 12   # 相關閥／相關儀器最多列幾筆（卡上與完整資料區）
+GE_PROT_RULE = ('GE 燃機控制規格書 308T9574／安全迴路方塊圖 308T9382、汽機方塊圖 316T9333、燃料氣 P&ID 137T9782 逐段讀出的「功能組」：'
+                '保護功能＝哪些儀器觸發或啟用它、它動作哪些閥（common actuators 依規格書 §4.1 展開）；腔室／管段＝P&ID 上儀器所在的一段與它的上下游閥、排放閥；'
+                '經反方逐組開圖核對')
+
+
+def ge_spec_blocks(e, ge):
+    """條目的 spec（hst-docsearch ge_details.py 併進 ge_tags.json）→ 卡片格式的塊 [{h, lvl, rule, rows, src, d}]；出處文件登記進 ge['docs']。"""
+    labels = ge.get('spec_fields') or {}
+    out = []
+    for b in e.get('spec') or []:
+        rows = [[labels.get(k, k), v] for k, v in b.get('f') or []]
+        if b.get('via'):
+            rows.append(['對照方式', b['via']])
+        if not rows:
+            continue
+        d = ge_doc_key(b.get('doc'))
+        fo, _, ti = str(b.get('doc') or '').replace('\\', '/').rpartition('/')
+        ge['docs'].setdefault(d, {'title': ti, 'folder': fo, 'why': 'GE 元件詳細資料的出處（%s）' % (b.get('rev') or '版次未標')})
+        out.append({'h': '%s%s' % (b.get('label') or ti, '（舊版，只補新版沒有的欄）' if b.get('old') else ''), 'lvl': 'doc',
+                    'rule': '%s；這一塊：%s' % (GE_SPEC_RULE, b.get('evidence') or ''), 'rows': rows,
+                    'src': '%s · %s %s' % (SRC_DEFS['doc']['label'], ti, b.get('loc') or ''), 'd': d})
+    return out
+
+
+def ge_rel_doc(ge, doc, why):
+    """關係／保護功能的出處文件登記進 ge['docs']（前端用它開雲端連結）→ 文件鍵；ge 為 None 或沒有出處時回 ''"""
+    if ge is None or not doc:
+        return ''
+    d = ge_doc_key(doc)
+    fo, _, ti = str(doc).replace('\\', '/').rpartition('/')
+    ge['docs'].setdefault(d, {'title': ti, 'folder': fo, 'why': why})
+    return d
+
+
+def ge_rel_rows(e, key, ge=None):
+    """相關閥（key='valves'）／相關儀器（'instruments'）→ [[GE 編號, 關係種類, 說明, lvl, 出處文字, 出處文件鍵]]"""
+    out = []
+    for x in (e.get(key) or [])[:GE_REL_MAX]:
+        src = ('%s %s' % (os.path.basename(x.get('doc') or ''), x.get('loc') or '')).strip()
+        out.append([x.get('tag') or '', x.get('kind') or '', x.get('rel') or '', x.get('lvl') or 'doc', src,
+                    ge_rel_doc(ge, x.get('doc'), 'GE 元件關係（相關閥／儀器）的出處')])
+    return out
+
+
+def ge_prot_rows(e, key, ge=None):
+    """功能組（key='prot'：這顆儀器參與的保護功能與它動作的閥；'prot_in'：會動作這顆閥的保護功能與觸發它的儀器；
+    'pos'：儀器所在的腔室／管段與邊界閥；'pos_in'：這顆閥邊界的腔室／管段與其中的儀器）
+    → [[功能名, 本顆的角色, 說明, [[GE 編號, 角色], …], 出處文字, 出處文件鍵]]（同一組只一筆）"""
+    out = []
+    for x in e.get(key) or []:
+        lst = x.get('valves') if key in ('prot', 'pos') else x.get('sensors')
+        src = ('%s %s' % (os.path.basename(x.get('doc') or ''), x.get('loc') or '')).strip()
+        out.append([x.get('fn') or '', x.get('role') or '', x.get('rel') or '', [[t, r] for t, r in lst or []], src,
+                    ge_rel_doc(ge, x.get('doc'), 'GE 保護功能（控制規格書／方塊圖／P&ID）的出處')])
+    return out
+
+
 def ge_entries(tag, ge):
     """→ (entries, 主條目的 GE 編號)。主條目在前（前端摘要格取 entries[0]），之後是現行 KKS 本體相同的其他 GE 編號（lvl 推論）：
     只看現行 KKS（舊版文件的 KKS 可能是誤植）、跳過本身就是另一台 AMS 設備主條目的編號（ge['own']，那台有自己的卡）。"""
     hits, unit = ge_match(tag, ge)
     if not hits:
         return [], []
-    ents, seen, prim = [], set(), []
+    ents, seen, prim, extra = [], set(), [], []
     for e, why, lvl, suf in hits:
         if e['_i'] not in seen:
             seen.add(e['_i'])
             ents.append(ge_entry(e, why, lvl, unit, suf, ge))
             prim.append(e['tag'])
+            for b in ge_spec_blocks(e, ge):   # 規格塊與相關閥：排在對照條目之後（摘要格只取 entries[0]）
+                extra.append(dict(b, h='%s 規格 · %s' % (e['tag'], b['h'])))
+            for key, what in (('valves', '相關閥'), ('instruments', '相關儀器')):
+                rr = ge_rel_rows(e, key)
+                if rr:
+                    extra.append({'h': '%s %s（GE 文件）' % (e['tag'], what), 'lvl': 'doc' if all(r[3] == 'doc' for r in rr) else 'inferred',
+                                  'rule': 'KKS 子件尾碼、閥清單 Solenoid Tag 欄、P&ID 腔室邊界讀出的關係；說明欄寫明的對應是推論',
+                                  'rows': [[what, '%s〔%s〕%s%s' % (r[0], r[1], r[2], '（推論）' if r[3] == 'inferred' else '') + ('（%s）' % r[4] if r[4] else '')] for r in rr],
+                                  'src': '%s · GE 原廠編號對照表的關係欄' % SRC_DEFS['doc']['label']})
+            for key, what in (('pos', '所在腔室／管段'), ('pos_in', '邊界的腔室／管段'), ('prot', '參與的保護功能'), ('prot_in', '會動作這顆閥的保護功能')):
+                pr = ge_prot_rows(e, key)
+                if pr:
+                    extra.append({'h': '%s %s（GE %s）' % (e['tag'], what, 'P&ID' if key.startswith('pos') else '控制規格書／方塊圖'), 'lvl': 'doc', 'rule': GE_PROT_RULE,
+                                  'rows': [[r[0], '%s%s：%s%s（%s）' % ('本顆＝%s；' % r[1] if r[1] else '',
+                                            {'pos': '邊界閥', 'pos_in': '腔內儀器', 'prot': '動作', 'prot_in': '觸發／條件'}[key],
+                                            '、'.join(t for t, _r in r[3][:16]) + (' 等 %d 個' % len(r[3]) if len(r[3]) > 16 else ''),
+                                            '。' + r[2] if r[2] else '', r[4])] for r in pr],
+                                  'src': '%s · GE 原廠編號對照表的保護功能欄' % SRC_DEFS['doc']['label']})
     rel = []
     for e, _why, _lvl, _suf in hits:
         for k in e.get('kks') or []:
@@ -611,7 +690,7 @@ def ge_entries(tag, ge):
                     seen.add(e2['_i'])
                     rel.append(ge_entry(e2, '與 %s 在 GE 文件中共用同一個 KKS 本體（%s）的另一個編號：常是同一套設備（閥本體、定位器、電磁閥）'
                                             '或同一盒的另一顆，也可能是文件誤植；以出處為準' % (e['tag'], p[1]), 'inferred', unit, suf2, ge))
-    return ents + rel, prim
+    return ents + extra + rel, prim
 
 
 def ge_apply(sec, ge, tag, by_tag, al):
@@ -710,14 +789,20 @@ def ge_card_data(ge):
         lg = {un: x for un in units if un for x in [ge_logic(e, un, ge)[0]] if x}   # 各機組可連 signal-atlas 的訊號（同 ge_entry 的規則）
         o = {'t': e['tag'], 'f': [f for f in dict.fromkeys(e.get('forms') or []) if ge_cmp(f) != ge_cmp(e['tag'])], 'sc': e['_scope'] or '',
              'sys': GE_SYSTEM.get(e.get('system') or '', ''), 'svc': '' if ge_ff_only(e) else (e.get('service') or ''), 'c': c}
+        sp = [{k: v for k, v in b.items() if k != 'rule'} for b in ge_spec_blocks(e, ge)]   # 規則文字每塊一樣：放檔頭 rule_spec
+        for b, b0 in zip(sp, [b0 for b0 in e.get('spec') or [] if b0.get('f') or b0.get('via')]):
+            b['ev'] = b0.get('evidence') or ''
+        vl, vi = ge_rel_rows(e, 'valves', ge), ge_rel_rows(e, 'instruments', ge)
+        pr, pi = ge_prot_rows(e, 'prot', ge), ge_prot_rows(e, 'prot_in', ge)
+        ps, pv = ge_prot_rows(e, 'pos', ge), ge_prot_rows(e, 'pos_in', ge)
         for k, v in (('u', u), ('gone', 1 if gone else 0), ('ams', ams_of.get(e['_i'])), ('tw', tw), ('ln', ln), ('sib', sib[:GE_RELATED_MAX]),
-                     ('sig', sig), ('lg', lg), ('kb', sorted(cur)), ('okb', okb)):
+                     ('sig', sig), ('lg', lg), ('kb', sorted(cur)), ('okb', okb), ('sp', sp), ('vl', vl), ('vi', vi), ('pr', pr), ('pi', pi), ('ps', ps), ('pv', pv)):
             if v:
                 o[k] = v
         ents.append(o)
     docs, ge['docs'] = ge['docs'], saved
     data = {'version': 1, 'built_at': ge['built_at'], 'n': len(ents), 'units': {k: list(v) for k, v in GE_SITE_UNITS.items()},
-            'rule': GE_CARD_RULE, 'rule_unit': GE_UNIT_RULE, 'entries': ents}
+            'rule': GE_CARD_RULE, 'rule_unit': GE_UNIT_RULE, 'rule_spec': GE_SPEC_RULE, 'rule_prot': GE_PROT_RULE, 'entries': ents}
     return data, docs
 
 
