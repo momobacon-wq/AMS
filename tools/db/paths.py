@@ -101,13 +101,14 @@ PID_SHOTS = os.path.join(CARDWORK, 'pid_shots')                    # P&ID 圖紙
 PID_TEXT_CACHE = os.path.join(AMS_LOCAL, 'pidtext')                # pid_index：每份 P&ID PDF 的文字層字框快取（依檔案大小＋修改時間；刪掉即重抽）
 PID_OCR_CACHE = os.path.join(AMS_LOCAL, 'pidocr')                  # pid_ocr：逐頁 OCR 原始結果快取（離線工具；刪掉要全部重跑，807 頁實測約 20 分鐘）
 PID_OCR_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pid_ocr_map.json')  # pid_ocr 蒸餾後的位號字框（進 repo；pid_index 只讀它）
+PID_OCR_GE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pid_ocr_ge.json')    # pid_ocr --distill-ge：括號裡的線條字 GE 標籤（只給 pid_ge；不進 repo）
 
 ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFTXT_CACHE), ('LIBRARY_ROOT', LIBRARY_ROOT),
        ('PREV_XLSX', PREV_XLSX), ('BUILD_DIR', BUILD_DIR), ('SHEETS_CACHE', SHEETS_CACHE), ('SHEETS_FINAL', SHEETS_FINAL),
        ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB),
        ('PNEUVALVE_XLSX', PNEUVALVE_XLSX), ('HMI_SCREENS', HMI_SCREENS), ('HMI_JSON', HMI_JSON), ('HMI_SHOTS', HMI_SHOTS),
        ('PID_JSON', PID_JSON), ('PID_SHOTS', PID_SHOTS), ('PID_TEXT_CACHE', PID_TEXT_CACHE), ('PID_OCR_CACHE', PID_OCR_CACHE),
-       ('PID_OCR_MAP', PID_OCR_MAP), ('GE_TAGS', GE_TAGS)]
+       ('PID_OCR_MAP', PID_OCR_MAP), ('PID_OCR_GE', PID_OCR_GE), ('GE_TAGS', GE_TAGS)]
 
 
 def report():

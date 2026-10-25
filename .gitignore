@@ -38,6 +38,7 @@ tools/db/workflow_results.json
 # 稽核結論（order.json 與產生它的 sheets_*.py／make_order.py）、P&ID OCR 對照表、圖控畫面對應表、site_terms 真值
 tools/db/order.json
 tools/db/pid_ocr_map.json
+tools/db/pid_ocr_ge.json
 tools/db/hmi_runtime_map.json
 tools/db/sheets_*.py
 tools/db/make_order.py

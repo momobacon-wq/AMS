@@ -786,6 +786,7 @@
         return ch;
       };
       ents.forEach((e, k) => {
+        const id = gh.ids[k];   // 條目序號：位置列在 getag-loc.json 的 by_i[序號]
         const box = U.h('div', { class: 'sum-sig' });
         const head = U.h('div', { class: 'sum-sigh' });
         if (ents.length > 1) head.appendChild(U.h('span', { class: 'pill plain' }, `${k + 1}/${ents.length}`));
@@ -820,6 +821,8 @@
             sg.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: WIDE.test(r[0]) ? 2 : undefined, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
           }
           box.appendChild(sg);
+          // 位置（v10）：先講「在哪裡」（P&ID 圖面、圖控畫面），再列規格與關聯——共同列之後、規格塊之前
+          if (bi === 0) box.appendChild(this.geLocBox(e, id, gh.ids, site, mode));
         });
         const sigs = [];
         for (const [un, list] of Object.entries(e.lg || {})) {
@@ -893,6 +896,66 @@
       groups.appendChild(sec);
       wrap.appendChild(groups);
       return wrap;
+    }
+
+    /** GE 編號卡的位置（v10，CONTRACT.md「v10」）：card/getag-loc.json 的 by_i[條目序號]（getag.json 的 loc 指向它；條目有 lc 才有）——
+     *  pd（P&ID 圖面位置）、hm（圖控 HMI 畫面位置）與 AMS 設備卡的 sec.pid／sec.hmi 同格式，直接交給 fillPid／fillHmi
+     *  （摘要版面：圖紙細部視窗、小地圖、燈箱、畫面縮圖都共用）。位置檔約 6 MB 明文，開 GE 編號卡才下載（getag.json 在查詢時就要載）。
+     *  圖紙與畫面的中繼資料在 card/index.json（index.pid.sheets／index.hmi.screens），P&ID 的 PDF 連結在 getag.json 的 docs。
+     *  帶機組（G12_96FG-1A）時只列那一台的：pd 第一列 extra.gu＝只有某幾部機才有的那一組（不分機組的不帶）、hm 的 gu＝這個編號所屬的機組。
+     *  hmx＝每部機超過 hmi_max 張的畫面只列名；hr＝沒有任何位置時，說明提到這個編號的訊號出現在哪些畫面（不是設備的位置）。 */
+    geLocBox(e, id, ids, site, mode) {
+      const G = AMS.getag.G;
+      const pick = (rows, ok) => {   // 依組（extra.g）篩：每組第一列帶整組的 extra
+        const out = []; let g; let keep = false;
+        for (const r of rows || []) { const ex = (r.length > 4 && r[4]) || {}; if (ex.g !== g) { g = ex.g; keep = ok(ex); } if (keep) out.push(r); }
+        return out;
+      };
+      const box = U.h('div', { class: 'ge-loc' });
+      const part = (title, cls) => {
+        box.appendChild(U.h('div', { class: 'sum-sigh ge-unit ge-loc-h' }, U.h('span', { class: 'sum-sigi' }, title)));
+        const g = U.h('div', { class: 'ge-loc-body ' + cls }, U.h('p', { class: 'muted cl-empty' }, '載入中…'));
+        box.appendChild(g);
+        return g;
+      };
+      const gp = part('P&ID 圖面位置', 'ge-pid');
+      const gh = part('圖控 HMI 畫面位置', 'ge-hmi');
+      const none = (el, text) => { el.innerHTML = ''; el.appendChild(U.h('p', { class: 'muted cl-empty' }, text)); };
+      const res = this.res;
+      Promise.all([D.loadAuxIndex(this.spec.aux && this.spec.aux.index), G.j.loc && ids.some((i) => G.j.entries[i] && G.j.entries[i].lc) ? D.fetchJSON(G.j.loc) : null]).then(([aix, lj]) => {
+        if (this.destroyed || this.res !== res) return;
+        const ix = Object.assign({}, aix, { docs: Object.assign({}, G.j.docs || {}), doc_no: {} });
+        const L = (i) => ((lj && lj.by_i) || {})[String(i)] || {};
+        const lo = L(id);
+        const pd = pick(lo.pd, (ex) => !site || !ex.gu || ex.gu.includes(site));
+        const hm = pick(lo.hm, (ex) => !site || !ex.gu || ex.gu === site);
+        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => L(i).pd || []) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
+        if (pd.length) { gp.innerHTML = ''; this.fillPid({ rows: pd }, ix, gp, mode, true); }
+        else none(gp, !e.sc ? '沒有比對（GE 文件沒寫是燃機還是汽機，不知道要找哪一套圖）'
+          : `查無（GE 示意圖與 P&ID 的 PDF 文字層、OCR 都沒有讀到這個編號${(e.kb || []).length ? '或它的 KKS' : ''}；不代表圖上沒有畫，可能是線條字沒讀到或只畫在接線圖上）`);
+        if (hm.length) { gh.innerHTML = ''; this.fillHmi({ rows: hm }, ix, gh, mode, true); }
+        else {
+          const hr = (lo.hr || []).filter(([un]) => !site || un === site);
+          const n = ((ix.hmi || {}).stats || {}).screens_total;
+          if (hr.length) {
+            none(gh, '畫面上沒有直接引用這個編號的物件，也沒有寫著它；說明提到這個編號的訊號出現在：'
+              + hr.map(([un, sc, v]) => `${sc}（${un}，${v}）`).join('、') + '——那是相關訊號，不是這個元件的位置');
+          } else {
+            none(gh, Object.keys(e.lg || {}).length || (e.sig || []).length
+              ? `查無（${n ? n + ' 個操作員畫面' : '操作員畫面'}都沒有引用這個編號的訊號，也沒有寫著這個編號）`
+              : `查無（這個編號沒有 Mark VIe 訊號，${n ? n + ' 個操作員畫面' : '操作員畫面'}上也沒有寫著這個編號）`);
+          }
+        }
+        for (const [un, rep, list] of lo.hms || []) {
+          if (site && un !== site) continue;
+          gh.appendChild(U.h('p', { class: 'muted small aux-note' }, `${un}：「${rep}」上的同一個面板也出現在另外 ${list.length} 張 SIL 畫面（${list.join('、')}），只列一張。`));
+        }
+        for (const [un, list] of lo.hmx || []) {
+          if (site && un !== site) continue;
+          gh.appendChild(U.h('p', { class: 'muted small aux-note' }, `${un} 另有 ${list.length} 張畫面也有這個編號（同一個面板在各頁重複，只列前 ${G.j.hmi_max || ''} 張的影像）：${list.join('、')}`));
+        }
+      }).catch((err) => { if (!this.destroyed && this.res === res) { none(gp, '無法載入圖面索引：' + ((err && err.message) || err)); gh.innerHTML = ''; } });
+      return box;
     }
 
     /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */
@@ -1699,7 +1762,9 @@
           U.h('span', { class: 'hmi-t' }, title),
           navTxt ? U.h('span', { class: 'hmi-nav' }, navTxt) : null,
           ex.nav_all ? U.h('span', { class: 'hmi-allnav', title: '這張畫面的全部選單列（無法判定這台儀器是從哪一列開啟）' }, '（此畫面全部選單列）') : null,
-          ex.unit ? U.h('span', { class: 'hmi-unit', title: '開啟這張畫面的選單項所屬機組，不是這台儀器所屬機組' }, '以選單機組 ' + ex.unit + ' 開啟') : null,
+          ex.gu ? U.h('span', { class: 'hmi-unit', title: '這個 GE 編號屬於哪一部機組（由畫面物件引用的控制器判定）' }, '機組 ' + ex.gu + (ex.ctrl ? '（控制器 ' + ex.ctrl + '）' : '')
+            + (ex.host ? '·畫在主設備上（本編號是附屬件）' : ''))
+            : ex.unit ? U.h('span', { class: 'hmi-unit', title: '開啟這張畫面的選單項所屬機組，不是這台儀器所屬機組' }, '以選單機組 ' + ex.unit + ' 開啟') : null,
           inSum && pick ? U.h('span', { class: 'hmi-cap' + (pick.mismatch ? ' warn' : ''), title: this.hmiSrcText(meta, pick) }, this.hmiCapText(meta, pick)) : null,
           U.h('span', { class: 'hmi-file mono' }, ex.s),
           fold ? U.h('span', { class: 'hmi-exp', 'aria-hidden': 'true' }) : null);
@@ -1941,6 +2006,11 @@
           // 不是錯誤，所以是一般的灰字；「這一處不是儀器符號」是讀圖的人最容易誤會的事，用粗體 .pid-ref（不是紅字：資料沒有錯）；
           // 只有 OCR 辨識信心偏低（可能讀錯字）那一段才用紅字 .warn
           cap.drawn ? U.h('span', { class: 'hmi-cap', title: capTip }, cap.drawn) : null,
+          ex.via === 'kks' ? U.h('span', { class: 'hmi-cap', title: capTip }, '依 KKS 對應（這一處沒寫 GE 編號）') : null,
+          ex.shared && ex.shared.length ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip },
+            `※ 共用 KKS（也是 ${ex.shared.slice(0, 3).join('、')}${ex.shared.length > 3 ? ' 等' : ''} 的 KKS）`) : null,
+          ex.gu && ex.gu.length ? U.h('span', { class: 'hmi-unit', title: '這張圖分別畫各機組，這一處是這幾部機的' }, ex.gu.join('／')) : null,
+          ex.on_body ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip }, '※ 框的是主設備（本編號是它的附屬件，圖上沒有單獨畫）') : null,
           cap.ref ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip }, cap.ref) : null,
           cap.how ? U.h('span', { class: 'hmi-cap pid-how' + (this.pidLowConf(ex) ? ' warn' : ''), title: capTip }, cap.how) : null,
           fold ? U.h('span', { class: 'hmi-exp', 'aria-hidden': 'true' }) : null));

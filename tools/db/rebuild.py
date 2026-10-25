@@ -6,7 +6,9 @@
                                             # 摘要組／區段、或它的區段說明與 extract_db 現在的不同，而這次會發布它時，不必加這個旗標也會自動套）
   py tools/db/rebuild.py --skip-docsearch   # 不重跑 hst-docsearch（約 4 分鐘；沿用上次的 docsearch.json）
   py tools/db/rebuild.py --skip-hmi        # 不重跑圖控 HMI 三步（hmi_shots／hmi_nav／hmi_index）；沿用 cardwork 裡上次的 hmi.json／hmi_shots
+                                            # （GE 原廠編號的圖控定位 hmi_ge 仍會重跑：約 20 秒，對照表可能換過）
   py tools/db/rebuild.py --skip-pid        # 不重跑 P&ID 圖面位置兩步（pid_index／pid_shots）；沿用 cardwork 裡上次的 pid.json／pid_shots
+                                            # （GE 原廠編號的圖面定位 pid_ge 與它要的 pid_shots 仍會重跑：約 15 秒＋新圖紙才出圖）
   py tools/db/rebuild.py --skip-drive-map   # 不重讀 Google 雲端硬碟中繼資料
   py tools/db/rebuild.py --cardwork DIR     # 有各產生器輸出時做完整建置（build_card_aux DIR），而不是 --recompare
   py tools/db/rebuild.py --only-stamp       # 只改了前端程式：兩站重新戳記＋驗證
@@ -38,6 +40,8 @@ PY = sys.executable
 DATA = os.path.join('docs', 'db', 'data')
 sys.path.insert(0, HERE)
 import paths  # noqa: E402  （tools/db/paths.py：repo 外路徑的唯一來源）
+PID_GE_JSON = os.path.join(paths.CARDWORK, 'pid_ge.json')   # tools/db/pid_ge.py 的輸出（GE 原廠編號 → P&ID 圖紙與座標）
+HMI_GE_JSON = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py 的輸出（GE 原廠編號 → 圖控畫面與座標）
 
 
 def run(label, *cmd):
@@ -87,7 +91,8 @@ def run_hmi(a):
     已 commit 進 repo，hmi_shots 只讀它；只有使用者重拍／補拍畫面（`Screens\\圖控\\*.xlsx` 換過）時才要手動重跑那支。
     輸入是唯讀的 .cim 畫面檔目錄 paths.HMI_SCREENS（不修改），輸出全在 cardwork；必須在 build_card_aux 之前跑完。"""
     if a.skip_hmi:
-        print('\n== 略過圖控 HMI（--skip-hmi）：沿用 cardwork 裡上次的 hmi.json／hmi_shots ==', flush=True); return
+        print('\n== 略過圖控 HMI（--skip-hmi）：沿用 cardwork 裡上次的 hmi.json／hmi_shots ==', flush=True)
+        run_hmi_ge(a); return
     if not os.path.isdir(paths.HMI_SCREENS):
         raise SystemExit('沒有圖控畫面檔目錄 %s（設 AMS_HMI_SCREENS，或用 --skip-hmi）' % paths.HMI_SCREENS)
     db = os.path.join('tools', 'db')
@@ -95,6 +100,22 @@ def run_hmi(a):
         PY, os.path.join(db, 'hmi_shots.py'))
     run('圖控畫面選單路徑與標題（hmi_nav → cardwork/hmi_nav.json）', PY, os.path.join(db, 'hmi_nav.py'))
     run('圖控位號定位索引（hmi_index → %s）' % paths.HMI_JSON, PY, os.path.join(db, 'hmi_index.py'))
+    run_hmi_ge(a)
+
+
+def ge_on(a):
+    """這次會發布 GE 原廠編號（沒有 --skip-ge、對照表在）＝GE 編號卡的 P&ID／圖控位置也要重算（v10）。"""
+    return not a.skip_ge and bool(paths.GE_TAGS) and os.path.exists(paths.GE_TAGS)
+
+
+def run_hmi_ge(a):
+    """GE 原廠編號的圖控定位（hmi_ge：hmi.json 的同一批畫面＋GE 編號對照表 → cardwork/hmi_ge.json，約 20 秒）。
+    --skip-hmi 時也跑（對照表可能換過）；--sibling＝對照表只列 G11 的訊號，signal-atlas 確認 G12 有同名變數才算 G12 的位置（與 GE 卡同一規則）；
+    --chain＝畫面引用的是 I/O 訊號經 MOVE／AI 一對一轉手後的變數也算（v11）。"""
+    if not ge_on(a) or not os.path.exists(paths.HMI_JSON):
+        return
+    sib = ['--sibling', paths.DCDAS_INDEX, '--chain', paths.DCDAS_INDEX] if os.path.exists(paths.DCDAS_INDEX) else []
+    run('圖控 GE 原廠編號定位（hmi_ge → %s）' % HMI_GE_JSON, PY, os.path.join('tools', 'db', 'hmi_ge.py'), '--out', HMI_GE_JSON, *sib)
 
 
 def pid_flags(a):
@@ -109,9 +130,10 @@ def pid_flags(a):
 
 def ge_flags(a):
     """build_card_aux 的 GE 原廠編號旗標：對照表 paths.GE_TAGS 在就明指；不在（換了機器、hst-docsearch 沒裝）或 --skip-ge 時走 --no-ge
-    （--recompare 保留上次發布的 sec.getag 與 04 的 GE 列；完整建置則沒有這一段），並大聲說出來。"""
-    if not a.skip_ge and paths.GE_TAGS and os.path.exists(paths.GE_TAGS):
-        return ['--ge-tags', paths.GE_TAGS]
+    （--recompare 保留上次發布的 sec.getag 與 04 的 GE 列；完整建置則沒有這一段），並大聲說出來。
+    GE 編號卡的 P&ID／圖控位置（v10）一併明指 pid_ge.json／hmi_ge.json（build_card_aux 在 pid.json／hmi.json 在而它們不在時以非 0 結束）。"""
+    if ge_on(a):
+        return ['--ge-tags', paths.GE_TAGS, '--pid-ge', PID_GE_JSON, '--hmi-ge', HMI_GE_JSON]
     why = '--skip-ge' if a.skip_ge else '沒有 GE 編號對照表 %s' % (paths.GE_TAGS or '（paths.GE_TAGS 未設定：hst-docsearch config.json 沒有 ge_tags_dir）')
     print('\n!! %s → build_card_aux 走 --no-ge：沿用上次發布的「GE 原廠編號」；從沒發布過就沒有這一段' % why, flush=True)
     return ['--no-ge']
@@ -126,7 +148,12 @@ def run_pid(a):
     輸入是唯讀的工程文件庫 paths.LIBRARY_ROOT（不修改），輸出全在 cardwork；必須在 build_card_aux 之前跑完。"""
     if a.skip_pid:
         print('\n== 略過 P&ID 圖面位置（--skip-pid）：沿用 cardwork 裡上次的 pid.json／pid_shots ==', flush=True)
-        pid_loud(None); return
+        pid_loud(None)
+        if ge_on(a) and os.path.exists(paths.PID_JSON):   # GE 原廠編號的圖面定位照跑（對照表可能換過），新引用到的圖紙要出圖
+            run_pid_ge(a)
+            run('P&ID 圖紙影像（pid_shots：pid.json＋pid_ge.json 引用到的圖紙，有快取 → %s）' % paths.PID_SHOTS, PY, os.path.join('tools', 'db', 'pid_shots.py'),
+                '--pid-ge', PID_GE_JSON)
+        return
     if not os.path.isdir(paths.LIBRARY_ROOT):
         raise SystemExit('沒有工程文件庫根目錄 %s（設 AMS_LIBRARY_ROOT，或用 --skip-pid 沿用 cardwork 裡上次的 pid.json／pid_shots）' % paths.LIBRARY_ROOT)
     if not os.path.exists(paths.PID_OCR_MAP):
@@ -135,7 +162,16 @@ def run_pid(a):
     before = pid_ocr_located()   # 重跑之前：上一次靠 OCR 才有位置的位號（重跑之後少了誰，pid_loud 會大聲講）
     run('P&ID 位號定位索引（pid_index：文件庫現行 P&ID 的文字層＋pid_ocr_map.json → %s）' % paths.PID_JSON, PY, os.path.join(db, 'pid_index.py'))
     pid_loud(before)
-    run('P&ID 圖紙影像（pid_shots：pid.json 引用到的圖紙 → %s）' % paths.PID_SHOTS, PY, os.path.join(db, 'pid_shots.py'))
+    if ge_on(a):
+        run_pid_ge(a)
+    run('P&ID 圖紙影像（pid_shots：pid.json%s 引用到的圖紙 → %s）' % ('＋pid_ge.json' if ge_on(a) else '', paths.PID_SHOTS), PY, os.path.join(db, 'pid_shots.py'),
+        *(['--pid-ge', PID_GE_JSON] if ge_on(a) else ['--no-ge-loc']))
+
+
+def run_pid_ge(a):
+    """GE 原廠編號的圖面定位（pid_ge：同一份 corpus／文字層快取／OCR 對照表＋GE 編號對照表 → cardwork/pid_ge.json，約 15 秒）。
+    要在 pid_shots 之前：它引用到、pid.json 沒有的圖紙由 pid_shots 一併出圖。"""
+    run('P&ID GE 原廠編號定位（pid_ge → %s）' % PID_GE_JSON, PY, os.path.join('tools', 'db', 'pid_ge.py'), '--out', PID_GE_JSON)
 
 
 LOUD = []   # 重建途中「不擋建置、但位置會默默變少」的警告；印在當下，rebuild 結尾（verify_and_finish）再印一次——中間隔著幾百行輸出，只印一次沒有人看得到

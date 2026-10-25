@@ -132,6 +132,7 @@ EKI 的 SCR 圖（HT0-1-KND01-D0027）儀表球泡是 CAD 線條字、TDM01／TC
   py tools/db/pid_ocr.py --scope all --max-minutes 7 --workers 8 --threads 1
   py tools/db/pid_ocr.py --only "KND01-D0027-4" --force        # 只做路徑含這段字的頁（可寫成 "…pdf|2" 指定頁）
   py tools/db/pid_ocr.py --distill                             # 快取 → tools/db/pid_ocr_map.json
+  py tools/db/pid_ocr.py --distill-ge                          # 快取 → tools/db/pid_ocr_ge.json（括號裡的線條字 GE 標籤，只給 pid_ge；v11）
   之後：py tools/db/pid_index.py ＆ py tools/db/pid_shots.py（讀到新的對照表，更新 cardwork）。
   前景指令 10 分鐘會被砍：每次用 --max-minutes／--max-pages 限量，重複執行到「待做 0」為止；隨時中斷都可續跑。
 
@@ -206,6 +207,34 @@ BORDER_RE = re.compile(r'^(?:[A-Z]|\d{1,2})$')
 # 圖框裡印的 CAD 檔路徑（--distill 不寫進對照表）：磁碟代號＋冒號＋（OCR 多讀的空白）＋斜線，或 .dwg 結尾的檔名
 PATH_LIKE_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:\s*[\\/]|\.dwg\b', re.I)
 THREAD_ENV = ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS')
+# --distill-ge（2026-10-25 v11）：GE 示意圖上「括號裡的線條字標籤」——'(VA13-15)'、'(FV-24)'、'(FT-PH-5)' 這種 tag_like 不認的 GE 編號
+# （GE_RE 要兩位數字開頭）。另寫 pid_ocr_ge.json 只給 pid_ge 用：pid_ocr_map.json 與 pid_index 完全不動（AMS 設備卡不受影響）。
+# 形狀：原文頭或尾有括號、去掉頭尾括號標點後 3~20 字、只含英數與 - /、至少一個字母一個數字；不是 tag_like（那些已在對照表）。
+# 與文字層位號框的重疊用 overlaps_strict（不加容許邊界）；同一個字在文字層也有的去重交給 pid_ge（它比得到 GE 編號）。
+GE_OCR_EDGE_RE = re.compile(r'^[(\[{]+|[)\]}.,;:]+$')
+GE_OCR_SHAPE_RE = re.compile(r'^(?=.*\d)(?=.*[A-Z])[0-9A-Z][0-9A-Z/\-]{1,18}[0-9A-Z]$')
+
+
+def ge_label_like(text):
+    """OCR 原文 → 去括號後的 GE 標籤字（大寫）或 None（見 GE_OCR_SHAPE_RE 上方說明）。"""
+    u = (text or '').upper().replace(' ', '')
+    if not (u.startswith(('(', '[')) or u.endswith((')', ']'))):
+        return None
+    core = GE_OCR_EDGE_RE.sub('', u)
+    return core if GE_OCR_SHAPE_RE.match(core) else None
+
+
+def overlaps_strict(tb, boxes):
+    """不加容許邊界的重疊（一方的中心落在另一方的框裡）。GE 線條字常緊貼在文字層 KKS 的正上方（'(FT-PH-5)' 下一行就是
+    MBP01 BT010），pid_index.overlaps_text 的容許邊界（圖高 0.6 %）會把它當成重複丟掉。"""
+    cx, cy = (tb[0] + tb[2]) / 2.0, (tb[1] + tb[3]) / 2.0
+    for b in boxes:
+        if b[0] <= cx <= b[2] and b[1] <= cy <= b[3]:
+            return True
+        bx, by = (b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0
+        if tb[0] <= bx <= tb[2] and tb[1] <= by <= tb[3]:
+            return True
+    return False
 
 
 # ================================================================ 引擎與配方
@@ -741,6 +770,7 @@ def cmd_distill(a):
     recipe = full_recipe()
     wl, ctx = get_worklist(a, print, need_ctx=True)
     pages = {}
+    ge_pages, gst = {}, Counter()                               # --distill-ge 的輸出（只在那個模式寫檔；不影響 --distill 的結果）
     st = Counter()
     kinds = Counter()
     methods = Counter()
@@ -762,7 +792,7 @@ def cmd_distill(a):
         R = int(rec['rot'])
         tboxes = [] if a.keep_text_dups else pid_index.text_tag_boxes(pg, R)
         has_grid = bool(L.detect_grid(L.border_labels(pg, R)))
-        tokens, border = [], []
+        tokens, border, ge_tokens = [], [], []
         dup = 0
         for b in rec['boxes']:
             t = b[0].strip()
@@ -782,10 +812,22 @@ def cmd_distill(a):
                     continue
                 kinds[kind] += 1
                 tokens.append([t, round(cx, 5), round(cy, 5), round(x1 - x0, 5), round(y1 - y0, 5), round(float(b[1]), 3)])
+            elif ge_label_like(t):
+                if PATH_LIKE_RE.search(t) or L.ABS_PATH_RE.search(t):
+                    gst['path_like'] += 1
+                elif tboxes and overlaps_strict((x0, y0, x1, y1), tboxes):
+                    gst['dup_text'] += 1
+                else:
+                    ge_tokens.append([t, round(cx, 5), round(cy, 5), round(x1 - x0, 5), round(y1 - y0, 5), round(float(b[1]), 3)])
             elif not has_grid and BORDER_RE.match(t.upper()) and (min(cx, 1 - cx) < BORDER_BAND or min(cy, 1 - cy) < BORDER_BAND):
                 border.append([t.upper(), round(cx, 5), round(cy, 5)])
         tokens.sort(key=lambda t: (t[2], t[1], t[0]))
         border.sort(key=lambda t: (t[2], t[1], t[0]))
+        if ge_tokens:
+            ge_tokens.sort(key=lambda t: (t[2], t[1], t[0]))
+            ge_pages['%s|%d' % (r['rel'], r['page'])] = {'size': r['size'], 'mtime': r['mtime'], 'rot': R, 'tokens': ge_tokens}
+            gst['tokens'] += len(ge_tokens)
+            gst['pages'] += 1
         pages['%s|%d' % (r['rel'], r['page'])] = {
             'size': r['size'], 'mtime': r['mtime'], 'rot': R, 'rot_method': rec['rot_method'],
             'w_pt': round(rec['w_pt'], 1), 'h_pt': round(rec['h_pt'], 1), 'boxes': len(rec['boxes']), 'dup_text': dup,
@@ -805,6 +847,8 @@ def cmd_distill(a):
              'rot_method': dict(sorted(methods.items())), 'boxes': st['boxes'], 'tokens': st['tokens'], 'dup_text': st['dup_text'],
              'border': st['border'], 'path_like': st['path_like'], 'token_kinds': dict(sorted(kinds.items())),
              'text_dups_kept': bool(a.keep_text_dups)}
+    if getattr(a, 'distill_ge', False):
+        return write_ge_map(a, recipe, ge_pages, gst, t0)
     head = {'kind': 'pid_ocr', 'generated_by': GENERATED_BY, 'version': MAP_VERSION, 'recipe': recipe, 'stats': stats}
     # 一頁一行（鍵排序）；整份仍是合法的 JSON，pid_index 用 json.load 讀
     lines = ['{' + L.dumps(head)[1:-1] + ',"pages":{']
@@ -837,11 +881,39 @@ def cmd_distill(a):
     return 0
 
 
+def write_ge_map(a, recipe, pages, gst, t0):
+    """--distill-ge 的輸出：{"kind":"pid_ocr_ge","generated_by","version","recipe","stats","pages":{"<相對路徑>|<頁>":{"size","mtime","rot","tokens":[[原文,cx,cy,w,h,分數],…]}}}
+    座標與 pid_ocr_map.json 的 tokens 同一套（轉正後比例、中心＋寬高）；pid_ge 以 size／mtime／rot 認頁，不符的整頁不用。"""
+    out = a.out_ge
+    head = {'kind': 'pid_ocr_ge', 'generated_by': GENERATED_BY, 'version': 1, 'recipe': recipe,
+            'stats': {'pages': gst['pages'], 'tokens': gst['tokens'], 'dup_text': gst['dup_text'], 'path_like': gst['path_like']}}
+    lines = ['{' + L.dumps(head)[1:-1] + ',"pages":{']
+    keys = sorted(pages)
+    for i, k in enumerate(keys):
+        lines.append(json.dumps(k, ensure_ascii=False) + ':' + L.dumps(pages[k]) + (',' if i < len(keys) - 1 else ''))
+    lines.append('}}')
+    txt = '\n'.join(lines) + '\n'
+    json.loads(txt)
+    bad = L.ABS_PATH_RE.search(txt)
+    if bad:
+        sys.exit('GE 線條字表含本機絕對路徑：%r' % txt[max(0, bad.start() - 60):bad.start() + 60])
+    tmp = out + '.tmp'
+    with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(txt)
+    os.replace(tmp, out)
+    print('寫出 %s：%d 頁、括號線條字 %d 個（與文字層重疊而不寫 %d、像檔案路徑 %d），%.2f MB；pid_ocr_map.json 沒有動。耗時 %.1f 秒' % (
+        os.path.basename(out), gst['pages'], gst['tokens'], gst['dup_text'], gst['path_like'], len(txt.encode('utf-8')) / 1048576.0,
+        time.time() - t0))
+    return 0
+
+
 def main():
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     ap = argparse.ArgumentParser(description='P&ID 圖紙離線 OCR（見檔頭 docstring）')
     ap.add_argument('--status', action='store_true', help='只印各範圍已快取／待做的頁數')
     ap.add_argument('--distill', action='store_true', help='快取 → OCR 對照表（不跑 OCR）')
+    ap.add_argument('--distill-ge', action='store_true', help='快取 → 括號裡的線條字 GE 標籤表 pid_ocr_ge.json（只給 pid_ge；不動 pid_ocr_map.json）')
+    ap.add_argument('--out-ge', default=paths.PID_OCR_GE, help='--distill-ge 的輸出（預設 paths.PID_OCR_GE＝tools/db/pid_ocr_ge.json）')
     ap.add_argument('--scope', choices=('need', 'all'), default='need', help='need＝沒有文字層／已被引用／該有位號卻沒著落的圖紙（預設）；all＝全部圖紙')
     ap.add_argument('--only', action='append', metavar='SUBSTR', help='只做「相對路徑|頁」含這段字的圖紙（不分大小寫；可重複）')
     ap.add_argument('--workers', type=int, default=6, help='工作行程數（預設 6）')
@@ -862,7 +934,7 @@ def main():
         sys.exit('找不到文件庫：%s' % a.library)
     if a.status:
         return cmd_status(a)
-    if a.distill:
+    if a.distill or a.distill_ge:
         return cmd_distill(a)
     return cmd_run(a)
 

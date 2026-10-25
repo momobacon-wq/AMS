@@ -690,6 +690,77 @@ v8 的 GE 編號卡只有對照（編號、說明、KKS、訊號）；查 `96FG-
   - 只出現在接線圖、I/O、負載、設備、配管清單的編號沒有規格。
   - 對照表重建後一樣要重跑 `rebuild.py`。
 
+## v10（docs/db 站：GE 編號卡的 P&ID 圖面位置與圖控 HMI 畫面位置；`tools/db/pid_ge.py`、`tools/db/hmi_ge.py`、`build_card_aux.py` 的 `ge_loc_build`／`ge_pid_rows`／`ge_hmi_rows`）
+
+使用者 2026-10-24：「96FG-1A 可以跟其他的一樣顯示出它在 P&ID 的哪個地方嗎？圖控 HMI 有的也顯示圖控的位置；這類 GE 編號的都幫我完善」。v6 的 P&ID 圖面位置與圖控畫面位置只比對 AMS 現行位號，GE 範圍的元件（燃機、汽機、發電機的儀器與閥）一支都沒有。v10 用同一套定位引擎另做一份「GE 編號 → 位置」，GE 編號卡直接用設備卡現成的圖紙細部視窗與圖控縮圖顯示。**AMS 設備卡的 sec.pid／sec.hmi 與 v9 逐位元組相同**（2026-10-25 解密逐台比對 1,928 台；index.pid／index.hmi 原有的圖紙與畫面記錄也相同，只多了 GE 用到的與幾個 `ge_*` 統計鍵）。
+
+- **P&ID：`pid_ge.py` → `cardwork/pid_ge.json`**（不進 repo；約 15 秒）。與 `pid_index` 共用 corpus（現行最高版次）、文字層快取、OCR 對照表、轉正座標與圖框分區（import 重用，不改 `pid_lib`）。兩條比對：
+  - **KKS**：條目的 KKS 依本站機組展開（XX／YY／G11 印法 → G11、G12；S10），走 `build_index → scan → select`。GE 示意圖印的是不帶機組的本體（`MBP70BP001`）＝ `neutral`；BOP 圖印全名＝ `exact`，只帶那一部機。子件尾碼（`-BG01`、上下兩行拆寫的 `QN310-MA01`）另建子件位號。二、三號機組的 KKS（G21…）不換成本站。
+  - **GE 編號標籤**：括號裡的 `(96FG-1A)`，去掉標點後 `ge_cmp` 整詞相等（不做包含）；斜線合寫（`39VE-7R/T`）展開；純字母的編號（`EBP`）只收括號內的。**只在 GE 圖家族上比**：GFD01／EGJ01 → 燃機範圍，TFD01／EGK01 → 汽機範圍（`pid_lib.SCOPE_LETTER`），範圍不符不發布。附註句子（同一行 4 字以上）與清單欄（同欄 4 格以上）標 `note=1`（引用）。
+  - 同一條目、同一張圖，GE 標籤與它的 KKS「互為最近」而且相距 < 0.03 頁面對角線 → 併成一處（`via='ge+kks'`，框取聯集）。同一 KKS 本體被閥本體／定位器／電磁閥／極限開關共用時，KKS 的位置標給每一個並帶 `shared`（推論）；超過 3 個共用一個本體而且沒有子件尾碼（盤箱、接線盒）整組不歸戶。
+  - **衝突過濾**（`drop_conflicts`，2026-10-25 四組反方驗證看圖找到的錯誤模式）：(1) 廠商檔名的舊副本（`GE_KKS_SKIP_FAMILIES`：noKKS_IGV VGV，與 GFD01-D0018-1 p3 逐字相同）不收；(2) 圖面把同一個 GE 標籤印了兩次、第二次印在別的條目的 KKS 旁（TE-201R、HV156）→ 那一處不收；(3) 只靠 KKS 的一處，符號旁印的是別的條目的 GE 標籤（該標籤也沒有點名這個 KKS 的任何擁有者），而且這個條目在同一張圖已有自己的標籤、或兩者 KKS 本體不相交 → 不收：對照表的 GE↔KKS 與圖面對調時以**圖上的標籤**為準（EGJ01-D0004 的 GC-1～4、EGK01-D0027 的 HV-2996J～L、TFD01-D0004 的 TE-243E-1/3、GFD01-D0001 的 96CT-IF-1R），電磁閥／定位器／極限開關在同一張圖已有自己的符號時也不再標到閥本體上（20VS4-4、20VG8、90VGC-1…）。計數與樣本在 `stats.conflicts`。
+  - 只有 GE 這一道多收汽機發電機示意圖 EGK01-D0033（`GE_EXTRA_FAMILIES`；檔名的 Load Equipment 讓 `kind_of` 判成電氣圖，汽機儀器清單卻列它為 P&ID；97 個 GE 編號只畫在這份圖）。`pid_lib.EXTRA_FAMILIES` 沒改，AMS 設備的 P&ID 位置不受影響。
+  - 命中格式與 `pid.json` 的 by_tag 相同，另帶 `via`（ge／kks／ge+kks）、`units`、`shared?`；`sheets` 與 `pid.json` 同一 slug 的記錄必須相同（`build_card_aux` 與 `pid_shots` 都檢查），影像共用。
+- **圖控：`hmi_ge.py` → `cardwork/hmi_ge.json`**（不進 repo；約 20 秒）。只掃根目錄 248 個操作員畫面，每組選單變數各展開一次（重用 `hmi_index` 的 .cim 解析與座標）。命中三種：
+  - `io`：物件引用條目的 Mark VIe I/O 訊號（控制器限定，例 `G11S.a_96fg1a`；裸名配物件的 `ctrlr`）——位置。
+  - `label`：畫面上顯示的文字（caption／defaultText／tooltip／靜態文字…）`ge_cmp` 後等於 GE 編號——位置。另外三條：去分隔符後至少 4 字（`CV2` 不配潤滑油逆止閥 CV-2）；數字分段要相同（`TTXD1_6` 去分隔符是 TTXD16，但它是 6 號熱電偶，不是 TT-XD-16）；caption 被 defaultText 蓋掉的（permit 列顯示 SSOV、caption 是 VS4-4）與 DVP Status 按鈕的 CAPTION 不算。數值格／警報燈／棒圖／類比指示的 caption 是設計時標題、不一定畫在畫面上：物件引用的訊號屬於別的 GE 編號時不算（SIL_VibProx 上 39VS-91 的警報燈 caption＝39V-1A），其餘照收並標 `via='caption'`。
+  - `related`：只引用「說明提到這個編號」的別的訊號——**不是位置**，條目沒有任何位置時才在卡上另外講。
+  - **機組＝物件引用的控制器所屬機組**（G11／G11S → G11、G12／G12S → G12、S1／S1S／SAMP1 → S10），不是選單機組。對照表只列 G11 訊號而 G12 畫面引用同名訊號時，signal-atlas 確認 G12 有同名變數才算（`via='sibling'`，卡上寫「推論」，與 GE 卡「Mark VIe 訊號」同一個規則）。
+  - `via='host'`：條目的 KKS 帶子件尾碼（-BGnn 極限開關、-MBnn 電磁閥、-EBnn 加熱器…）而訊號是從主設備 KKS 別名繼承來的（對照表 `logic_how`＝KKS 別名）——畫面上那個物件是主設備，卡上寫「畫在主設備上」（23QB-1＝88QB1 泵、ZS-203B＝ASV 開位）。
+  - `via='derived'`（`DERIVED` 規則，目前一條）：排氣熱電偶 TT-XD-n 在畫面上顯示的是 I/O 訊號經 AI 與排氣溫度補償巨集逐通道轉手後的 `TTXD1_n`／`TTXD_n`，一對一對回 TT-XD-n（signal-atlas trace 確認）。
+  - 物件外框取函式庫連結記錄後的外框（`hmi_index` 的矩形常是後面的標題或線段，實測 GT／ST 畫面 4,541 個物件有 1,066 個不同）。
+- **`card/getag-loc.json`**（新檔，約 6 MB 明文，開 GE 編號卡才下載；`getag.json` 在查詢時就要載，所以不併進去）：`{version, built_at, by_i: {條目序號: {pd?, hm?, hmx?, hr?}}}`。`getag.json` 檔頭多 `loc`（這個檔的路徑）、`rule_loc`、`hmi_max`；條目有位置的帶 `lc: 1`。`index.getag.files` 列兩個檔，另有 `loc_entries`、`loc_bytes`。
+  - `pd`：與 `sec.pid.rows` 同格式（每張圖紙一組 5 列）。第一列 extra 另帶 `via`、`shared?`、`gu?`（這一組只有某幾部機才有：BOP 圖分別印 G11／G12 的 KKS）。`lvl`：文字層而且不是共用 KKS＝doc，OCR 或共用 KKS＝inferred。
+  - `hm`：與 `sec.hmi.rows` 同格式（每個（畫面, 機組）一組 4 列）。第一列 extra：`unit`＝開這張畫面的選單列（挑 G11／G12 的執行時截圖用）、`gu`＝元件所屬機組、`ctrl`＝引用的控制器。排序：機組 → 製程畫面在 SIL 畫面之前 → 畫面名；每部機最多 `hmi_max`（6）張，其餘的畫面名放 `hmx`＝[[機組, [畫面名…]]]（SIL 各頁共用「最終元件」面板：VS4-4 一部機就有 25 張）。
+  - `hms`：SIL 各頁共用「最終元件」面板時（標記座標逐字相同），只留一張代表（有 SIL_Overview 就用它），其餘畫面名放 [[機組, 代表畫面名, [其他畫面名…]]]，不佔 `hmi_max` 名額；同一部機同一張畫面從兩個選單列都進得去（S10 在 HRSG11／HRSG12）且標記相同，只留一列。
+  - `hr`：沒有任何位置時，相關訊號出現的畫面 [[機組, 畫面名, 控制器.訊號]]（≤12）。
+  - `pd` 第一列另有 `on_body`：只靠 KKS 的一處、條目 KKS 帶子件尾碼而圖上的字沒有＝框的是主設備（附屬件在這張圖上沒有單獨畫），標頭與「圖上標示」照實寫。`hm` 第一列另有 `host`（整組都是 `via='host'`）。
+  - 用到的 P&ID PDF（`pid|…`）登記進 `getag.json` 的 `docs`，雲端連結照 `pid_own_urls_only`（只連那一份檔）。
+- **`index.pid`／`index.hmi`**：`sheets`／`screens` 加上 GE 用到的（`rows` 0、`ge`＝幾個 GE 條目／幾列）；`index.pid.stats` 的 AMS 數字（devices、images、docs、no_url）照舊只算 AMS 設備，GE 另記 `ge_entries`、`ge_sheets`、`ge_only_sheets`、`ge_docs`、`ge_no_url`；`index.hmi.stats` 另記 `screens_ams`、`ge_screens`（`screens`、`files` 是發布的總數）。影像仍是一張圖紙／一個（畫面, 選單機組）一檔，AMS 與 GE 共用。
+- **畫面**（`renderGeOnly` → `geLocBox`）：每個條目在共同列之後、規格塊之前接「P&ID 圖面位置」「圖控 HMI 畫面位置」兩塊，直接呼叫 `fillPid`／`fillHmi`（摘要版面：圖紙標頭、開啟 PDF、細部視窗＋小地圖＋燈箱；畫面標頭＋縮圖紅圈；超過 3 張只先展開第一張）。P&ID 標頭另有「依 KKS 對應」「※ 共用 KKS（也是 …）」與機組短籤；圖控標頭寫「機組 G11（控制器 G11S）」而不是「以選單機組開啟」。帶機組（`G12_96FG-1A`）只列那一台的。查無時一句話講清楚（沒有訊號、還是畫面上沒有；P&ID 可能是線條字或只畫在接線圖上）。換到另一張卡時照 `pidRelease` 收掉用不到的圖紙影像。
+- **測試**：`test_getag.py` 的 `ge_loc`：反方驗證的五個例子（見上）；VS4-4 的 SIL 同面板只列一張並有說明；位置檔 `lc` 與檔內一致、≥ 2000 個條目有 P&ID、≥ 500 個有圖控；`96FG-1A` 的 ① 在 GFD01-D0005-3 第 7 頁左上 A-3、`ge+kks`；圖控有 SIL EFFF／FtI／Vent 的 G11／G12 各組、機組＝控制器的機組；卡上位置區在規格之前、圖紙標頭有雲端連結與影像紅框；`G12_96FG-1A` 只列 G12；沒有位置的編號兩塊都寫查無並收掉上一張的圖紙影像；手機寬度不橫向捲動。
+- **數字（2026-10-25，反方驗證後的規則）**：3,943 個有範圍的條目中 2,550 個有 P&ID 位置（110 張圖紙，57 張是 AMS 設備沒用到的）、682 個有圖控位置（93 個畫面）；只有相關訊號的 20 個。
+- **反方驗證**（2026-10-25，四個鏡頭各自抽樣、在發布的影像與原 PDF 上畫框看圖）：P&ID 錯戶 69 筆（隨機 36 筆對 34）——燃機／汽機、機組 0 筆錯掛，錯的都是對照表 KKS 與圖面對調；共用 KKS／清單 39 筆錯 2；圖控 36 筆錯 7、存疑 5（數字黏合、caption 錯標題、短名撞名、附屬件繼承主設備訊號）；漏網 50 筆找到 EGK01-D0033 整份沒收與排氣熱電偶。上面的規則就是照這些錯誤模式改的，修完重跑後逐項回測（`test_getag` 的 GC-1、TT-XD-16、39V-4A、23QB-1、CV-2 五項）。
+- **已知限制**：
+  - 線條字的 GE 標籤沒進 OCR 對照表（`pid_ocr --distill` 只留像位號的字；例 VA13-15、FV-24，原始 OCR 快取讀得到，約 8 個條目）。**v11 已做**（`--distill-ge`）。
+  - 圖面筆誤（GFD01-D0001 p3 把 TT-R6C 印成 TR-R6C）、附註裡的範圍寫法（「TT-XD-101 TO 104」）、同一顆儀器的 I/O 別名條目湊滿 4 個（96FM-4(SIL)／(TCP)／_PWR）不歸戶，都沒有處理。
+  - 圖控畫面顯示的是 I/O 訊號經 MOVE／AI 一對一轉手後的變數時（71GS-1B → F71SCR3DR、45HGT-8A → 96HGT8A，估計約 69 個條目），除了排氣熱電偶之外都還沒做。**v11 已做**（`--chain`，55 個）。
+  - 附屬件的 KKS 抄錯（ZS-211AC 寫成 MAB11 而不是 MAA11）時 `host` 會指到另一顆主設備；這是對照表的問題，卡上標「畫在主設備上」、屬推論。**v11 已由對照表更正檔處理**（改正或 `no_alias`）。
+  - 母條目沒有位置、子項有（TE-203 只畫 TE-203A/B/C）：照「尾碼必須相等」不給母條目。
+  - 對照表與圖面不一致（EGJ01-D0004 的 GC-1～4 與 MKA01 EG001～004 順序相反）時兩邊照實發布，同一張圖可能出現兩處。
+  - 圖控只認對照表字面列出的訊號：畫面顯示邏輯複本（`A96HGT2_HGD`）或區段合成值（`TTWR2B`）的元件抓不到；沒進選單的 45 個畫面變數解不出來。
+  - 圖控只有本站（G11、G12、S10）的畫面檔，卡上只列本站機組的畫面。
+  - 對照表或圖面重建後要重跑 `rebuild.py`（它會跑 `pid_ge`／`hmi_ge`）。
+
+## v11（docs/db 站：GE 編號卡位置的補強與 GE 編號對照表更正；`hmi_ge.py --chain`、`pid_ocr.py --distill-ge`、hst-docsearch `build_ge_tags.py` 的更正檔）
+
+使用者 2026-10-25：v10 報告列的「還沒做」三項都做——P&ID 線條字的 GE 標籤、圖控畫面顯示的是轉手後的變數、GE 對照表本身的錯（GC-1～4 對調、ZS-211AC 的 KKS 寫錯）；P1 腔上下游閥同圖標記仍留在建議裡。三項都經反方驗證（對照表 4 組查證＋4 位反方；轉手鏈與 OCR 新位置 3 個鏡頭），錯誤模式都已改成規則。**AMS 設備卡的 sec.pid／sec.hmi 與 v10 逐台相同（1,928 台）**；sec.getag 有 12 台不同，都是對照表更正造成的：96PGT-3C（G11／G12）與 PDT-216 多了「文件不一致」「對照表更正」兩列，汽機 9 支壓力傳送器的 Mark VIe 訊號改成 I/O 訊號排前面。index.pid／index.hmi 的 AMS 記錄只有 `ge` 計數不同。
+
+- **圖控轉手鏈（`hmi_ge.py --chain`，`rebuild.py` 有 dcdas 索引時自動帶）**：畫面物件引用的變數若是本編號 I/O 訊號經一對一方塊轉手而來，也算位置，`via='chain'`。
+  - 只走 `CHAIN_PINS` 的資料腳位：MOVE／MOVE_STATUS 的 SRC→DEST、AI_INT 的 IN→OUT、AI 的 IN→以變數命名的主輸出（不含 `.BQ`／`.INH`）；腳位方向來源 L／H／R／- 不走。使用者方塊、巨集、RUNG、選擇器不走（`d_49gcb → L30GCB_TRP_COIL1` 是任意邏輯）。
+  - 起點只用條目 logic 裡**綁在 I/O 點上**的訊號；最多 3 跳、逐層取最短。丟掉：寫入者不只一個的變數（90）、本身就在任何條目 logic／related 裡的（380，那是該條目自己的 io）、名稱去分隔符等於別的編號的（2）。
+  - 間接命中另兩條限制（反方驗證）：只出現在長趨勢清單（`addToTrendVars` 另有 ≥ 2 個變數）裡的不算——Trend 捷徑鈕不是顯示這顆設備的地方，同一條也套在 v10 的 `DERIVED`（排氣畫面 TREND 鈕 54 處、Overview 的 9 點 Trend 鈕）；沒有物件外框的（畫面層級參數，18 處）不發布。直接 io 優先於轉手鏈（同一外框兩種都中時留 io）。
+  - 每處帶 `chain`＝[[方塊型別, 方塊路徑, 進, 出], …]；起點是 `--sibling` 推來的 G12 訊號時帶 `sib:1`（卡上 lvl＝推論，實測 0 處）；物件屬性裡的標題是另一種 GE 寫法時帶 `cap`（汽機 SIL 振動列標 VX-1X、顯示的是 VP-1X；30 個編號），卡上註明「與本編號的寫法不同，以訊號為準」。
+  - 卡上「對應方式」寫出整條鏈（`build_card_aux.ge_chain_text`）：「a_71gs1b →搬移方塊 MOVE_STATUS（HardwireInputs/HW_IN_GFC/MOVE_4）→ F71SCR3DR」。
+- **P&ID 線條字的 GE 標籤（`pid_ocr.py --distill-ge` → `tools/db/pid_ocr_ge.json`，不進 repo）**：OCR 快取裡「頭或尾有括號、3～20 個英數與 - /、有字母也有數字、不是 tag_like」的字另寫一份（210 頁 2,123 個），`pid_ge` 併進同一頁的 OCR 字一起比。**`pid_ocr_map.json` 與 `pid_index` 一個位元組都沒動**（重新蒸餾對照表會因舊資料漂移而改到 AMS 設備卡，所以另寫一份；`--distill` 的輸出經比對逐位元組不變）。
+  - 去重：只在與文字層位號框真的疊在一起（不加容許邊界，`pid_ocr.overlaps_strict`）、或容許邊界內有寫著同一個 GE 編號的文字層字時才丟——GE 線條字常緊貼在文字層 KKS 的正上方，對照表 tokens 的容許邊界會把它擋掉。
+  - 分數 0.65～0.75 的只在與自己的 KKS 併成 ge+kks 時收（`GE_OCR_LOW`；VGS-1、FL1-1、VPR7-2、SF-1 這四個 0.71～0.748）；以 size／mtime／rot 認頁，不符的整頁不用。
+  - 結果：多 6 個編號有位置（VA13-15、汽機 FV-24／FV-82／F-2259／LS-253、LCV-3459），另有約 60 處原本只對到 KKS 的現在也對上旁邊的 GE 標籤（ge+kks）；`stats.label.ocr_ge_hits` 68。
+- **GE 編號對照表更正（hst-docsearch `ge_tags_dir/ge_tags_overrides.json`，不進任何 repo；`build_ge_tags.py` 在合併之後、連訊號之前套用）**：每筆附出處（文件、頁、原文、有沒有看圖）與反方結論，條目多 `fix`＝{kind, text, basis, confidence, no_alias?, logic_add?}，卡上多一列「對照表更正」。
+  - `correction`（14）：清單自己前後矛盾而且有獨立來源支持才改。燃料氣 5 顆電磁閥（20VS4-4、20VG8、20VG-1、20VGS-1、20VSC-1）誤取閥清單 xlsx 的閥本體列 → -MB01／-MB02（說明也換成 SOLENOID）；汽機 ZS-211AC／BC 寫成再熱側 MAB1x → MAA1xQN001-BG04；ST-GEN HV-2987、HV-2996J 一個編號兩列；WSV 混進別顆閥；以及 4 筆只拿掉「其他文件 KKS」裡出自作廢列的寫法（FY-2971／2972、TE-255A／256A）。原寫的進 old_kks 並註明「已更正」。
+  - `conflict`（46）：文件之間不一致不替文件選。另一份文件的 KKS 只進 old_kks（查得到、卡上列，但**不**繼承 Mark VIe 訊號、**不**拿去 P&ID 定位）。`note_only`（16）＝只有一份文件寫錯、其餘一致（VE45 互連圖把 4／5 號軸承整組錯一號、互連接線清單把 LSH／LSHH-2990 對調），只記說明、錯的 KKS 不列為別名（原本在 old_kks 的也拿掉）。`no_alias`（12）＝再熱停止閥／攔截閥的附件（FY-1203…、SV-1203A／1204A、ZS-1203C／1204C）與 VE45 寫法的 TE-243E-1／3：清單 KKS 本體掛錯閥，不再經 KKS 別名繼承主設備訊號（v10 卡上它們的圖控位置是另一顆閥的）。
+  - `link`（2）與 `logic_add`：I/O 組態的 device_tag 只寫 KKS 或照抄清單錯的 KKS 時，指定要連的訊號（FY-211A／B 的 do_l20cv1／2_qc、ZS-211AC／BC 的 di_l33cv1／2_c_st）。
+  - 連訊號規則另改兩處（`link_logic`）：「a_／d_ 前綴」連到的 I/O 點，device_tag 點名的是 KKS 本體完全不同的另一顆時不連（96HGT-1～4 是流量計，a_96hgtN 是濃度計 96HGT-CB-N 的；20VGC-1 的 d_20vgc1 是 4VGC 跳脫裝置的，改列相關訊號）；汽機 device_tag 寫成「KKS/GE 編號」時斜線後那段也認（VP-1X～5Y、DEDP、EP、TE-243-E 等 40 個編號多連 98 個訊號）。
+  - 對照表重建前後逐條比對：不加更正檔、不改連訊號規則時與 v10 的 3,956 筆逐欄相同；全部套用後 KKS 改了 10 筆、Mark VIe 訊號有增減的 58 筆，都對得上上面的規則。
+- **數字（2026-10-25）**：3,943 個有範圍的條目中 2,556 個有 P&ID 位置（109 張圖紙，56 張是 AMS 設備沒用到的）、727 個有圖控位置（95 個畫面）；與 v10 比：圖控多 57（轉手鏈 55、補連訊號 2）、少 12（v10 掛在錯的閥上），P&ID 多 6。
+- **反方驗證**：對照表——發電機組、燃機組、汽機組、全表掃描共 77 筆要改對照表的提案，反方 76 筆成立、1 筆推翻（另 2 筆補連訊號由主控查索引）（45HG-CB-7B：BQ008 只出自同一份清單的舊版，維持舊版 KKS、不標衝突）。轉手鏈 79 個編號（邏輯）＋75 處（截圖）：錯 4 個編號 8 處（96HGT-1～4 的前綴誤連，已從對照表修掉）、趨勢鈕 1 類、無外框 1 類；存疑的 17 處都是畫面標題用 GE 範本槽號（BT-TA1-7 顯示 BT-TA1-6、VX-1X 顯示 VP-1X），改為卡上註明。OCR 新位置 67 處看圖：錯 0（另 2 處錯戶是 v10 就有的 ST-GEN HV-2987／HV-2996M KKS 問題，已由更正檔處理）。
+- **測試**：`test_getag.py` 的 `ge_loc` 前面加 9 項：ZS-211AC 改正後的 KKS／「已更正」／新訊號、GC-1 文件不一致、VP-4X 不把 VE45 寫法列為別名、20VS4-4 的電磁閥 KKS 與說明、≥ 50 筆有更正列；71GS-1B 經 MOVE_STATUS 轉手、PT-270C 由設計標題升成訊號位置、VA13-15 與汽機 FV-24 的線條字標籤、≥ 40 個編號經轉手鏈定位。
+- **已知限制**：
+  - 對照表沒有的編號（HV-2989＝MKG90QM035、汽封母管熱電偶 MAW15BT001／002）不會因更正檔憑空長出來；ST 閥清單 rev G 改版、GT／ST 文件之間的衝突（GC-1～4、96CT-IF-xR、96PGT-3C…）要等 GE 回覆。
+  - device_tag 只寫 KKS 的 I/O 點（汽機常見）沒有一般規則去連：只靠 KKS 連會繼承 I/O 組態抄錯的值（FY-211B 的 device_tag 與 SV-211B 重號），這一版只用 `logic_add` 點名。
+  - 轉手鏈只認一對一的搬移／類比輸入方塊；畫面顯示的是選擇器、表決或計算後的值（TTWR2B、P1 壓力中位數）仍抓不到。畫面標題只看物件屬性，畫在旁邊的靜態文字（BT-TA1-7）沒註明。
+  - 線條字只收括號包著的；附註裡的範圍寫法（「TT-XD-101 TO 104」）、圖面筆誤（TR-R6C）仍不處理。
+
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
 GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只有 `data/meta.json` 是明文；瀏覽器在員工代號登入後再輸入**密語**解密（與 momobacon-wq/signal-atlas 同一套作法）。

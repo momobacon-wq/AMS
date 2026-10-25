@@ -6,7 +6,10 @@
 測試用的 GE 編號一律從已發布的 04 挑，不寫死。
 GE 編號卡（v8，card/getag.json）：AMS 沒有的 CT-DA-1 打 CTDA1／CTDA-1／小寫、帶機組（G12.CTDA1 只列 G12）、Mark VIe 訊號名、KKS 都開 GE 編號卡；
 CTDA10 不中 CTDA1；燃機汽機同編號列兩塊；閥清單也有的編號開閥卡＋下面接 GE 對照；查無頁與下拉建議有 GE 候選（備品庫存沒有）；
-頂列 Enter、深連結第一次載入（對照表還在下載）都開得到；手機寬度不橫向捲動。"""
+頂列 Enter、深連結第一次載入（對照表還在下載）都開得到；手機寬度不橫向捲動。
+v10（card/getag-loc.json）：96FG-1A 的 GE 編號卡有 P&ID 圖面位置（燃料氣示意圖 GFD01-D0005-3 第 7 頁左上 A-3，影像與紅框）與圖控畫面位置
+（SIL EFFF／FtI／Vent，G11、G12 各一組，標頭寫元件所屬機組）；位置區排在規格之前；帶機組只列那一台；沒有位置的編號寫查無；
+換到沒有圖紙的卡時圖紙影像收掉；手機寬度不橫向捲動。"""
 from urllib.parse import quote
 from e2e_common import Checks, browser, login, load_card, shot
 
@@ -95,6 +98,7 @@ def run(ctx):
         ck('stock normKks: a two-device GE key is not rewritten to one device', nk is None or not nk.get('found'), nk)
         ge_card(page, ctx, ck)
         ge_spec(page, ctx, ck)
+        ge_loc(page, ctx, ck)
         ck('no page errors', not errors, errors[:3])
         ck('no console errors', not [m for t, m in console if t == 'error'], console[:3])
     with browser(ctx, mobile=True) as (page, errors, console):
@@ -107,6 +111,16 @@ def run(ctx):
         ov = page.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
         ck('mobile: %s card with spec blocks and related valves has no horizontal page scroll' % SPEC_TAG, ov[0] <= ov[1], ov)
         shot(page, ctx, 'getag_spec_mobile')
+        # 影像延後載入（捲到附近才抓）：先捲到 P&ID、再捲到圖控
+        page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+        page.evaluate("document.querySelector('.ge-loc .ge-pid').scrollIntoView()")
+        page.wait_for_function("document.querySelector('.ge-loc .ge-pid img')", timeout=60000)
+        page.evaluate("document.querySelector('.ge-loc .ge-hmi').scrollIntoView()")
+        page.wait_for_function("document.querySelector('.ge-loc .ge-hmi img')", timeout=60000)
+        page.wait_for_timeout(500)
+        ov = page.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
+        ck('mobile: %s card with P&ID and HMI images has no horizontal page scroll' % SPEC_TAG, ov[0] <= ov[1], ov)
+        shot(page, ctx, 'getag_loc_mobile')
         ck('mobile: no page errors', not errors, errors[:3])
     return ck.fails
 
@@ -216,6 +230,148 @@ def ge_spec(page, ctx, ck):
         page.evaluate("document.querySelector('details.cq-more').open = true"); page.wait_for_timeout(1500)
         a = page.evaluate("() => { const s = document.querySelector('.aux-getag'); return s ? s.textContent : null; }")
         ck('AMS device %s (GE %s): full data getag section has a spec block' % (pk['amsTag'], pk['amsGe']), bool(a) and '規格' in a, (a or '')[:80])
+
+
+# ---- GE 編號卡的 P&ID／圖控位置（CONTRACT v10；card/getag-loc.json）
+LOC_PICK_JS = """async (tag) => { const G = await AMS.getag.load(); if (!G || !G.j.loc) return null; const E = G.j.entries;
+  const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
+  const i = E.findIndex((e) => e.t === tag && e.sc === 'G'); const lo = by[String(i)] || {};
+  const pd0 = (lo.pd || [])[0]; const ex = pd0 ? pd0[4] : {};
+  const firsts = (lo.hm || []).filter((r) => r[4] && r[4].marks).map((r) => r[4]);
+  const none = E.findIndex((e, k) => !e.lc && !(e.ams || []).length && e.sc === 'G' && /^[0-9]{2}[A-Z]{2,}-[0-9]+[A-Z]?$/.test(e.t)
+    && (G.keys.get(e._c[0]) || []).length === 1);
+  return { lc: E.filter((e) => e.lc).length, n: Object.keys(by).length, pd: E.filter((e, k) => (by[String(k)] || {}).pd).length,
+    hm: E.filter((e, k) => (by[String(k)] || {}).hm).length, lcOk: E.every((e, k) => !!e.lc === !!by[String(k)]),
+    sheet: ex.s || '', p: ex.p, zone: ex.zone || '', m0: (ex.marks || [])[0] || null, via: ex.via || '',
+    hmScreens: firsts.map((x) => x.s + '|' + x.gu + '|' + (x.ctrl || '')), none: none >= 0 ? E[none].t : null }; }"""
+SIL_TAG = 'VS4-4'   # 燃料氣 SSOV：製程畫面 4 張＋SIL 畫面 16 張（同一個面板）
+LOC_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'); if (!g) return null; const l = g.querySelector('.ge-loc'); if (!l) return null;
+  const pid = l.querySelector('.ge-pid'); const hmi = l.querySelector('.ge-hmi'); const sp = g.querySelector('.ge-spec');
+  return { heads: [...l.querySelectorAll('.ge-loc-h')].map((h) => h.textContent.trim()), loading: /載入中/.test(l.textContent),
+    before: !sp || !!(l.compareDocumentPosition(sp) & Node.DOCUMENT_POSITION_FOLLOWING),
+    pidText: pid.textContent, sheets: [...pid.querySelectorAll('.pid-sheet')].map((b) => (b.querySelector('.pid-head') || b).textContent),
+    pidLink: [...pid.querySelectorAll('.pid-bar a')].map((a) => a.href), pidImg: pid.querySelectorAll('img').length, pidMk: pid.querySelectorAll('.hmi-box, .hmi-mk').length,
+    hmiText: hmi.textContent, screens: [...hmi.querySelectorAll('.hmi-screen')].map((b) => (b.querySelector('.hmi-head') || b).textContent),
+    hmiImg: hmi.querySelectorAll('img').length }; }"""
+
+
+# 反方驗證 2026-10-25 之後的規則（CONTRACT v10）：圖面標籤與對照表 KKS 對調時以圖上標籤為準、汽機發電機示意圖 EGK01-D0033 有收、
+# 排氣熱電偶走逐通道巨集的變數（TTXD1_16 不是 TTXD1_6）、附屬件的圖控位置標「主設備」、短名 CV-2 不再配到蒸汽控制閥面板
+LOC_FIX_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
+  const lo = (sys, t) => by[String(E.findIndex((e) => e.t === t && e.sys === sys))] || {};
+  const firsts = (rows) => (rows || []).filter((r) => r[4] && r[4].marks).map((r) => r[4]);
+  const how = (rows) => (rows || []).filter((r) => r[0] === '對應方式').map((r) => String(r[1])).join('｜');
+  const gc = firsts(lo('燃機發電機', 'GC-1').pd);
+  const tt = lo('燃機', 'TT-XD-16').hm; const ve = firsts(lo('汽機發電機', '39V-4A').pd); const qb = firsts(lo('燃機', '23QB-1').hm);
+  return { gcKksOnEg004: gc.filter((x) => x.via === 'kks' && /EG004/.test(x.drawn || '') && /EGJ01-D0004/.test(x.s || '')).length, gcN: gc.length,
+    ttHow: how(tt).slice(0, 300), ttN: firsts(tt).length, tt6: /TTXD1_6(?![0-9])/.test(how(tt)),
+    veSheet: ve.length ? ve[0].s : '', qbN: qb.length, qbHost: qb.length && qb.every((x) => x.host === 1), cv2: firsts(lo('汽機', 'CV-2').hm).length }; }"""
+
+
+# v11（2026-10-25）：圖控轉手鏈（71GS-1B 的 a_71gs1b →MOVE_STATUS→ F71SCR3DR；PT-270C 由設計標題升成 63QT3）、
+# P&ID 括號線條字 GE 標籤（VA13-15、汽機 FV-24 只有線條字）
+LOC_V11_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
+  const lo = (sys, t) => by[String(E.findIndex((e) => e.t === t && e.sys === sys))] || {};
+  const firsts = (rows) => (rows || []).filter((r) => r[4] && r[4].marks).map((r) => r[4]);
+  const how = (rows) => (rows || []).filter((r) => r[0] === '對應方式').map((r) => String(r[1])).join('｜');
+  const lvls = (rows) => (rows || []).filter((r) => r[0] === '對應方式').map((r) => r[2]);
+  const gs = lo('燃機', '71GS-1B').hm; const pt = lo('汽機', 'PT-270C').hm;
+  const va = firsts(lo('燃機', 'VA13-15').pd); const fv = firsts(lo('汽機', 'FV-24').pd);
+  return { gsHow: how(gs).slice(0, 400), gsN: firsts(gs).length, ptHow: how(pt).slice(0, 400), ptLvl: lvls(pt),
+    va: va.map((x) => x.s + '|' + x.p), fv: fv.map((x) => x.s + '|' + x.p),
+    chainN: E.filter((e, k) => (how((by[String(k)] || {}).hm) || '').includes('一對一的搬移')).length }; }"""
+
+
+# v11：對照表更正檔（hst-docsearch ge_tags_overrides.json，反方驗證後才收）——清單自相矛盾的改正（ZS-211AC 寫成再熱側 MAB11、
+# 20VS4-4 誤取閥本體）、文件之間不一致兩個都列（GC-1～4）、只有一份文件寫錯的只記說明（VE45 的 4／5 號軸承錯一號）
+FIX_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries;
+  const f = (sys, t) => E.find((e) => e.t === t && e.sys === sys) || null; const s = (e) => (e ? JSON.stringify(e) : '');
+  const zs = s(f('汽機', 'ZS-211AC')); const gc = s(f('燃機發電機', 'GC-1')); const vp = s(f('汽機', 'VP-4X')); const sv = f('燃機', '20VS4-4');
+  return { zsKks: zs.includes('MAA11QN001-BG04'), zsFix: zs.includes('對照表更正') && zs.includes('已更正'), zsSig: zs.includes('di_l33cv1_c_st'),
+    zsIv: zs.includes('iv1_pos'), gcConf: gc.includes('文件不一致') && gc.includes('EG001'),
+    vpNote: vp.includes('不列為別名'), vpAlias: vp.split('其他文件寫的 KKS').slice(1).some((x) => x.split(']')[0].includes('MAD50BG021')), svSvc: sv ? sv.svc : '', svKks: s(sv).includes('QN210-MB01'),
+    nFix: E.filter((e) => s(e).includes('"對照表更正"')).length }; }"""
+
+
+def ge_loc(page, ctx, ck):
+    fx2 = page.evaluate(FIX_JS)
+    ck('crosswalk fix ZS-211AC: KKS corrected to MAA11QN001-BG04, card says 已更正, signal di_l33cv1_c_st (no longer iv1_pos)',
+       bool(fx2) and fx2['zsKks'] and fx2['zsFix'] and fx2['zsSig'] and not fx2['zsIv'], fx2)
+    ck('crosswalk fix GC-1: both KKS listed as a document conflict (EG004 list vs EG001 drawing)', bool(fx2) and fx2['gcConf'], fx2 and fx2['gcConf'])
+    ck('crosswalk fix VP-4X: VE45 one-bearing shift noted, MAD50BG021 not listed as an alias', bool(fx2) and fx2['vpNote'] and not fx2['vpAlias'],
+       fx2 and (fx2['vpNote'], fx2['vpAlias']))
+    ck('crosswalk fix 20VS4-4: solenoid KKS QN210-MB01 and service SAFETY SHUTOFF VALVE SOLENOID; ≥ 50 entries carry a 對照表更正 row',
+       bool(fx2) and fx2['svKks'] and fx2['svSvc'] == 'SAFETY SHUTOFF VALVE SOLENOID' and fx2['nFix'] >= 50, fx2 and (fx2['svSvc'], fx2['nFix']))
+    v11 = page.evaluate(LOC_V11_JS)
+    ck('71GS-1B: HMI position via the one-to-one MOVE chain a_71gs1b → F71SCR3DR (card names the block)',
+       bool(v11) and v11['gsN'] >= 1 and 'F71SCR3DR' in v11['gsHow'] and 'a_71gs1b' in v11['gsHow'] and 'MOVE' in v11['gsHow'], v11 and v11['gsHow'][:160])
+    ck('PT-270C: ST SIL lube oil panel now located through 63QT3 (chain), level not inferred',
+       bool(v11) and '63QT3' in v11['ptHow'] and 'hmi' in v11['ptLvl'], v11 and (v11['ptHow'][:120], v11['ptLvl']))
+    ck('VA13-15: P&ID on GFD01-D0005-3 p.7 from the bracketed line-text label (OCR, GE-only table)',
+       bool(v11) and any('GFD01-D0005-3' in x and x.endswith('|7') for x in v11['va']), v11 and v11['va'])
+    ck('ST FV-24: P&ID on TFD01-D0001 (line-text label only)', bool(v11) and any('TFD01-D0001' in x for x in v11['fv']), v11 and v11['fv'])
+    ck('chain-located GE entries on the card ≥ 40', bool(v11) and v11['chainN'] >= 40, v11 and v11['chainN'])
+    fx = page.evaluate(LOC_FIX_JS)
+    ck('GC-1: drawing label wins over the crosswalk KKS (no box on EG004 of EGJ01-D0004, which that drawing labels GC-4)', bool(fx) and fx['gcN'] >= 1 and fx['gcKksOnEg004'] == 0, fx and (fx['gcN'], fx['gcKksOnEg004']))
+    ck('TT-XD-16: HMI positions via TTXD1_16 (per-channel macro output), never TTXD1_6', bool(fx) and fx['ttN'] >= 2 and 'TTXD1_16' in fx['ttHow'] and not fx['tt6'], fx and fx['ttHow'][:120])
+    ck('39V-4A (ST generator): P&ID on EGK01-D0033 (ST Generator Load Equipment Schematic)', bool(fx) and 'EGK01-D0033' in fx['veSheet'], fx and fx['veSheet'])
+    ck('23QB-1 (space heater): every HMI group is flagged as the host device position', bool(fx) and fx['qbN'] >= 1 and fx['qbHost'], fx and (fx['qbN'], fx['qbHost']))
+    ck('ST CV-2 (lube oil check valve): no HMI position on the steam control valve panel', bool(fx) and fx['cv2'] == 0, fx and fx['cv2'])
+    pk = page.evaluate(LOC_PICK_JS, SPEC_TAG)
+    ck('GE location file loaded: entries with P&ID ≥ 2000, with HMI ≥ 500, lc flags match the file',
+       bool(pk) and pk['pd'] >= 2000 and pk['hm'] >= 500 and pk['lcOk'] and pk['lc'] == pk['n'], pk and {k: pk[k] for k in ('lc', 'n', 'pd', 'hm', 'lcOk')})
+    if not pk:
+        return
+    # 燃料氣示意圖 137T9782（HT0-1-GFD01-D0005-3）第 7 頁左上：PIT 球泡 MBP70BP001＋(96FG-1A)（主控 2026-10-24 開圖核過：約左 17%／上 11%，圖框 A-3）
+    m0 = pk['m0'] or [0, 0]
+    ck('%s: P&ID ① is GFD01-D0005-3 p.7 zone A-3, upper left, GE tag + KKS merged' % SPEC_TAG,
+       'GFD01-D0005-3' in pk['sheet'] and pk['p'] == 7 and pk['zone'] == 'A-3' and 0.12 < m0[0] < 0.22 and 0.06 < m0[1] < 0.16 and pk['via'] == 'ge+kks',
+       {k: pk[k] for k in ('sheet', 'p', 'zone', 'm0', 'via')})
+    want = {'gtHA_Gen2_SIL_EFFF_UX.cim|G11|G11S', 'gtHA_Gen2_SIL_EFFF_UX.cim|G12|G12S', 'gtHA_Gen2_SIL_FtI_UX.cim|G11|G11S',
+            'gtHA_Gen2_SIL_Vent_UX.cim|G12|G12S'}
+    ck('%s: HMI groups SIL EFFF／FtI／Vent per unit, unit = controller\'s unit' % SPEC_TAG, want <= set(pk['hmScreens']), pk['hmScreens'])
+    s = ge_query(page, ctx, SPEC_TAG)
+    ck('「%s」→ GE card (location test)' % SPEC_TAG, s['ge'] and s['tag'] == SPEC_TAG, s['tag'])
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    page.wait_for_function("document.querySelector('.ge-loc .ge-pid img')", timeout=60000)
+    page.wait_for_timeout(800)
+    st = page.evaluate(LOC_STATE)
+    ck('%s: location block has P&ID and HMI parts, placed before the spec blocks' % SPEC_TAG,
+       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置'] and st['before'], st and (st['heads'], st['before']))
+    ck('%s: P&ID sheet header names GFD01-D0005 Rev.3, PDF p.7, zone A-3, with a Drive link and a loaded image with marks' % SPEC_TAG,
+       bool(st) and st['sheets'] and 'HT0-1-GFD01-D0005' in st['sheets'][0] and '第 7' in st['sheets'][0] and 'A-3' in st['sheets'][0]
+       and any('drive.google.com' in h for h in st['pidLink']) and st['pidImg'] >= 1 and st['pidMk'] >= 1,
+       st and (st['sheets'][:1], st['pidLink'][:1], st['pidImg'], st['pidMk']))
+    ck('%s: HMI blocks show Excess Firing Fuel Flow with 機組 G11（控制器 G11S） and 機組 G12' % SPEC_TAG,
+       bool(st) and any('Excess Firing Fuel Flow' in x and '機組 G11（控制器 G11S）' in x for x in st['screens'])
+       and any('機組 G12（控制器 G12S）' in x for x in st['screens']) and not any('以選單機組' in x for x in st['screens']),
+       st and st['screens'][:4])
+    shot(page, ctx, 'getag_loc')
+    held = page.evaluate("AMS.data.imagesHeld('card/pid/')")
+    ck('%s: P&ID sheet image held (blob)' % SPEC_TAG, any('GFD01-D0005-3' in h for h in held), held)
+    # 帶機組：只列那一台的圖控畫面
+    s = ge_query(page, ctx, 'G12_' + SPEC_TAG)
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    st = page.evaluate(LOC_STATE)
+    ck('G12_%s: HMI blocks are all G12, P&ID still shown (sheet not unit-specific)' % SPEC_TAG,
+       bool(st) and st['screens'] and all('機組 G12' in x for x in st['screens']) and st['sheets'], st and st['screens'][:3])
+    # SIL 各頁共用的「最終元件」面板只列一張（hms）：VS4-4（SSOV）一部機 16 張 SIL 畫面同一個位置；它也在氣動閥清單，GE 對照接在閥卡下面
+    ge_query(page, ctx, SIL_TAG)
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-below .ge-loc') || document.querySelector('.ge-only .ge-loc'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    sl = page.evaluate("""() => { const g = document.querySelector('.ge-below') || document.querySelector('.ge-only'); if (!g) return null; const h = g.querySelector('.ge-hmi');
+      return { notes: [...h.querySelectorAll('.aux-note')].map((x) => x.textContent), screens: [...h.querySelectorAll('.hmi-screen .hmi-t')].map((x) => x.textContent) }; }""")
+    ck('%s: SIL panel repeated on many SIL screens is listed once per unit with a note naming the others' % SIL_TAG,
+       bool(sl) and any('同一個面板也出現在另外' in n for n in sl['notes']) and sum(1 for t in sl['screens'] if t) <= 2 * 6,
+       sl and (sl['notes'][:1], len(sl['screens'])))
+    # 沒有任何位置的編號：兩塊都寫查無；換到這張卡時上一張的圖紙影像收掉
+    if pk.get('none'):
+        s = ge_query(page, ctx, pk['none'])
+        page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+        st = page.evaluate(LOC_STATE)
+        ck('%s (no location): both parts say 查無／沒有' % pk['none'], bool(st) and ('查無' in st['pidText'] or '沒有比對' in st['pidText'])
+           and ('查無' in st['hmiText'] or '說明提到' in st['hmiText']) and not st['sheets'] and not st['screens'], st and (st['pidText'][:60], st['hmiText'][:60]))
+        held = page.evaluate("AMS.data.imagesHeld('card/pid/')")
+        ck('switching to a GE card without P&ID releases the sheet images', held == [], held)
 
 
 def ge_query(page, ctx, q):

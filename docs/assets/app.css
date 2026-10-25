@@ -910,6 +910,9 @@ details.ge-prot > summary { cursor: pointer; color: var(--muted); }
 .ge-prot-i { display: flex; flex-direction: column; gap: 4px; padding-left: 8px; border-left: 2px solid var(--grid); }
 .ge-prot-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ge-prot-t { overflow-wrap: anywhere; }
+.ge-loc { display: flex; flex-direction: column; }
+.ge-loc-body { padding: 6px 12px 10px; min-width: 0; }
+.ge-loc-body > .cl-empty { margin: 0; }
 .ge-links .chip-btn.plain { cursor: default; border-style: dashed; } /* 對照表沒有這個名稱的條目：只列名稱，不是連結 */
 .ge-links .chip-btn.plain:hover { border-color: var(--border); color: var(--text); }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */
