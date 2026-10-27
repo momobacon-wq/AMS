@@ -42,6 +42,7 @@ sys.path.insert(0, HERE)
 import paths  # noqa: E402  （tools/db/paths.py：repo 外路徑的唯一來源）
 PID_GE_JSON = os.path.join(paths.CARDWORK, 'pid_ge.json')   # tools/db/pid_ge.py 的輸出（GE 原廠編號 → P&ID 圖紙與座標）
 LOC_GE_JSON = os.path.join(paths.CARDWORK, 'loc_ge.json')   # tools/db/loc_ge.py 的輸出（GE 原廠編號 → 位置圖與座標，v12）
+WIRE_GE_JSON = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13）
 HMI_GE_JSON = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py 的輸出（GE 原廠編號 → 圖控畫面與座標）
 
 
@@ -132,10 +133,10 @@ def pid_flags(a):
 def ge_flags(a):
     """build_card_aux 的 GE 原廠編號旗標：對照表 paths.GE_TAGS 在就明指；不在（換了機器、hst-docsearch 沒裝）或 --skip-ge 時走 --no-ge
     （--recompare 保留上次發布的 sec.getag 與 04 的 GE 列；完整建置則沒有這一段），並大聲說出來。
-    GE 編號卡的 P&ID／圖控位置（v10）與位置圖位置（v12）一併明指 pid_ge.json／hmi_ge.json／loc_ge.json（build_card_aux 在 pid.json／hmi.json
-    在而它們不在時以非 0 結束）。"""
+    GE 編號卡的 P&ID／圖控位置（v10）、位置圖位置（v12）與接線路徑（v13）一併明指 pid_ge.json／hmi_ge.json／loc_ge.json／wire_ge.json
+    （build_card_aux 在 pid.json／hmi.json 在而它們不在時以非 0 結束）。"""
     if ge_on(a):
-        return ['--ge-tags', paths.GE_TAGS, '--pid-ge', PID_GE_JSON, '--hmi-ge', HMI_GE_JSON, '--loc-ge', LOC_GE_JSON]
+        return ['--ge-tags', paths.GE_TAGS, '--pid-ge', PID_GE_JSON, '--hmi-ge', HMI_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON]
     why = '--skip-ge' if a.skip_ge else '沒有 GE 編號對照表 %s' % (paths.GE_TAGS or '（paths.GE_TAGS 未設定：hst-docsearch config.json 沒有 ge_tags_dir）')
     print('\n!! %s → build_card_aux 走 --no-ge：沿用上次發布的「GE 原廠編號」；從沒發布過就沒有這一段' % why, flush=True)
     return ['--no-ge']
@@ -153,8 +154,8 @@ def run_pid(a):
         pid_loud(None)
         if ge_on(a) and os.path.exists(paths.PID_JSON):   # GE 原廠編號的圖面／位置圖定位照跑（對照表可能換過），新引用到的圖紙要出圖
             run_pid_ge(a)
-            run('P&ID 圖紙影像（pid_shots：pid.json＋pid_ge.json＋loc_ge.json 引用到的圖紙，有快取 → %s）' % paths.PID_SHOTS, PY,
-                os.path.join('tools', 'db', 'pid_shots.py'), '--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON)
+            run('P&ID 圖紙影像（pid_shots：pid.json＋pid_ge.json＋loc_ge.json＋wire_ge.json 引用到的圖紙，有快取 → %s）' % paths.PID_SHOTS, PY,
+                os.path.join('tools', 'db', 'pid_shots.py'), '--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON)
         return
     if not os.path.isdir(paths.LIBRARY_ROOT):
         raise SystemExit('沒有工程文件庫根目錄 %s（設 AMS_LIBRARY_ROOT，或用 --skip-pid 沿用 cardwork 裡上次的 pid.json／pid_shots）' % paths.LIBRARY_ROOT)
@@ -166,16 +167,20 @@ def run_pid(a):
     pid_loud(before)
     if ge_on(a):
         run_pid_ge(a)
-    run('P&ID 圖紙影像（pid_shots：pid.json%s 引用到的圖紙 → %s）' % ('＋pid_ge.json＋loc_ge.json' if ge_on(a) else '', paths.PID_SHOTS), PY,
-        os.path.join(db, 'pid_shots.py'), *(['--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON] if ge_on(a) else ['--no-ge-loc', '--no-loc']))
+    run('P&ID 圖紙影像（pid_shots：pid.json%s 引用到的圖紙 → %s）' % ('＋pid_ge.json＋loc_ge.json＋wire_ge.json' if ge_on(a) else '', paths.PID_SHOTS), PY,
+        os.path.join(db, 'pid_shots.py'), *(['--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON] if ge_on(a)
+                                            else ['--no-ge-loc', '--no-loc', '--no-wire']))
 
 
 def run_pid_ge(a):
     """GE 原廠編號的圖面定位（pid_ge：同一份 corpus／文字層快取／OCR 對照表＋GE 編號對照表 → cardwork/pid_ge.json，約 15 秒）。
     要在 pid_shots 之前：它引用到、pid.json 沒有的圖紙由 pid_shots 一併出圖。
-    接著跑位置圖定位（loc_ge，v12：GE 清單「位置圖」欄列的配置／電纜槽／外型圖的文字層 → cardwork/loc_ge.json，約 5 秒），同樣在 pid_shots 之前。"""
+    接著跑位置圖定位（loc_ge，v12：GE 清單「位置圖」欄列的配置／電纜槽／外型圖的文字層 → cardwork/loc_ge.json，約 5 秒），同樣在 pid_shots 之前。
+    再跑汽機 TSI 的接線路徑（wire_ge，v13：一號機 ST 儀控電纜接線圖＋JB 位置圖＋盤面配置＋3500 盤圖的文字層，盤端子以 signal-atlas 索引的螺絲號核對
+    → cardwork/wire_ge.json，約 10 秒）。"""
     run('P&ID GE 原廠編號定位（pid_ge → %s）' % PID_GE_JSON, PY, os.path.join('tools', 'db', 'pid_ge.py'), '--out', PID_GE_JSON)
     run('位置圖 GE 原廠編號定位（loc_ge → %s）' % LOC_GE_JSON, PY, os.path.join('tools', 'db', 'loc_ge.py'), '--out', LOC_GE_JSON)
+    run('汽機 TSI 接線路徑（wire_ge → %s）' % WIRE_GE_JSON, PY, os.path.join('tools', 'db', 'wire_ge.py'), '--out', WIRE_GE_JSON, '--dcdas', paths.DCDAS_INDEX)
 
 
 LOUD = []   # 重建途中「不擋建置、但位置會默默變少」的警告；印在當下，rebuild 結尾（verify_and_finish）再印一次——中間隔著幾百行輸出，只印一次沒有人看得到

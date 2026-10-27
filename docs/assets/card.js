@@ -82,6 +82,11 @@
   // GE 編號卡「位置圖」：GE 清單列的位置圖各自的狀態（getag-loc.json 的 ldn；build_card_aux GE_LD_STATE）
   const GE_LD_STATE = { nofile: '文件庫裡找不到這份圖', noscope: '圖的範圍（燃機／汽機）與這個編號不同，沒有比對', miss: '圖上沒有讀到這個編號或它的 KKS',
     hit: '有位置', cap: '有位置（超過張數上限沒有列出）' };
+  // GE 編號卡「接線路徑」（v13，wire_ge.py）：接線圖的畫法（getag-loc.json 的 wp.mode；build_card_aux GE_WIRE_MODE）
+  const GE_WIRE_MODE = { coax: '近接探頭：同軸延長線接到接線箱裡的前置器，前置器出線經幹線到盤', tb: '現場端子經電纜接到接線箱端子排，再經幹線到盤',
+    jbdev: '元件在接線箱裡（發電機的接線箱），由接線箱端子經幹線到盤', direct: '電纜從現場直拉到盤，中間沒有接線箱' };
+  const GE_WIRE_HOP = { wire: '接線圖', jbloc: '接線箱位置', cab: '盤內板位', vms: '3500 盤端子', rack: '3500 機架槽位' };   // 圖紙標頭前的這一跳名稱（extra.hop）
+  const GE_WIRE_IO = { same: '✓ 控制器組態的這顆螺絲就是這個元件', loc: '✓ 同位置的另一個點（例：LVDT 的電源點）', diff: '✗ 控制器組態的這顆螺絲是別的元件', none: '控制器組態沒有這顆螺絲' };
   const PID_REF_OTHER = ['這一處只是圖上提到這支位號的地方，不是儀器符號', '圖上提到的地方'];
   // JK 開頭的位號（HART 多工器模組）沒有列入 P&ID 比對：[摘要組的短句, 完整資料區的整句]。不可以寫「查無」。
   const PID_JK = ['不在 P&ID 比對範圍（JK 開頭的位號是 HART 多工器模組，圖面沒有比對這一類）',
@@ -936,7 +941,7 @@
         const lo = L(id);
         const pd = pick(lo.pd, (ex) => !site || !ex.gu || ex.gu.includes(site));
         const hm = pick(lo.hm, (ex) => !site || !ex.gu || ex.gu === site);
-        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => (L(i).pd || []).concat(L(i).ld || [])) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
+        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => (L(i).pd || []).concat(L(i).ld || [], (L(i).wp || {}).rows || [])) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
         if (pd.length) { gp.innerHTML = ''; this.fillPid({ rows: pd }, ix, gp, mode, true); }
         else none(gp, !e.sc ? '沒有比對（GE 文件沒寫是燃機還是汽機，不知道要找哪一套圖）'
           : `查無（GE 示意圖與 P&ID 的 PDF 文字層、OCR 都沒有讀到這個編號${(e.kb || []).length ? '或它的 KKS' : ''}；不代表圖上沒有畫，可能是線條字沒讀到或只畫在接線圖上）`);
@@ -964,6 +969,11 @@
           gl.appendChild(U.h('p', { class: 'muted small aux-note' }, 'GE 清單「位置圖」欄列的圖：'
             + lo.ldn.map(([no, st]) => `${no}（${GE_LD_STATE[st] || st}）`).join('、')));
         }
+        // 接線路徑（v13）：只有汽機 TSI 的條目有 wp，沒有的不出這一塊（不是每張 GE 卡都要多一句「查無」）
+        if (lo.wp) {
+          const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
+          this.fillWire(lo.wp, ix, gw, mode, (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : ''));
+        }
         for (const [un, rep, list] of lo.hms || []) {
           if (site && un !== site) continue;
           gh.appendChild(U.h('p', { class: 'muted small aux-note' }, `${un}：「${rep}」上的同一個面板也出現在另外 ${list.length} 張 SIL 畫面（${list.join('、')}），只列一張。`));
@@ -974,6 +984,50 @@
         }
       }).catch((err) => { if (!this.destroyed && this.res === res) { none(gp, '無法載入圖面索引：' + ((err && err.message) || err)); gh.innerHTML = ''; gl.innerHTML = ''; } });
       return box;
+    }
+
+    /** GE 編號卡「接線路徑」（v13，CONTRACT.md「v13」）：card/getag-loc.json 的 wp（build_card_aux.ge_wire_card）——
+     *  sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對（GE_WIRE_IO）]；
+     *  n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：不替任何一方選邊，原樣列出）；rows＝各跳的圖，與 P&ID 同格式，直接交給 fillPid
+     *  （接線圖、接線箱位置、盤內板位、3500 盤端子、3500 機架槽位；第一張展開、其餘收合，展開才下載）；
+     *  jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子]…]]：同一個接線箱裡的 TSI 端子排（收合，元件連到它的卡）。 */
+    fillWire(wp, ix, el, mode, href) {
+      el.innerHTML = '';
+      if (GE_WIRE_MODE[wp.mode]) el.appendChild(U.h('p', { class: 'muted small wire-mode' }, GE_WIRE_MODE[wp.mode]));
+      const sb = U.h('tbody');
+      for (const [k, v, lvl, src] of wp.sum || []) {
+        sb.appendChild(U.h('tr', {}, U.h('th', { scope: 'row' }, k), U.h('td', { title: this.srcLabel(lvl) + (src ? ' · ' + src : '') }, v)));
+      }
+      el.appendChild(U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini wire-sum' }, U.h('caption', { class: 'sr-only' }, '接線路徑每一跳'), sb)));
+      if ((wp.t || []).length) {
+        const tb = U.h('tbody');
+        for (const [core, fld, jb, pt, pin, chk] of wp.t) {
+          tb.appendChild(U.h('tr', {}, U.h('td', { class: 'mono' }, core), U.h('td', { class: 'mono' }, fld), U.h('td', { class: 'mono' }, jb), U.h('td', { class: 'mono' }, pt),
+            U.h('td', { class: 'mono', title: GE_WIRE_IO[chk] || '' }, pin ? pin + (chk === 'same' || chk === 'loc' ? ' ✓' : chk === 'diff' ? ' ✗' : '') : '')));
+        }
+        el.appendChild(U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini wire-cond' },
+          U.h('caption', { class: 'muted small' }, '每一條芯（幹線芯色 → 盤端子；✓＝控制器組態的螺絲號核對過是這個元件）'),
+          U.h('thead', {}, U.h('tr', {}, ...['芯', '現場端子', '接線箱端子', '盤端子', 'Mark VIe 腳位'].map((h) => U.h('th', { scope: 'col' }, h)))), tb)));
+      }
+      if ((wp.n || []).length) {
+        const ul = U.h('ul', { class: 'wire-notes' });
+        for (const [t, src] of wp.n) ul.appendChild(U.h('li', { class: 'pid-nosym' }, '⚠ ' + t, src ? U.h('span', { class: 'muted small' }, '（' + src + '）') : null));
+        el.appendChild(ul);
+      }
+      const pics = U.h('div', { class: 'wire-pics' });
+      el.appendChild(pics);
+      this.fillPid({ rows: wp.rows || [] }, ix, pics, mode, true);
+      if (wp.jb && (wp.jb[1] || []).length) {
+        const [name, strip] = wp.jb;
+        const tb = U.h('tbody');
+        for (const [jt, core, tag, pt] of strip) {
+          tb.appendChild(U.h('tr', {}, U.h('td', { class: 'mono' }, jt), U.h('td', { class: 'mono' }, core),
+            U.h('td', { class: 'mono' }, href ? U.h('a', { class: 'lk', href: href(tag) }, tag) : tag), U.h('td', { class: 'mono' }, pt)));
+        }
+        el.appendChild(U.h('details', { class: 'wire-jb' }, U.h('summary', {}, `接線箱 ${name} 裡的 TSI 端子（${strip.length} 條芯；只列汽機 TSI 元件）`),
+          U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini' },
+            U.h('thead', {}, U.h('tr', {}, ...['接線箱端子', '芯', '元件', '盤端子'].map((h) => U.h('th', { scope: 'col' }, h)))), tb))));
+      }
     }
 
     /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */
@@ -2035,6 +2089,7 @@
         const block = U.h(fold ? 'details' : 'div', { class: 'hmi-screen pid-sheet', open: open ? true : null });
         const cap = this.pidCapBits(ex); const capTip = this.pidSrcText(meta, ex, info);
         block.appendChild(U.h(fold ? 'summary' : 'div', { class: 'hmi-head pid-head' },
+          ex.hop && GE_WIRE_HOP[ex.hop] ? U.h('span', { class: 'hmi-unit wire-hop' }, GE_WIRE_HOP[ex.hop]) : null,   // 接線路徑（v13）：這張圖是哪一跳
           U.h('span', { class: 'hmi-t' }, no),
           meta.doc && meta.title ? U.h('span', { class: 'pid-title' }, meta.title) : null,
           pg ? U.h('span', { class: 'hmi-unit' }, pg) : null,

@@ -347,8 +347,59 @@ def ge_ld(page, ctx, ck):
     shot(page, ctx, 'getag_ld')
 
 
+# v13：接線路徑（wire_ge.py）——汽機 TSI 54 顆：VP-1X 近接探頭（JB 前置器 → TVBA，螺絲號與控制器組態核對）、VP-5XVL 速度型（1TBVIB，
+# 接線圖寫 57 而 3500 盤圖寫 47 的矛盾要在卡上）、SEDP-1 直拉、39VS-91 發電機接線箱；非 TSI 的 GE 卡不出這一塊
+WP_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
+  const at = (t) => (by[String(E.findIndex((e) => e.t === t && e.sc === 'S'))] || {}).wp || null;
+  const all = E.map((e, k) => (by[String(k)] || {}).wp).filter(Boolean);
+  const vp = at('VP-1X'); const vl = at('VP-5XVL'); const se = at('SEDP-1'); const g9 = at('39VS-91');
+  const mv = all.flatMap((w) => (w.t || []).filter((r) => /(TVBA|TTUR|TCSA|TBAI)/.test(r[3])));
+  return { n: all.length, vpMode: vp && vp.mode, vpT: vp ? vp.t.map((r) => r.join('|')) : [], vpSum: vp ? vp.sum.map((r) => r[0] + '：' + r[1]) : [],
+    vpHops: vp ? vp.rows.filter((r) => r[4] && r[4].marks).map((r) => r[4].hop) : [], vpJb: vp && vp.jb ? vp.jb[1].length : 0,
+    vlNotes: vl ? (vl.n || []).map((x) => x[0]).join('｜') : '', vlT: vl ? vl.t.map((r) => r[3]).join('｜') : '',
+    seMode: se && se.mode, g9Mode: g9 && g9.mode, mvN: mv.length, mvBad: mv.filter((r) => !['same', 'loc'].includes(r[5])).map((r) => r.join('|')) }; }"""
+WP_TAG = 'VP-1X'
+WP_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'); if (!g) return null; const w = g.querySelector('.ge-loc .ge-wire');
+  if (!w) return { none: true };
+  return { loading: /載入中/.test(w.textContent), sum: w.querySelectorAll('table.wire-sum tbody tr').length, cond: w.querySelectorAll('table.wire-cond tbody tr').length,
+    ok: w.querySelectorAll('table.wire-cond tbody td[title]').length, sheets: [...w.querySelectorAll('.pid-sheet')].map((b) => (b.querySelector('.pid-head') || b).textContent),
+    img: w.querySelectorAll('.wire-pics img').length, mk: w.querySelectorAll('.wire-pics .hmi-box, .wire-pics .hmi-mk').length,
+    link: [...w.querySelectorAll('.pid-bar a')].map((a) => a.href), jb: !!w.querySelector('details.wire-jb'), text: w.textContent.slice(0, 400) }; }"""
+
+
+def ge_wp(page, ctx, ck):
+    v = page.evaluate(WP_JS)
+    ck('v13 wiring paths: 54 ST TSI entries carry a 接線路徑', bool(v) and v['n'] == 54, v and v['n'])
+    ck('VP-1X: coax path, BK-1 → JB VX-1X -VDC → CA004-1L1A TVBA 04, pin N24V02 checked against the controller config',
+       bool(v) and v['vpMode'] == 'coax' and any(x.startswith('BK-1|COAX|VX-1X -VDC|CA004-1L1A TVBA 04|N24V02|same') for x in v['vpT']), v and v['vpT'][:2])
+    ck('VP-1X: hops = wiring diagram, JB location, board position, 3500 rack; Mark VIe row names a_39vb1x; JB strip listed',
+       bool(v) and v['vpHops'][:1] == ['wire'] and {'jbloc', 'cab', 'rack'} <= set(v['vpHops']) and any(s.startswith('Mark VIe') and 'a_39vb1x' in s for s in v['vpSum'])
+       and v['vpJb'] >= 20, v and (v['vpHops'], v['vpJb']))
+    ck('VP-5XVL: lands on 1TBVIB (57 as drawn) and the card carries the 57 vs 47 conflict note',
+       bool(v) and '1TBVIB 57' in v['vlT'] and '57' in v['vlNotes'] and '47' in v['vlNotes'], v and (v['vlT'], v['vlNotes'][:120]))
+    ck('SEDP-1 direct pull, 39VS-91 inside the generator JB', bool(v) and v['seMode'] == 'direct' and v['g9Mode'] == 'jbdev', v and (v['seMode'], v['g9Mode']))
+    ck('every conductor landing on a Mark VIe board (TVBA/TTUR/TCSA/TBAI) is checked against the controller screw map (116, none off)',
+       bool(v) and v['mvN'] == 116 and not v['mvBad'], v and (v['mvN'], v['mvBad'][:3]))
+    s = ge_query(page, ctx, WP_TAG)
+    ck('「%s」→ GE card (wiring path test)' % WP_TAG, s['ge'] and s['tag'] == WP_TAG, s['tag'])
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-wire'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    page.evaluate("document.querySelector('.ge-only .ge-loc .ge-wire .wire-pics').scrollIntoView({ block: 'center' })")   # 接線路徑在最下面：影像捲到附近才抓
+    page.wait_for_function("document.querySelector('.ge-loc .ge-wire .wire-pics img')", timeout=60000)
+    page.wait_for_timeout(800)
+    st = page.evaluate(WP_STATE)
+    ck('%s: 接線路徑 part shows the hop table, 4 conductors with checks, the wiring sheet first (Drive link, image, marks) and the JB strip' % WP_TAG,
+       bool(st) and not st.get('none') and st['sum'] >= 6 and st['cond'] == 4 and st['ok'] >= 3 and st['sheets'] and 'ICE01-D1005' in st['sheets'][0]
+       and any('drive.google.com' in h for h in st['link']) and st['img'] >= 1 and st['mk'] >= 1 and st['jb'], st and {k: st[k] for k in st if k != 'text'})
+    shot(page, ctx, 'getag_wp')
+    s = ge_query(page, ctx, LD_TAG)
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-ld'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    st = page.evaluate(WP_STATE)
+    ck('%s (not ST TSI): no 接線路徑 part' % LD_TAG, bool(st) and st.get('none'), st)
+
+
 def ge_loc(page, ctx, ck):
     ge_ld(page, ctx, ck)
+    ge_wp(page, ctx, ck)
     fx2 = page.evaluate(FIX_JS)
     ck('crosswalk fix ZS-211AC: KKS corrected to MAA11QN001-BG04, card says 已更正, signal di_l33cv1_c_st (no longer iv1_pos)',
        bool(fx2) and fx2['zsKks'] and fx2['zsFix'] and fx2['zsSig'] and not fx2['zsIv'], fx2)

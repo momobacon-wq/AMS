@@ -913,6 +913,17 @@ details.ge-prot > summary { cursor: pointer; color: var(--muted); }
 .ge-loc { display: flex; flex-direction: column; }
 .ge-loc-body { padding: 6px 12px 10px; min-width: 0; }
 .ge-loc-body > .cl-empty { margin: 0; }
+/* GE 編號卡「接線路徑」（v13）：每一跳一列的摘要表、每條芯的對照表、註記（沿用 .pid-nosym 的提醒樣式）、同箱端子排（收合） */
+.wire-mode { margin: 0 0 6px; }
+table.wire-sum th { text-align: left; white-space: nowrap; vertical-align: top; }
+table.wire-sum td { white-space: normal; word-break: break-word; }
+table.wire-cond caption { caption-side: top; text-align: left; padding: 6px 0 2px; }
+.wire-notes { list-style: none; margin: 6px 0; padding: 0; }
+.wire-notes > li.pid-nosym { margin: 4px 0; }
+.wire-pics { margin-top: 6px; }
+.pid-head .wire-hop { font-weight: 600; color: var(--text); }
+.wire-jb { margin-top: 6px; }
+.wire-jb > summary { cursor: pointer; padding: 4px 0; }
 .ge-links .chip-btn.plain { cursor: default; border-style: dashed; } /* 對照表沒有這個名稱的條目：只列名稱，不是連結 */
 .ge-links .chip-btn.plain:hover { border-color: var(--border); color: var(--text); }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */

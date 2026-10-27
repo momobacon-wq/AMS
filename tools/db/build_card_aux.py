@@ -100,6 +100,7 @@ PID_DEFAULT = paths.PID_JSON          # <CARDWORK>\pid.json（tools/db/pid_index
 PID_SHOTS_DEFAULT = paths.PID_SHOTS   # <CARDWORK>\pid_shots（tools/db/pid_shots.py：<slug>.webp＋index.json）
 PID_GE_DEFAULT = os.path.join(os.path.dirname(paths.PID_JSON), 'pid_ge.json')   # tools/db/pid_ge.py：GE 原廠編號 → 圖紙與圖上座標（v10）
 LOC_GE_DEFAULT = os.path.join(os.path.dirname(paths.PID_JSON), 'loc_ge.json')   # tools/db/loc_ge.py：GE 原廠編號 → 位置圖（配置／電纜槽／外型圖）與圖上座標（v12）
+WIRE_GE_DEFAULT = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py：汽機 TSI 的接線路徑（接線圖端子、接線箱位置、盤內板位、3500 盤，v13）
 HMI_GE_DEFAULT = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py：GE 原廠編號 → 圖控畫面與座標
 DOC_CAT_ORDER = ['P&ID', 'Hook-up', '規格表', '就地錶規格', '接線圖', '電纜表', '保護箱', '位置圖', '邏輯圖', 'GT I/O 清單']
 ABS_PATH_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:[\\/]|\\Users\\|/Users/|我的雲端硬碟')  # 磁碟機路徑（https:// 不算）
@@ -810,18 +811,18 @@ def ge_card_data(ge, loc=None, pm=None):
                      ('sig', sig), ('lg', lg), ('kb', sorted(cur)), ('okb', okb), ('sp', sp), ('vl', vl), ('vi', vi), ('pr', pr), ('pi', pi), ('ps', ps), ('pv', pv)):
             if v:
                 o[k] = v
-        lo = {k: v for k, v in ((loc or {}).get(e['_i']) or {}).items() if k in ('pd', 'hm', 'hmx', 'hr', 'hms', 'ld', 'ldn') and v}
+        lo = {k: v for k, v in ((loc or {}).get(e['_i']) or {}).items() if k in ('pd', 'hm', 'hmx', 'hr', 'hms', 'ld', 'ldn', 'wp') and v}
         if lo:
             o['lc'] = 1   # 這個條目在 getag-loc.json 有位置列（前端沒有這個旗標就不下載那個檔）
             locs[str(len(ents))] = lo
-        for r in (lo.get('pd') or []) + (lo.get('ld') or []):
+        for r in (lo.get('pd') or []) + (lo.get('ld') or []) + ((lo.get('wp') or {}).get('rows') or []):
             d = r[4].get('d') if len(r) > 4 and isinstance(r[4], dict) else None
             if d and pm is not None and d in (pm.get('_docs') or {}):
                 ge['docs'].setdefault(d, dict(pm['_docs'][d]))
         ents.append(o)
     docs, ge['docs'] = ge['docs'], saved
     data = {'version': 1, 'built_at': ge['built_at'], 'n': len(ents), 'units': {k: list(v) for k, v in GE_SITE_UNITS.items()},
-            'rule': GE_CARD_RULE, 'rule_unit': GE_UNIT_RULE, 'rule_spec': GE_SPEC_RULE, 'rule_prot': GE_PROT_RULE, 'rule_loc': GE_LOC_RULE,
+            'rule': GE_CARD_RULE, 'rule_unit': GE_UNIT_RULE, 'rule_spec': GE_SPEC_RULE, 'rule_prot': GE_PROT_RULE, 'rule_loc': GE_LOC_RULE, 'rule_wire': GE_WIRE_RULE,
             'hmi_max': GE_HMI_MAX, 'entries': ents}
     if locs:
         data['loc'] = GE_LOC_FILE
@@ -1502,7 +1503,7 @@ def pid_src_key(src):
         return None
 
 
-def load_pid(path, shots_dir, ge_path=None, loc_path=None):
+def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None):
     """tools/db/pid_index.py 的輸出（位號→圖紙與圖上座標）＋ tools/db/pid_shots.py 的圖紙影像目錄。
     沒有 pid.json 回 None；pid_shots/index.json 缺席時 `_shots` 是 None——兩者都由 main 的缺檔清單擋下來（非 0 結束、資料目錄沒被動過）。
     **不照抄 hmi 的靜默降級**（hmi_shots 目錄不見時會發布 0 張圖，而每一列還寫著 img:true）。其餘不一致在 pid_check 一次查完。
@@ -1510,7 +1511,8 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None):
     同一個 slug 兩邊的 rel／page／rot／來源 PDF 必須相同，否則兩邊的標記會落在不同的影像座標上）；pid_check 連它一起查。
     AMS 設備的 sec.pid 不受影響（pid_rows 只讀 by_tag）。
     loc_path＝tools/db/loc_ge.py 的輸出（GE 編號在位置圖上的位置，v12）：同樣的併法，by_ge 放進 `_lg`、它的圖紙記進 `_loc`（pid_doc_keys 的說明文字不同），
-    docs＝位置圖文件號 → 文件庫裡的那一份檔（或找不到的原因）放進 `_lg_docs`。"""
+    docs＝位置圖文件號 → 文件庫裡的那一份檔（或找不到的原因）放進 `_lg_docs`。
+    wire_path＝tools/db/wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13）：by_ge（框）放進 `_wg`、圖紙記進 `_wire`、paths／jbs 放進 `_wg_paths`／`_wg_jbs`。"""
     if not path or not os.path.exists(path):
         return None
     j = load(path)
@@ -1521,7 +1523,8 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None):
     j['_shots'] = load(j['_shots_index']) if os.path.exists(j['_shots_index']) else None
     j['_applied'] = set()   # pid_apply 用過的 by_tag 鍵（沒用到的＝pid.json 有、現行設備總表沒有的位號）
     j['_ge'], j['_ge_only'], j['_lg'], j['_loc'], j['_lg_docs'] = None, set(), None, set(), {}
-    for kind, gp, fn in (('pid_ge', ge_path, 'pid_ge.json'), ('loc_ge', loc_path, 'loc_ge.json')):
+    j['_wg'], j['_wire'], j['_wg_paths'], j['_wg_jbs'] = None, set(), {}, {}
+    for kind, gp, fn in (('pid_ge', ge_path, 'pid_ge.json'), ('loc_ge', loc_path, 'loc_ge.json'), ('wire_ge', wire_path, 'wire_ge.json')):
         if not gp or not os.path.exists(gp):
             continue
         g = load(gp)
@@ -1534,17 +1537,21 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None):
             if s in j['sheets']:
                 diff = [k for k in ('rel', 'page', 'rot', 'src') if j['sheets'][s].get(k) != gs.get(k)]
                 if diff:
-                    raise SystemExit('%s 與 pid.json／pid_ge.json 的同一張圖紙 %s 記錄不同（%s）：產生器讀的不是同一版圖，先重跑 pid_index.py、pid_ge.py、loc_ge.py、pid_shots.py'
+                    raise SystemExit('%s 與 pid.json／pid_ge.json 的同一張圖紙 %s 記錄不同（%s）：產生器讀的不是同一版圖，先重跑 pid_index.py、pid_ge.py、loc_ge.py、wire_ge.py、pid_shots.py'
                                      % (fn, s, '、'.join(diff)))
             else:
                 j['sheets'][s] = gs
                 j['_ge_only'].add(s)
             if kind == 'loc_ge':
                 j['_loc'].add(s)
+            elif kind == 'wire_ge':
+                j['_wire'].add(s)
         if kind == 'pid_ge':
             j['_ge'], j['_ge_stats'] = g['by_ge'], g.get('stats') or {}
-        else:
+        elif kind == 'loc_ge':
             j['_lg'], j['_lg_stats'], j['_lg_docs'] = g['by_ge'], g.get('stats') or {}, g.get('docs') or {}
+        else:
+            j['_wg'], j['_wg_stats'], j['_wg_paths'], j['_wg_jbs'] = g['by_ge'], g.get('stats') or {}, g.get('paths') or {}, g.get('jbs') or {}
     if j['_shots'] is not None:
         pid_check(j, path)
         pid_odd_labels(j)
@@ -1630,7 +1637,7 @@ def pid_check(pm, path):
                 bad.append('位號 %s @ %s：座標不是圖內的 0~1 比例（x／y／w／h＝%s／%s／%s／%s）' % (tag, s, e.get('x'), e.get('y'), e.get('w'), e.get('h')))
     bad += pid_shared_boxes(pm['by_tag'])
     # GE 原廠編號（v10：P&ID；v12：位置圖）：同樣的檢查，但共用框是常態（閥本體／定位器／電磁閥共用 KKS），不查 pid_shared_boxes
-    for key, ents in [kv for src in ('_ge', '_lg') for kv in (pm.get(src) or {}).items()]:
+    for key, ents in [kv for src in ('_ge', '_lg', '_wg') for kv in (pm.get(src) or {}).items()]:
         for e in ents if isinstance(ents, list) else [{}]:
             s = e.get('sheet')
             if s not in sheets:
@@ -1700,7 +1707,8 @@ def pid_doc_keys(pm):
         if not key or key in docs:
             key = 'pid|%s|' % hashlib.sha1(rel.encode('utf-8')).hexdigest()[:12]
         folder, _, base = rel.rpartition('/')
-        what = '位置圖位置（GE 配置／電纜槽／導管／外型圖）' if all(s in (pm.get('_loc') or ()) for s in by_rel[rel]) else 'P&ID 圖面位置'
+        what = ('接線路徑（接線圖、接線箱位置圖、盤面配置、3500 盤圖）' if all(s in (pm.get('_wire') or ()) for s in by_rel[rel])
+                else '位置圖位置（GE 配置／電纜槽／導管／外型圖）' if all(s in (pm.get('_loc') or ()) for s in by_rel[rel]) else 'P&ID 圖面位置')
         docs[key] = {'title': base, 'folder': folder or '.',
                      'why': '%s：圖上的位置讀自這一份 PDF（%s文件庫裡這份圖的現行最高版次）；連結只開這一份檔本身，'
                             '雲端硬碟對照沒有它時不附連結，不改連其他版次' % (what, ('Rev.%s，' % rev) if rev else '')}
@@ -2075,6 +2083,8 @@ def pid_collect(out, pm, stats, ge_used=None):
             sheets[s]['ge'] = ge_used[s]   # GE 編號卡有幾個條目畫在這張圖紙上（v10）
         if s in (pm.get('_loc') or ()):
             sheets[s]['loc'] = 1           # 位置圖（v12，loc_ge.py）：不是 P&ID
+        if s in (pm.get('_wire') or ()):
+            sheets[s]['wire'] = 1          # 接線路徑的圖（v13，wire_ge.py）：接線圖、接線箱位置圖、盤面配置、3500 盤圖
         total += n
     ps = pm.get('stats') or {}
     st = {k: ps[k] for k in PID_STATS_KEEP if k in ps}
@@ -2082,11 +2092,14 @@ def pid_collect(out, pm, stats, ge_used=None):
               images=len(used), docs=len({m['d'] for m in sheets.values() if m['rows']}))
     if ge_used:
         loc = set(pm.get('_loc') or ()) & set(ge_used)   # 位置圖（v12）另計，ge_* 只算 P&ID（數字與 v10／v11 同義）
-        gp = set(ge_used) - loc
+        wire = set(pm.get('_wire') or ()) & set(ge_used) - loc   # 接線路徑的圖（v13）另計
+        gp = set(ge_used) - loc - wire
         st.update(ge_entries=(pm.get('_ge_n') or 0), ge_sheets=len(gp), ge_only_sheets=len(gp - set(used)),
                   ge_docs=len({sheets[s]['d'] for s in gp}))
         if loc:
             st.update(ld_sheets=len(loc), ld_docs=len({sheets[s]['d'] for s in loc}))
+        if wire:
+            st.update(wp_sheets=len(wire), wp_docs=len({sheets[s]['d'] for s in wire}))
     ix = {'sheets': sheets, 'files': sorted(blobs), 'bytes': total,
           'note': ('圖紙影像＝文件庫裡這份 P&ID 現行最高版次 PDF 的那一頁，轉正後的整張圖（灰階 WebP；每張圖紙一檔，畫在上面的位號共用）。'
                    '影像只供定位，不是正本：內容以雲端硬碟的 PDF 為準（sheets[].d → docs 的 url；drive_map 沒有那一份檔時沒有 url，stats.no_url 計數）。'
@@ -2413,6 +2426,140 @@ def ge_ld_rows(pm, ents, scope, kks=()):
     return rows
 
 
+GE_WIRE_HOP = {'wire': '接線圖', 'jbloc': '接線箱位置', 'cab': '盤內板位', 'vms': '3500 盤端子', 'rack': '3500 機架槽位'}
+GE_WIRE_REL = {'wire': 'exact', 'jbloc': 'exact', 'cab': 'neutral', 'vms': 'neutral', 'rack': 'neutral'}   # 一號機專屬的圖＝就是本台；GE 盤面配置與 Bently 盤圖三部機共用一份
+GE_WIRE_RULE = ('接線路徑（v13）：現場→接線箱→電子室盤的每一條芯，取自一號機 ST 儀控電纜接線圖（HT1-1-ICE01-D1005 現行最高版次 PDF 的文字層，'
+                '盤側以芯色標籤對接）；盤端子落在 Mark VIe 端子板的，以 signal-atlas 控制器索引的螺絲號核對是不是這顆元件；'
+                '接線箱位置取自汽機房儀器與 JB 位置圖（HT1-1-IIF01-D0004）、盤內板位取自 GE 盤面配置（HT0-1-TZD01-M0213）、'
+                '3500 盤端子與機架槽位取自 Bently 3500 盤圖（GE 120V8111）；文件互相矛盾的地方列在註記，不替任何一方選邊')
+GE_WIRE_MODE = {'coax': '近接探頭：同軸延長線接到接線箱裡的前置器', 'tb': '現場端子經電纜接到接線箱端子排', 'jbdev': '元件在接線箱裡（發電機 JB）',
+                'direct': '電纜從現場直拉到盤，中間沒有接線箱'}
+
+
+def ge_wire_join(xs):
+    """端子號、芯色清單 → 'A／B／C'（去掉空的、照原順序、不重複）。"""
+    out = []
+    for x in xs:
+        if x and x not in out:
+            out.append(x)
+    return '／'.join(out)
+
+
+def ge_wire_room(desc, panel_kks):
+    """接線圖盤欄的說明 'S10CCM01UC201 ST TCP ST ELECTRONIC EQUIPMENT BUILDING EER ( E-402)' → (盤名, 房間)。"""
+    d = re.sub(r'\s+', ' ', desc or '').strip()
+    m = re.search(r'(\S.*?\(\s*E-?\s*\d+\s*\))\s*$', d)
+    room = re.sub(r'\(\s*', '(', re.sub(r'\s*\)', ')', m.group(1))) if m else ''
+    name = d[:m.start()].strip() if m else d
+    if panel_kks and name.startswith(panel_kks):
+        name = name[len(panel_kks):].strip()
+    m2 = re.search(r'(ST ELECTRONIC EQUIPMENT BUILDING .*|.*EER.*)$', room)
+    return name, (m2.group(1) if m2 else room)
+
+
+def ge_wire_card(pm, key):
+    """wire_ge.json 的 paths[key] → GE 卡「接線路徑」（v13）：
+    sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯一列 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對]；
+    rows＝各跳的圖（與 ge_pid_rows 同格式：每張圖紙 5 列，第一列 extra 帶 s／d／p／n／img／marks／drawn／rel／how／via／hop）；
+    n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：wire_ge 自動找的＋wire_notes.json 人工查證的）；
+    jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子]…]]（同一個接線箱裡的 TSI 端子）；mode＝畫法（GE_WIRE_MODE）。"""
+    r = (pm.get('_wg_paths') or {}).get(key)
+    if not r:
+        return None
+    w, sheets = r['wire'], pm['sheets']
+    hits = [h for h in (pm.get('_wg') or {}).get(key) or []]
+    s_wire = next((s for k, s in r['hops'] if k == 'wire'), None)
+    sw = sheets.get(s_wire) or {}
+    wsrc = 'PDF 文字層 · %s 第 %s 頁（Sheet %s OF %s）' % (sw.get('rel', '').rpartition('/')[2], w['page'], w['sheet'], w['of'])
+    cond = r['cond']
+    live = [c for c in cond if c['num']]
+    pk = re.findall(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', w['panel'] + ' ' + w['panel_desc'])
+    pname, room = ge_wire_room(w['panel_desc'], pk[0] if pk else '')
+    s_rows = []
+    if r['mode'] == 'coax':
+        s_rows.append(['現場 → 接線箱', '探頭 → 同軸延長線 %s（%s）→ 接線箱裡的前置器 %s' % (w['field_cable'], w['field_spec'].replace(' COAX', '').strip() or '同軸電纜', w['prox'] or '?'), 'doc', wsrc])
+    elif r['mode'] == 'tb':
+        s_rows.append(['現場 → 接線箱', '現場端子 %s → 電纜 %s（%s）→ 接線箱端子排 %s' % (ge_wire_join(c['field'] for c in cond), w['field_cable'], w['field_spec'], w['jb_tb'] or '?'), 'doc', wsrc])
+    elif r['mode'] == 'jbdev':
+        s_rows.append(['現場 → 接線箱', '元件畫在接線箱 %s 裡%s，沒有現場電纜' % (w['jb'], ('（%s）' % w['jb_desc']) if w['jb_desc'] else ''), 'doc', wsrc])
+    else:
+        s_rows.append(['現場 → 盤', '現場端子 %s → 電纜 %s（%s）直拉到盤，中間沒有接線箱' % (ge_wire_join(c['field'] for c in cond), w['field_cable'], w['field_spec']), 'doc', wsrc])
+    if r['mode'] != 'direct':
+        jl = r.get('jbloc')
+        sj = next((s for k, s in r['hops'] if k == 'jbloc'), None)
+        jb_txt = w['jb'] + ('：汽機房儀器與 JB 位置圖 %s 第 %s 頁有畫，圖上座標 %s' % (sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords']) if jl and sj
+                            else '（汽機房儀器與 JB 位置圖上沒有這個接線箱）')
+        s_rows.append(['接線箱', jb_txt, 'doc', wsrc])
+        inside = ('前置器 %s 的端子 %s' % (w['prox'], ge_wire_join(c['jb'].replace(w['prox'], '').strip() for c in cond)) if r['mode'] == 'coax' and w['prox']
+                  else '端子 %s%s' % ((w['jb_tb'] + ' ') if w['jb_tb'] else '', ge_wire_join(c['jb'] for c in cond)))
+        s_rows.append(['接線箱內端子', inside, 'doc', wsrc])
+        s_rows.append(['幹線', '%s（%s），芯 %s' % (w['trunk'], w['trunk_spec'], ge_wire_join(c['core'] for c in live)), 'doc', wsrc])
+    pos = ge_wire_join(c['pos'] for c in live)
+    board = ge_wire_join(c['board'] for c in live)
+    m = re.match(r'^(CA\d{3})-(\w+)$', pos)
+    where = ('%s 背板 %s %s' % (m.group(1), m.group(2), board)) if m else board
+    s_rows.append(['電子室盤', '%s%s%s：%s 端子 %s' % (pk[0] + ' ' if pk else '', pname, ('（%s）' % room) if room else '', where, ge_wire_join(c['num'] for c in live)), 'doc', wsrc])
+    io = r.get('io') or []
+    if io:
+        pins = ge_wire_join('%s＝%s' % (c['num'], c['pin']) for c in live if c.get('pin'))
+        txt = '；'.join('%s %s（%s %s）%s → %s%s' % (x[0], x[1], x[3], x[2], x[4], x[5] or '（沒有變數）', '（同位置的電源點 %s）' % x[6] if x[7] == 'loc' else '')
+                       for x in io)
+        s_rows.append(['Mark VIe', txt + ('；端子 %s' % pins if pins else ''), 'ctrl', 'signal-atlas 控制器索引（ToolboxST I/O 組態，螺絲號）'])
+    elif any(c['board'] == 'TVBA' or c['board'] in ('TTUR', 'TCSA', 'TBAI') for c in live):
+        s_rows.append(['Mark VIe', '盤端子落在 Mark VIe 端子板，但控制器索引沒有對到這些螺絲', 'inferred', 'signal-atlas 控制器索引'])
+    else:
+        s_rows.append(['Mark VIe', '不進 Mark VIe：接到 Bently 3500 監測盤（VMS 盤）', 'doc', wsrc])
+    rk = r.get('rack')
+    if rk:
+        sr = next((s for k, s in r['hops'] if k == 'rack'), None)
+        s_rows.append(['Bently 3500', 'RACK %s SLOT %s CH%s（3500 盤圖的槽位表）' % (rk['rack'] or '?', rk['slot'] or '?', rk['ch'] or '?'), 'doc',
+                       'PDF 文字層 · %s 第 %s 頁' % ((sheets[sr].get('title') or sheets[sr]['rel'].rpartition('/')[2]) if sr else '3500 盤圖', sheets[sr]['page'] if sr else '?')])
+    t = []
+    for c in cond:
+        fld = c['field'] + (('（%s）' % c['field_core']) if c['field_core'] else '')
+        pt = ' '.join(x for x in (c['pos'], c['board'], c['num']) if x) or ('（盤側不落端子）' if c['core'].startswith('SH') else '（沒有讀到）')
+        t.append([c['core'], fld, c['jb'], pt, c.get('pin') or '', c.get('io') or ''])
+    rows = []
+    for gi, (kind, s) in enumerate(r['hops']):
+        sh = sheets[s]
+        hs = [h for h in hits if h['sheet'] == s and h.get('hop') == kind]
+        marks = [[round(h['x'] + h['w'] / 2.0, 5), round(h['y'] + h['h'] / 2.0, 5), round(h['w'], 5), round(h['h'], 5)] for h in hs]
+        lab = (hs[0].get('label') if hs else '') or ''
+        src = 'PDF 文字層 · %s 第 %s 頁' % (sh['rel'].rpartition('/')[2], sh['page'])
+        base = {'s': s, 'g': gi}
+        first = dict(base, d=pm['_dkey'][s], p=sh['page'], img=True, marks=marks, drawn=lab, unit='', rel=GE_WIRE_REL[kind], how='text', via='ge', hop=kind)
+        if isinstance(sh.get('pages'), int):
+            first['n'] = sh['pages']
+        if kind == 'wire':
+            pos_t = '① 接線箱端子（%s）、② 盤端子（%s）、③ 元件框' % (ge_wire_join(c['jb'] for c in cond), ge_wire_join(' '.join(x for x in (c['board'], c['num']) if x) for c in live)) \
+                if r['mode'] != 'direct' else '① 現場端子、② 盤端子、③ 元件框'
+            how = 'PDF 文字層；接線圖由試算表範本產生、欄位固定，芯色標籤配端子格保持上下順序，盤側以芯色標籤對接（不照列對齊）'
+        elif kind == 'jbloc':
+            pos_t = '① 接線箱符號、② 標籤（KKS 與座標）' if len(marks) > 1 else '① 標籤（KKS 與座標；圖上的符號在引線另一端）'
+            how = 'PDF 文字層找到標籤，再沿藍色引線找到紅色接線箱符號'
+        elif kind == 'cab':
+            pos_t = '① 板位 %s 的約略範圍' % pos
+            how = '板名是圖上的線條字（不在文字層）：框由背板的欄、列標籤推算，是約略範圍'
+        elif kind == 'vms':
+            pos_t = '① 1TBVIB 現場訊號端子（DIN 軌）的標註'
+            how = 'PDF 文字層'
+        else:
+            pos_t = '① 槽位表上這顆元件 KKS 那一格'
+            how = 'PDF 文字層（槽＝同一欄的 SLOT 表頭、通道＝同一列的 CH）'
+        rows.append([GE_WIRE_HOP[kind], pid_sheet_name(sh), 'doc', src, first])
+        rows.append(['圖面頁次', 'PDF 第 %s 頁%s' % (sh['page'], ('（共 %s 頁）' % sh['pages']) if isinstance(sh.get('pages'), int) else ''), 'doc', src, dict(base)])
+        rows.append(['所在位置', pos_t, 'doc', src, dict(base)])
+        rows.append(['圖上標示', lab, 'doc', src, dict(base)])
+        rows.append(['對應方式', how, 'doc', src, dict(base)])
+    out = {'mode': r['mode'], 'sum': s_rows, 't': t, 'rows': rows}
+    if r.get('notes'):
+        out['n'] = r['notes']
+    jb = (pm.get('_wg_jbs') or {}).get(w['jb']) if w['jb'] else None
+    if jb and jb.get('strip'):
+        out['jb'] = [w['jb'], [x[:4] for x in jb['strip']]]
+    return out
+
+
 GE_LD_NO_RE = re.compile(r'(?:HT\d-\d-)?([A-Z]{3}\d\d-[A-Z]\d{4})|(?<![0-9A-Z])(\d{3}T\d{4})(?![0-9])')
 
 
@@ -2609,6 +2756,15 @@ def ge_loc_build(ge, pm, hm, old_card=None):
             for k2 in ('ld', 'ldn'):
                 if old[(scope, e['tag'])].get(k2):
                     o[k2] = old[(scope, e['tag'])][k2]
+        # 接線路徑（v13）：wp＝{mode, sum, t, rows, n, jb}（ge_wire_card）；只有 wire_ge.json 有的條目（汽機 TSI）才有
+        if pm is not None and pm.get('_wg') is not None:
+            if scope and key in (pm.get('_wg_paths') or {}):
+                o['wp'] = ge_wire_card(pm, key)
+                for r in o['wp']['rows']:
+                    if len(r) > 4 and 'marks' in r[4]:
+                        pid_used[r[4]['s']] = pid_used.get(r[4]['s'], 0) + 1
+        elif pm is None and (scope, e['tag']) in old and old[(scope, e['tag'])].get('wp'):
+            o['wp'] = old[(scope, e['tag'])]['wp']
         if hm is not None:
             hits = (hm.get('_ge') or {}).get(key) or []
             if hits and scope:
@@ -2891,7 +3047,8 @@ def main():
     ap.add_argument('--pid-ge', default=PID_GE_DEFAULT, help='pid_ge.py 的輸出（GE 原廠編號的 P&ID 圖面位置；預設 <CARDWORK>\\pid_ge.json）')
     ap.add_argument('--hmi-ge', default=HMI_GE_DEFAULT, help='hmi_ge.py 的輸出（GE 原廠編號的圖控畫面位置；預設 <CARDWORK>\\hmi_ge.json）')
     ap.add_argument('--loc-ge', default=LOC_GE_DEFAULT, help='loc_ge.py 的輸出（GE 原廠編號的位置圖位置，v12；預設 <CARDWORK>\\loc_ge.json）')
-    ap.add_argument('--no-ge-loc', action='store_true', help='GE 編號卡不放 P&ID／圖控／位置圖位置（不讀 pid_ge.json、hmi_ge.json、loc_ge.json）')
+    ap.add_argument('--wire-ge', default=WIRE_GE_DEFAULT, help='wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13；預設 <CARDWORK>\\wire_ge.json）')
+    ap.add_argument('--no-ge-loc', action='store_true', help='GE 編號卡不放 P&ID／圖控／位置圖位置與接線路徑（不讀 pid_ge.json、hmi_ge.json、loc_ge.json、wire_ge.json）')
     ap.add_argument('--ge-tags', default=GE_DEFAULT, help='GE 原廠設備編號對照表 ge_tags.json（預設 paths.GE_TAGS＝hst-docsearch config.json 的 ge_tags_dir）')
     ap.add_argument('--no-ge', action='store_true', help='不收 GE 原廠編號（--recompare 時保留舊的 sec.getag 與 04 位號索引的 GE 列）')
     a = ap.parse_args()
@@ -2908,7 +3065,8 @@ def main():
     else:
         print('hmi: %s，%d 個畫面、%d 支位號有對應；縮圖 %s'
               % (a.hmi, hm['stats'].get('screens_total', 0), len(hm['by_tag']), hm['_shots_dir'] or '（無，只顯示畫面名稱）'))
-    pm = None if a.no_pid else load_pid(a.pid, a.pid_shots, a.pid_ge if ge_loc_on else None, a.loc_ge if ge_loc_on else None)   # 不一致（圖紙鍵／缺影像／影像與 pid.json 不同步）在這裡就以非 0 結束
+    pm = None if a.no_pid else load_pid(a.pid, a.pid_shots, a.pid_ge if ge_loc_on else None, a.loc_ge if ge_loc_on else None,
+                                        a.wire_ge if ge_loc_on else None)   # 不一致（圖紙鍵／缺影像／影像與 pid.json 不同步）在這裡就以非 0 結束
     if a.no_pid:
         print('pid: 略過')
     elif pm is None:
@@ -2952,6 +3110,8 @@ def main():
         missing.append(('pid_ge', a.pid_ge, '--no-ge-loc'))
     if ge_loc_on and pm is not None and pm.get('_lg') is None:
         missing.append(('loc_ge', a.loc_ge, '--no-ge-loc'))
+    if ge_loc_on and pm is not None and pm.get('_wg') is None:
+        missing.append(('wire_ge', a.wire_ge, '--no-ge-loc'))
     if ge_loc_on and hm is not None and hm.get('_ge') is None:
         missing.append(('hmi_ge', a.hmi_ge, '--no-ge-loc'))
     if missing:
@@ -3341,13 +3501,17 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     ge_loc, ge_pid_used, ge_hmi_used = ge_loc_build(ge, pm, hm, old_card)
     if ge is not None:
         ld_sheets = {r[4]['s'] for v in ge_loc.values() for r in v.get('ld') or [] if len(r) > 4 and 'marks' in r[4]}
+        wp_sheets = {r[4]['s'] for v in ge_loc.values() for r in (v.get('wp') or {}).get('rows') or [] if len(r) > 4 and 'marks' in r[4]}
         stats['getag_loc'] = {'pid_entries': sum(1 for v in ge_loc.values() if v.get('pd')), 'hmi_entries': sum(1 for v in ge_loc.values() if v.get('hm')),
                               'hmi_related_only': sum(1 for v in ge_loc.values() if v.get('hr') and not v.get('hm')),
-                              'pid_sheets': len(set(ge_pid_used) - ld_sheets), 'hmi_screens': len(ge_hmi_used),
+                              'pid_sheets': len(set(ge_pid_used) - ld_sheets - wp_sheets), 'hmi_screens': len(ge_hmi_used),
                               'ld_entries': sum(1 for v in ge_loc.values() if v.get('ld')), 'ld_sheets': len(ld_sheets),
-                              'ld_listed_missing': sum(1 for v in ge_loc.values() if v.get('ldn'))}
+                              'ld_listed_missing': sum(1 for v in ge_loc.values() if v.get('ldn')),
+                              'wp_entries': sum(1 for v in ge_loc.values() if v.get('wp')), 'wp_sheets': len(wp_sheets),
+                              'wp_notes': sum(len((v.get('wp') or {}).get('n') or []) for v in ge_loc.values())}
         print('getag: GE 編號卡 %(pid_entries)d 個編號有 P&ID 圖面位置（%(pid_sheets)d 張圖紙）、%(hmi_entries)d 個有圖控畫面位置（%(hmi_screens)d 個畫面）、'
-              '%(ld_entries)d 個有位置圖位置（%(ld_sheets)d 張圖紙；%(ld_listed_missing)d 個編號的清單位置圖至少一份沒有位置）' % stats['getag_loc'])
+              '%(ld_entries)d 個有位置圖位置（%(ld_sheets)d 張圖紙；%(ld_listed_missing)d 個編號的清單位置圖至少一份沒有位置）、'
+              '%(wp_entries)d 個有接線路徑（%(wp_sheets)d 張圖紙、%(wp_notes)d 則註記）' % stats['getag_loc'])
     # ---- 圖控畫面影像（card/hmi/<slug>.json，走既有 *.json 加密路徑）；--no-hmi 的 --recompare 保留上次發布的
     if hm is not None:
         hmi_ix = hmi_write_images(outdir, out, hm, stats, ge_hmi_used)
