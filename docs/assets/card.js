@@ -76,8 +76,12 @@
   // 引用（build_card_aux 的 note／notes 代碼 1～4）：圖上「提到」這支位號的地方，不是儀器符號的位置。標頭短籤用 PID_REF（整句在
   // 「圖上標示」那一列，由 build_card_aux 寫）；PID_REF_NAME 是連結列「其中 ②③ 是…」用的更短的名字。認不得的代碼用 PID_REF_OTHER。
   const PID_REF = { 1: '這一處是圖上註記／表格（儀器清單）裡的文字，不是儀器符號', 2: '這一處是跨圖訊號旗標，不是儀器本身的位置',
-    3: '這一處是空氣分配圖上的用氣點，不是閥在製程管線上的位置', 4: '這一處在迴路詳圖（TYPICAL 小圖）裡，不是主流程圖上的位置' };
-  const PID_REF_NAME = { 1: '註記／表格裡的文字', 2: '跨圖訊號旗標', 3: '用氣點', 4: '迴路詳圖裡的標籤' };
+    3: '這一處是空氣分配圖上的用氣點，不是閥在製程管線上的位置', 4: '這一處在迴路詳圖（TYPICAL 小圖）裡，不是主流程圖上的位置',
+    5: '這一處是位置圖設備表的一列，不是圖上指著元件的位置' };   // 5：GE 編號卡的位置圖（v12，loc_ge.py）
+  const PID_REF_NAME = { 1: '註記／表格裡的文字', 2: '跨圖訊號旗標', 3: '用氣點', 4: '迴路詳圖裡的標籤', 5: '設備表的一列' };
+  // GE 編號卡「位置圖」：GE 清單列的位置圖各自的狀態（getag-loc.json 的 ldn；build_card_aux GE_LD_STATE）
+  const GE_LD_STATE = { nofile: '文件庫裡找不到這份圖', noscope: '圖的範圍（燃機／汽機）與這個編號不同，沒有比對', miss: '圖上沒有讀到這個編號或它的 KKS',
+    hit: '有位置', cap: '有位置（超過張數上限沒有列出）' };
   const PID_REF_OTHER = ['這一處只是圖上提到這支位號的地方，不是儀器符號', '圖上提到的地方'];
   // JK 開頭的位號（HART 多工器模組）沒有列入 P&ID 比對：[摘要組的短句, 完整資料區的整句]。不可以寫「查無」。
   const PID_JK = ['不在 P&ID 比對範圍（JK 開頭的位號是 HART 多工器模組，圖面沒有比對這一類）',
@@ -772,7 +776,7 @@
       const sec = U.h('section', { class: 'sum-g sum-ge' });
       sec.appendChild(U.h('h3', { class: 'sum-gh' }, 'GE 原廠編號對照（GE 文件）'));
       const grid = U.h('div', { class: 'sum-body' });
-      const ix = { docs: G.j.docs || {}, doc_no: {} };
+      const ix = { docs: G.j.docs || {}, doc_no: G.j.doc_no || {} };   // doc_no（v12）：規格格裡的文件編號（位置圖、P&ID…）開那份檔本身
       const WIDE = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS|Mark VIe 訊號|備註|設定值|其他欄|對照方式|可調範圍|校正範圍)/; // 長的值佔兩格，不要擠在五分之一寬裡
       const MULTI_DOC = /^(其他出處|文件不一致|文件狀態|其他文件寫的 KKS)/;
       const chips = (label, items) => {
@@ -818,7 +822,7 @@
                 det.push(['本格提到的文件', box]);
               }
             }
-            sg.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: WIDE.test(r[0]) ? 2 : undefined, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
+            sg.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), span: WIDE.test(r[0]) ? 2 : undefined, href: lk.href, hrefTitle: lk.hrefTitle, segs: lk.segs, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
           }
           box.appendChild(sg);
           // 位置（v10）：先講「在哪裡」（P&ID 圖面、圖控畫面），再列規格與關聯——共同列之後、規格塊之前
@@ -903,7 +907,9 @@
      *  （摘要版面：圖紙細部視窗、小地圖、燈箱、畫面縮圖都共用）。位置檔約 6 MB 明文，開 GE 編號卡才下載（getag.json 在查詢時就要載）。
      *  圖紙與畫面的中繼資料在 card/index.json（index.pid.sheets／index.hmi.screens），P&ID 的 PDF 連結在 getag.json 的 docs。
      *  帶機組（G12_96FG-1A）時只列那一台的：pd 第一列 extra.gu＝只有某幾部機才有的那一組（不分機組的不帶）、hm 的 gu＝這個編號所屬的機組。
-     *  hmx＝每部機超過 hmi_max 張的畫面只列名；hr＝沒有任何位置時，說明提到這個編號的訊號出現在哪些畫面（不是設備的位置）。 */
+     *  hmx＝每部機超過 hmi_max 張的畫面只列名；hr＝沒有任何位置時，說明提到這個編號的訊號出現在哪些畫面（不是設備的位置）。
+     *  v12：ld＝位置圖（GE 清單「位置圖」欄列的配置／電纜槽／導管／外型圖）上的位置，與 pd 同格式（圖紙也在 index.pid.sheets、影像在 card/pid）；
+     *  extra.listed＝清單有列這份圖、note／notes 5＝設備表的一列；ldn＝[[文件號, 狀態]] 清單列的各份圖有沒有位置（有任何一份沒有才帶）。 */
     geLocBox(e, id, ids, site, mode) {
       const G = AMS.getag.G;
       const pick = (rows, ok) => {   // 依組（extra.g）篩：每組第一列帶整組的 extra
@@ -920,16 +926,17 @@
       };
       const gp = part('P&ID 圖面位置', 'ge-pid');
       const gh = part('圖控 HMI 畫面位置', 'ge-hmi');
+      const gl = part('位置圖位置（GE 配置／電纜槽／外型圖）', 'ge-ld');
       const none = (el, text) => { el.innerHTML = ''; el.appendChild(U.h('p', { class: 'muted cl-empty' }, text)); };
       const res = this.res;
       Promise.all([D.loadAuxIndex(this.spec.aux && this.spec.aux.index), G.j.loc && ids.some((i) => G.j.entries[i] && G.j.entries[i].lc) ? D.fetchJSON(G.j.loc) : null]).then(([aix, lj]) => {
         if (this.destroyed || this.res !== res) return;
-        const ix = Object.assign({}, aix, { docs: Object.assign({}, G.j.docs || {}), doc_no: {} });
+        const ix = Object.assign({}, aix, { docs: Object.assign({}, G.j.docs || {}), doc_no: G.j.doc_no || {} });
         const L = (i) => ((lj && lj.by_i) || {})[String(i)] || {};
         const lo = L(id);
         const pd = pick(lo.pd, (ex) => !site || !ex.gu || ex.gu.includes(site));
         const hm = pick(lo.hm, (ex) => !site || !ex.gu || ex.gu === site);
-        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => L(i).pd || []) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
+        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => (L(i).pd || []).concat(L(i).ld || [])) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
         if (pd.length) { gp.innerHTML = ''; this.fillPid({ rows: pd }, ix, gp, mode, true); }
         else none(gp, !e.sc ? '沒有比對（GE 文件沒寫是燃機還是汽機，不知道要找哪一套圖）'
           : `查無（GE 示意圖與 P&ID 的 PDF 文字層、OCR 都沒有讀到這個編號${(e.kb || []).length ? '或它的 KKS' : ''}；不代表圖上沒有畫，可能是線條字沒讀到或只畫在接線圖上）`);
@@ -946,6 +953,17 @@
               : `查無（這個編號沒有 Mark VIe 訊號，${n ? n + ' 個操作員畫面' : '操作員畫面'}上也沒有寫著這個編號）`);
           }
         }
+        // 位置圖（v12）：GE 清單「位置圖」欄列的圖上，這個編號畫在哪裡（引線標註優先、設備表的一列其次）；ldn＝清單列的各份圖的狀態
+        const ld = lo.ld || [];
+        if (ld.length) {
+          gl.innerHTML = '';
+          this.fillPid({ rows: ld }, ix, gl, mode, true, { nosym: '這幾張位置圖上只在設備表或附註裡讀到這個編號，沒有讀到指著元件的引線標註——不代表圖上沒有畫，請開 PDF 確認。下面是圖上「提到」它的地方（各張圖的標頭寫明是哪一種）。' });
+        }
+        else none(gl, (lo.ldn || []).length ? '查無（GE 清單列的位置圖上都沒有讀到這個編號）' : 'GE 清單沒有列這個編號的位置圖，其他位置圖上也沒有讀到它');
+        if ((lo.ldn || []).length) {
+          gl.appendChild(U.h('p', { class: 'muted small aux-note' }, 'GE 清單「位置圖」欄列的圖：'
+            + lo.ldn.map(([no, st]) => `${no}（${GE_LD_STATE[st] || st}）`).join('、')));
+        }
         for (const [un, rep, list] of lo.hms || []) {
           if (site && un !== site) continue;
           gh.appendChild(U.h('p', { class: 'muted small aux-note' }, `${un}：「${rep}」上的同一個面板也出現在另外 ${list.length} 張 SIL 畫面（${list.join('、')}），只列一張。`));
@@ -954,7 +972,7 @@
           if (site && un !== site) continue;
           gh.appendChild(U.h('p', { class: 'muted small aux-note' }, `${un} 另有 ${list.length} 張畫面也有這個編號（同一個面板在各頁重複，只列前 ${G.j.hmi_max || ''} 張的影像）：${list.join('、')}`));
         }
-      }).catch((err) => { if (!this.destroyed && this.res === res) { none(gp, '無法載入圖面索引：' + ((err && err.message) || err)); gh.innerHTML = ''; } });
+      }).catch((err) => { if (!this.destroyed && this.res === res) { none(gp, '無法載入圖面索引：' + ((err && err.message) || err)); gh.innerHTML = ''; gl.innerHTML = ''; } });
       return box;
     }
 
@@ -1089,7 +1107,7 @@
         src: f.src ? { lvl: f.src.lvl, text: this.fillSrc(f.src.text, row), detail: f.src.detail } : null,
       }, mode);
     }
-    /** o: {label, val, tip, span, css, num, warn, soft, flags:[{t,cls}], cmp, src:{lvl,text,detail:[[k,v]]}} */
+    /** o: {label, val, tip, span, css, num, warn, soft, flags:[{t,cls}], cmp, href, hrefTitle, segs:[{t,href?,title?}], src:{lvl,text,detail:[[k,v]]}} */
     fieldEl(o) {
       const item = U.h('div', { class: 'cf' + (o.span === 2 ? ' span2' : '') + (o.src ? ' has-src' : '') });
       if (o.cmp) item.dataset.cmp = o.cmp;
@@ -1100,7 +1118,9 @@
       const shown = o.text != null ? o.text : o.val; // o.text：顯示文字與原值不同時（網址類的值顯示短標籤）
       if (!blank) v.dataset.copy = String(o.val); // 摘要格點一下複製用的原值（網址類複製完整網址，不是短標籤）
       if (!blank && o.href) v.appendChild(U.h('a', { class: 'cf-t doclk', href: o.href, target: '_blank', rel: 'noopener noreferrer', title: o.hrefTitle || '在 Google 雲端硬碟開啟這份文件' }, U.visible(shown, true)));
-      else v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(shown, true)));
+      else if (!blank && o.segs) { // 一格好幾個文件編號（valueLink 的 segs）：每個編號各自一個連結
+        v.appendChild(U.h('span', { class: 'cf-t' }, ...o.segs.map((s) => (s.href ? U.h('a', { class: 'doclk', href: s.href, target: '_blank', rel: 'noopener noreferrer', title: s.title || '在 Google 雲端硬碟開啟這份文件' }, U.visible(s.t, true)) : U.visible(s.t, true)))));
+      } else v.appendChild(U.h('span', { class: blank ? 'cf-dash' : 'cf-t' }, blank ? '—' : U.visible(shown, true)));
       for (const fl of o.flags || []) v.appendChild(U.h('span', { class: 'cmp-flag ' + (fl.cls || '') }, fl.t));
       item.appendChild(v);
       if (o.src) {
@@ -1299,6 +1319,23 @@
         detail.push(['連結', U.h('a', { class: 'lk', href: sv, target: '_blank', rel: 'noopener noreferrer' }, sv)]);
         return { href: sv, hrefTitle: '開啟 ' + sv, text };
       }
+      // 一格寫了兩個以上的文件編號（GE 清單的位置圖「HT0-1-GZD01-M0147 HT0-1-GZD01-M0166」）：每個編號各自連到自己那份檔（segs 逐段顯示），
+      // 不是整格只連第一份
+      const many = [...sv.matchAll(/HT\d-\d-[A-Z]{3}\d\d-[A-Z]\d{4}/g)];
+      if (many.length > 1) {
+        const segs = []; let at = 0;
+        for (const m of many) {
+          if (m.index > at) segs.push({ t: sv.slice(at, m.index) });
+          const one = this.docNoLink(ix, m[0]);
+          const d = one ? ix.docs[one.key] : null;
+          segs.push(one ? { t: m[0], href: one.href, title: one.title } : { t: m[0] });
+          detail.push(['欄位所指文件 ' + m[0], d ? U.h('span', {}, d.title + '（' + (d.folder && d.folder !== '.' ? d.folder : '根目錄') + '）', U.h('a', { class: 'lk', href: one.href, target: '_blank', rel: 'noopener noreferrer' }, ' 開啟 ↗'))
+            : '文件庫裡沒有這個編號的檔']);
+          at = m.index + m[0].length;
+        }
+        if (at < sv.length) segs.push({ t: sv.slice(at) });
+        return { href: null, hrefTitle: null, segs: segs.some((s) => s.href) ? segs : null };
+      }
       const dn = this.docNoLink(ix, val);
       if (dn) {
         const d = ix.docs[dn.key];
@@ -1353,7 +1390,7 @@
               const flags2 = CMP_TEXT[st] && st !== 'ok' ? [{ t: CMP_TEXT[st], cls: cmpCls(st) }] : [];
               // 每一格各自一份來源明細：裡面的「開啟檔案」連結是 DOM 節點，整段共用一份時會被搬到最後一格，其他格只剩空的「Google 雲端硬碟」
               const det = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]); const lk = this.valueLink(ix, r[1], ent.d, det);
-              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
+              grid.appendChild(this.fieldEl({ label: r[0], val: U.cardValue(r[1]), warn: st === 'warn', flags: flags2, href: lk.href, hrefTitle: lk.hrefTitle, segs: lk.segs, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
             }
           }
           return;
@@ -1664,7 +1701,7 @@
       const detail = ent ? this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]) : [];
       const lk = ent ? (r.rowsMode ? { href: this.docHref(ix, ent.d), hrefTitle: this.docTitle(ix, ent.d) } : this.valueLink(ix, val, ent.d, detail)) : {};
       const src = ent ? { lvl: ent.lvl, text: ent.src, detail } : null;
-      return { label, val, span: it.span, flags, warn: stt === 'warn', src, href: lk.href || null, hrefTitle: lk.hrefTitle || null, soft: !ent, tip: ent ? '' : `查無（${this.kindLabel(kind)}無此位號）` };
+      return { label, val, span: it.span, flags, warn: stt === 'warn', src, href: lk.href || null, hrefTitle: lk.hrefTitle || null, segs: lk.segs || null, soft: !ent, tip: ent ? '' : `查無（${this.kindLabel(kind)}無此位號）` };
     }
     /** 整組依 card aux 區段填入：docindex（每份文件一列）或 per_entry（DCS 端子表每個訊號一塊） */
     fillSumGroup(g, grid, aux, ix, mode) {
@@ -1695,7 +1732,7 @@
           const flags = CMP_TEXT[stt] && stt !== 'ok' ? [{ t: CMP_TEXT[stt], cls: cmpCls(stt) }] : [];
           // 每一格各自一份來源明細（「開啟檔案」連結是 DOM 節點，共用會被搬到最後一格）
           const v = this.rowVal(ent, key); const det = this.docDetail(ix, ent.d, [['比對規則', ent.rule], ['備註', ent.note]]); const lk = this.valueLink(ix, v, ent.d, det);
-          sg.appendChild(this.fieldEl({ label: key, val: v, text: lk.text, flags, href: lk.href, hrefTitle: lk.hrefTitle, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
+          sg.appendChild(this.fieldEl({ label: key, val: v, text: lk.text, flags, href: lk.href, hrefTitle: lk.hrefTitle, segs: lk.segs, src: { lvl: ent.lvl, text: ent.src, detail: det } }, mode));
         }
         sig.appendChild(sg);
         grid.appendChild(sig);
@@ -1958,7 +1995,7 @@
      *  點開後可縮放拖曳的燈箱（openPidLightbox）。圖紙的檔名與長寬只由 pidMeta 讀。
      *  `inSum` 只決定版面：摘要組是「圖紙標頭＋PDF 連結列＋影像」，完整資料區另有五個欄位與逐格來源。
      *  影像一律延後：展開中的那一張等捲進畫面才抓（whenNear），收起來的（PID_FOLD）等使用者展開才抓（whenDetailsOpen）。 */
-    fillPid(sec, ix, grid, mode, inSum) {
+    fillPid(sec, ix, grid, mode, inSum, opts) {
       grid.innerHTML = '';
       grid.classList.remove('cfields', 'sumgrid');   // 每張圖紙一塊（完整資料區的塊裡有自己的 .cfields），不是一格一欄
       grid.classList.add('hmi-body', 'pid-body');
@@ -1980,7 +2017,7 @@
       }
       // 每一張圖紙上都只有引用（extra.note）＝現行圖面上沒有找到這支位號的儀器符號：在最上面先講一句，免得把下面的位置當成儀器的位置
       if (groups.every((g) => this.pidRefCode(g.head) > 0)) {
-        grid.appendChild(U.h('p', { class: 'pid-nosym' }, '這次比對（PDF 文字層＋OCR）沒有讀到這支位號的儀器符號——不代表圖上沒有畫，請開 PDF 確認。下面是圖上「提到」這支位號的地方（各張圖的標頭寫明是哪一種），不是儀器符號的位置。'));
+        grid.appendChild(U.h('p', { class: 'pid-nosym' }, (opts && opts.nosym) || '這次比對（PDF 文字層＋OCR）沒有讀到這支位號的儀器符號——不代表圖上沒有畫，請開 PDF 確認。下面是圖上「提到」這支位號的地方（各張圖的標頭寫明是哪一種），不是儀器符號的位置。'));
       }
       const fold = groups.length > PID_FOLD;
       groups.forEach((grp, gi) => {

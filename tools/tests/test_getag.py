@@ -9,7 +9,9 @@ CTDA10 不中 CTDA1；燃機汽機同編號列兩塊；閥清單也有的編號�
 頂列 Enter、深連結第一次載入（對照表還在下載）都開得到；手機寬度不橫向捲動。
 v10（card/getag-loc.json）：96FG-1A 的 GE 編號卡有 P&ID 圖面位置（燃料氣示意圖 GFD01-D0005-3 第 7 頁左上 A-3，影像與紅框）與圖控畫面位置
 （SIL EFFF／FtI／Vent，G11、G12 各一組，標頭寫元件所屬機組）；位置區排在規格之前；帶機組只列那一台；沒有位置的編號寫查無；
-換到沒有圖紙的卡時圖紙影像收掉；手機寬度不橫向捲動。"""
+換到沒有圖紙的卡時圖紙影像收掉；手機寬度不橫向捲動。
+v12（2026-10-27）：GE 清單「位置圖」欄的文件編號各自可點開雲端硬碟（CT-DA-2 的 M0147、M0166 兩個連結）；位置區多「位置圖位置」：
+CT-DA-2 在 M0147 與 M0166 第 3 頁的引線標註（M0166 第 4 頁的設備表列不發布）、TT-WR-3B 逗號接續、TT-WS1FI-2 形近字、汽機 KKS 標註。"""
 from urllib.parse import quote
 from e2e_common import Checks, browser, login, load_card, shot
 
@@ -293,7 +295,60 @@ FIX_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entrie
     nFix: E.filter((e) => s(e).includes('"對照表更正"')).length }; }"""
 
 
+# v12：位置圖（loc_ge.py）——CT-DA-2 兩份位置圖（M0147 清單第一份、M0166 只留第 3 頁的引線標註）、TT-WR-3B 逗號接續（M0150）、
+# TT-WS1FI-2 形近字（M0147 寫 TT-WSIF1-2）、汽機以 KKS 本體標在 TZD01-D0002 上的、規格格的文件編號（doc_no）
+LD_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
+  const at = (sys, t) => by[String(E.findIndex((e) => e.t === t && e.sys === sys))] || {};
+  const heads = (rows) => (rows || []).filter((r) => r[4] && r[4].marks).map((r) => r[4]);
+  const how = (rows) => (rows || []).filter((r) => r[0] === '對應方式').map((r) => String(r[1])).join('｜');
+  const ct = at('燃機', 'CT-DA-2'); const wr = at('燃機', 'TT-WR-3B'); const ws = at('燃機', 'TT-WS1FI-2');
+  const st = E.filter((e, k) => e.sc === 'S' && heads((by[String(k)] || {}).ld).some((x) => x.via === 'kks' && !x.note && x.listed));
+  const dn = G.j.doc_no || {};
+  return { n: E.filter((e, k) => (by[String(k)] || {}).ld).length, cIdx: E.findIndex((e) => e.t === 'CT-DA-2' && e.sys === '燃機'),
+    ct: heads(ct.ld).map((x) => x.s + '|' + x.p + '|' + (x.notes || [0]).join('') + '|' + x.listed), ctLdn: ct.ldn || null,
+    wr: heads(wr.ld).map((x) => x.s), wrHow: how(wr.ld), ws: heads(ws.ld).map((x) => x.s), wsHow: how(ws.ld), wsLvl: (ws.ld || []).map((r) => r[2]),
+    stN: st.length, docNo: Object.keys(dn).length, m147: dn['HT0-1-GZD01-M0147'] || '', m166: dn['HT0-1-GZD01-M0166'] || '',
+    url147: ((G.j.docs || {})[dn['HT0-1-GZD01-M0147']] || {}).url || '', url166: ((G.j.docs || {})[dn['HT0-1-GZD01-M0166']] || {}).url || '' }; }"""
+LD_TAG = 'CT-DA-2'
+LD_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'); if (!g) return null; const l = g.querySelector('.ge-loc .ge-ld'); if (!l) return null;
+  const cf = [...g.querySelectorAll('.ge-spec + .cfields .cf, .cfields .cf')].find((x) => (x.querySelector('.cf-k') || {}).textContent === '位置圖');
+  return { loading: /載入中/.test(l.textContent), sheets: [...l.querySelectorAll('.pid-sheet')].map((b) => (b.querySelector('.pid-head') || b).textContent),
+    img: l.querySelectorAll('img').length, mk: l.querySelectorAll('.hmi-box, .hmi-mk').length, link: [...l.querySelectorAll('.pid-bar a')].map((a) => a.href),
+    locLinks: cf ? [...cf.querySelectorAll('.cf-v a.doclk')].map((a) => [a.textContent, a.href]) : null, locText: cf ? cf.querySelector('.cf-v').textContent : null }; }"""
+
+
+def ge_ld(page, ctx, ck):
+    v = page.evaluate(LD_JS)
+    ck('v12 location drawings: ≥ 1000 GE entries have a 位置圖 position', bool(v) and v['n'] >= 1000, v and v['n'])
+    ck('CT-DA-2: 位置圖 ① is GZD01-M0147 (first on its list), M0166 p.3 callout is listed, M0166 p.4 table row is not published',
+       bool(v) and v['ct'] and 'GZD01-M0147' in v['ct'][0] and any('GZD01-M0166' in x and '|3|' in x for x in v['ct'])
+       and not any('GZD01-M0166' in x and '|4|' in x for x in v['ct']) and all(x.endswith('|1') for x in v['ct']) and not v['ctLdn'],
+       v and (v['ct'], v['ctLdn']))
+    ck('TT-WR-3B: comma-continued label TT-WR-3A,3B,3C on GZD01-M0150', bool(v) and any('GZD01-M0150' in x for x in v['wr']) and '逗號接續' in v['wrHow'],
+       v and (v['wr'], v['wrHow'][:80]))
+    ck('TT-WS1FI-2: look-alike TT-WSIF1-2 on GZD01-M0147, level inferred', bool(v) and any('GZD01-M0147' in x for x in v['ws']) and '形近字' in v['wsHow']
+       and 'inferred' in v['wsLvl'], v and (v['ws'], v['wsHow'][:80]))
+    ck('ST: ≥ 100 entries located by bare KKS callouts on their listed drawing (TZD01-D0002)', bool(v) and v['stN'] >= 100, v and v['stN'])
+    ck('getag.json doc_no: spec cells\' document numbers resolve (M0147, M0166 → Drive url)', bool(v) and v['docNo'] >= 50 and v['m147'] and v['m166']
+       and 'drive.google.com' in v['url147'] and 'drive.google.com' in v['url166'] and v['url147'] != v['url166'], v and (v['docNo'], v['m147'], v['m166']))
+    s = ge_query(page, ctx, LD_TAG)
+    ck('「%s」→ GE card (location drawing test)' % LD_TAG, s['ge'] and s['tag'] == LD_TAG, s['tag'])
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-ld'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    page.evaluate("document.querySelector('.ge-only .ge-loc .ge-ld').scrollIntoView({ block: 'center' })")   # 位置圖在 P&ID、圖控之下：影像捲到附近才抓
+    page.wait_for_function("document.querySelector('.ge-loc .ge-ld img')", timeout=60000)
+    page.wait_for_timeout(800)
+    st = page.evaluate(LD_STATE)
+    ck('%s: 位置圖 cell shows two document numbers, each its own Drive link' % LD_TAG,
+       bool(st) and st['locLinks'] and len(st['locLinks']) == 2 and {t for t, _h in st['locLinks']} == {'HT0-1-GZD01-M0147', 'HT0-1-GZD01-M0166'}
+       and all('drive.google.com' in h for _t, h in st['locLinks']) and st['locLinks'][0][1] != st['locLinks'][1][1], st and (st['locLinks'], st['locText']))
+    ck('%s: 位置圖位置 part lists M0147 first, with a Drive link, a loaded image and marks' % LD_TAG,
+       bool(st) and st['sheets'] and 'GZD01-M0147' in st['sheets'][0] and any('GZD01-M0166' in x for x in st['sheets'])
+       and any('drive.google.com' in h for h in st['link']) and st['img'] >= 1 and st['mk'] >= 1, st and (st['sheets'][:3], st['img'], st['mk']))
+    shot(page, ctx, 'getag_ld')
+
+
 def ge_loc(page, ctx, ck):
+    ge_ld(page, ctx, ck)
     fx2 = page.evaluate(FIX_JS)
     ck('crosswalk fix ZS-211AC: KKS corrected to MAA11QN001-BG04, card says 已更正, signal di_l33cv1_c_st (no longer iv1_pos)',
        bool(fx2) and fx2['zsKks'] and fx2['zsFix'] and fx2['zsSig'] and not fx2['zsIv'], fx2)
@@ -336,8 +391,8 @@ def ge_loc(page, ctx, ck):
     page.wait_for_function("document.querySelector('.ge-loc .ge-pid img')", timeout=60000)
     page.wait_for_timeout(800)
     st = page.evaluate(LOC_STATE)
-    ck('%s: location block has P&ID and HMI parts, placed before the spec blocks' % SPEC_TAG,
-       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置'] and st['before'], st and (st['heads'], st['before']))
+    ck('%s: location block has P&ID, HMI and location-drawing parts, placed before the spec blocks' % SPEC_TAG,
+       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置', '位置圖位置（GE 配置／電纜槽／外型圖）'] and st['before'], st and (st['heads'], st['before']))
     ck('%s: P&ID sheet header names GFD01-D0005 Rev.3, PDF p.7, zone A-3, with a Drive link and a loaded image with marks' % SPEC_TAG,
        bool(st) and st['sheets'] and 'HT0-1-GFD01-D0005' in st['sheets'][0] and '第 7' in st['sheets'][0] and 'A-3' in st['sheets'][0]
        and any('drive.google.com' in h for h in st['pidLink']) and st['pidImg'] >= 1 and st['pidMk'] >= 1,

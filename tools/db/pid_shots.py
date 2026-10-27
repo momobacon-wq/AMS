@@ -4,6 +4,7 @@ r"""tools/db/pid_shots.py — 把 pid.json 引用到的 P&ID 圖紙渲染成整�
 輸入：tools/db/pid_index.py 的 pid.json（只渲染 by_tag 真的引用到的圖紙）＋文件庫裡那份 PDF（唯讀）。
       另外併入 tools/db/pid_ge.py 的 pid_ge.json（GE 原廠編號的圖面位置；by_ge 引用到的圖紙）——同一張圖紙兩邊的 sheets 記錄必須相同
       （同一個 slug、同一個 rot／page／src），影像只出一張、兩邊共用。沒有 pid_ge.json 時只出 pid.json 的（--no-ge-loc 明確略過）。
+      v12 再併入 tools/db/loc_ge.py 的 loc_ge.json（GE 編號在位置圖＝配置／電纜槽／導管／外型圖上的位置；同一個規則，--no-loc 略過）。
 輸出：<out>/<slug>.webp（轉正後整張圖）＋ <out>/index.json。
 
 == 影像規格（為什麼是這樣）==
@@ -66,6 +67,7 @@ r"""tools/db/pid_shots.py — 把 pid.json 引用到的 P&ID 圖紙渲染成整�
   py tools/db/pid_shots.py                                   # 讀 paths.PID_JSON，寫 paths.PID_SHOTS
   py tools/db/pid_shots.py --pid X\pid.json --out X\pid_shots --jobs 6
   py tools/db/pid_shots.py --pid-ge X\pid_ge.json           # GE 編號定位的結果另給路徑（預設 <pid.json 同目錄>\pid_ge.json）
+  py tools/db/pid_shots.py --loc-ge X\loc_ge.json           # GE 編號的位置圖位置（tools/db/loc_ge.py；預設 <pid.json 同目錄>\loc_ge.json）
   py tools/db/pid_shots.py --max-minutes 8                   # 做不完就先寫 index.json、回傳碼 2，再跑一次即可續
   py tools/db/pid_shots.py --force                           # 忽略快取全部重做
   py tools/db/pid_shots.py --colour-report                   # 另印每張圖的彩色墨跡比例（不影響輸出）
@@ -242,6 +244,8 @@ def main():
     ap.add_argument('--out', default=paths.PID_SHOTS, help='輸出目錄（預設 paths.PID_SHOTS）')
     ap.add_argument('--pid-ge', default=None, help='pid_ge.py 的輸出（預設 <pid.json 同目錄>\\pid_ge.json；不存在就只出 pid.json 引用的圖紙）')
     ap.add_argument('--no-ge-loc', action='store_true', help='不併入 pid_ge.json（GE 原廠編號的圖面位置）')
+    ap.add_argument('--loc-ge', default=None, help='loc_ge.py 的輸出（GE 編號的位置圖位置；預設 <pid.json 同目錄>\\loc_ge.json；不存在就不出位置圖）')
+    ap.add_argument('--no-loc', action='store_true', help='不併入 loc_ge.json（GE 編號的位置圖位置）')
     ap.add_argument('--library', default=paths.LIBRARY_ROOT, help='文件庫根目錄（預設 paths.LIBRARY_ROOT；唯讀）')
     ap.add_argument('--jobs', type=int, default=min(6, os.cpu_count() or 1), help='同時渲染幾張')
     ap.add_argument('--max-minutes', type=float, default=0, help='最多跑幾分鐘（0＝不限）；做不完回傳碼 2，再跑一次即可續')
@@ -258,29 +262,34 @@ def main():
     miss = [s for s in used if s not in sheets]
     if miss:
         sys.exit('pid.json 的 by_tag 引用了 sheets 裡沒有的圖紙：%s' % miss[:5])
-    # GE 原廠編號的圖面位置（pid_ge.json）：被引用的圖紙併進來；同一張圖兩邊的記錄必須一致，否則兩邊的標記會落在不同的影像座標上
-    gp = a.pid_ge or os.path.join(os.path.dirname(os.path.abspath(a.pid)), 'pid_ge.json')
-    n_ge_only = 0
-    if not a.no_ge_loc and os.path.exists(gp):
-        with open(gp, encoding='utf-8') as f:
+    # GE 原廠編號的圖面位置（pid_ge.json）與位置圖位置（loc_ge.json，v12）：被引用的圖紙併進來；同一張圖兩邊的記錄必須一致，
+    # 否則兩邊的標記會落在不同的影像座標上（位置圖與 P&ID 是不同的 PDF，正常不會撞 slug；撞了就照同一個規則驗）
+    here = os.path.dirname(os.path.abspath(a.pid))
+    for fn, path, off, what in (('pid_ge.json', a.pid_ge or os.path.join(here, 'pid_ge.json'), a.no_ge_loc, 'P&ID 圖面位置'),
+                                ('loc_ge.json', a.loc_ge or os.path.join(here, 'loc_ge.json'), a.no_loc, '位置圖位置')):
+        if off:
+            continue
+        if not os.path.exists(path):
+            print('（沒有 %s：GE 編號卡不會有%s）' % (path, what))
+            continue
+        with open(path, encoding='utf-8') as f:
             pg = json.load(f)
         gsh = pg.get('sheets') or {}
         gused = sorted({e['sheet'] for v in (pg.get('by_ge') or {}).values() for e in v})
         miss = [s for s in gused if s not in gsh]
         if miss:
-            sys.exit('pid_ge.json 的 by_ge 引用了 sheets 裡沒有的圖紙：%s' % miss[:5])
+            sys.exit('%s 的 by_ge 引用了 sheets 裡沒有的圖紙：%s' % (fn, miss[:5]))
+        n_ge_only = 0
         for s in gused:
             if s in sheets:
                 diff = [k for k in ('rel', 'page', 'rot', 'src', 'label_pt', 'w_pt', 'h_pt') if sheets[s].get(k) != gsh[s].get(k)]
                 if diff:
-                    sys.exit('pid.json 與 pid_ge.json 的同一張圖紙 %s 記錄不同（%s）：兩支產生器讀的不是同一版，先重跑 pid_index.py 與 pid_ge.py' % (s, '、'.join(diff)))
+                    sys.exit('%s 與先前讀入的同一張圖紙 %s 記錄不同（%s）：產生器讀的不是同一版，先重跑 pid_index.py、pid_ge.py、loc_ge.py' % (fn, s, '、'.join(diff)))
             else:
                 sheets[s] = gsh[s]
                 n_ge_only += 1
         used = sorted(set(used) | set(gused))
-        print('pid_ge.json：GE 編號引用 %d 張圖紙，其中 %d 張不在 pid.json 的引用裡（一併出圖）' % (len(gused), n_ge_only))
-    elif not a.no_ge_loc:
-        print('（沒有 %s：只出 pid.json 引用的圖紙；GE 編號卡不會有 P&ID 圖面位置）' % gp)
+        print('%s：GE 編號引用 %d 張圖紙，其中 %d 張先前沒有引用（一併出圖）' % (fn, len(gused), n_ge_only))
     for s in used:
         if not L.SLUG_RE.match(s):
             sys.exit('slug 不合規則：%r' % s)
