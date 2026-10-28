@@ -923,7 +923,27 @@ table.wire-cond caption { caption-side: top; text-align: left; padding: 6px 0 2p
 .wire-pics { margin-top: 6px; }
 .pid-head .wire-hop { font-weight: 600; color: var(--text); }
 .wire-jb { margin-top: 6px; }
+table.wire-field caption { caption-side: top; text-align: left; padding: 6px 0 2px; }
+.wire-path + .wire-path { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.wire-path-h { margin: 0 0 6px; font-size: 0.95em; }
 .wire-jb > summary { cursor: pointer; padding: 4px 0; }
+/* 迴路圖（v15，card.js fillLoop／loopSvg）：ISA-5.4 式單線圖。圖本身白底黑線（像圖紙），深色主題也一樣；
+   「列印這張迴路圖」把 SVG 放進 body 底下的 #loop-print，列印時只印它（A4 橫向）；平常整頁列印時迴路圖跟著卡片印 */
+.wire-loop { margin: 2px 0 8px; }
+.wire-loop > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
+.loop-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 6px; }
+.loop-fig { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.loop-fig svg { display: block; width: 100%; min-width: 760px; height: auto; }
+#loop-print { display: none; }
+@page loop { size: A4 landscape; margin: 8mm; }
+@media print {
+  body.print-loop > *:not(#loop-print) { display: none !important; }
+  body.print-loop #loop-print { display: block; page: loop; }
+  #loop-print svg { display: block; width: 100%; height: auto; max-height: 190mm; }
+  .wire-loop .loop-tools { display: none; }
+  .loop-fig { overflow: visible; border: 0; }
+  .loop-fig svg { min-width: 0; }
+}
 .ge-links .chip-btn.plain { cursor: default; border-style: dashed; } /* 對照表沒有這個名稱的條目：只列名稱，不是連結 */
 .ge-links .chip-btn.plain:hover { border-color: var(--border); color: var(--text); }
 /* 可收合的摘要組（details）：標題列可點，自繪 ▸／▾ */

@@ -42,7 +42,7 @@ sys.path.insert(0, HERE)
 import paths  # noqa: E402  （tools/db/paths.py：repo 外路徑的唯一來源）
 PID_GE_JSON = os.path.join(paths.CARDWORK, 'pid_ge.json')   # tools/db/pid_ge.py 的輸出（GE 原廠編號 → P&ID 圖紙與座標）
 LOC_GE_JSON = os.path.join(paths.CARDWORK, 'loc_ge.json')   # tools/db/loc_ge.py 的輸出（GE 原廠編號 → 位置圖與座標，v12）
-WIRE_GE_JSON = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13）
+WIRE_GE_JSON = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py 的輸出（GE 編號的接線路徑，v13 汽機 TSI、v14 一號機全部）
 HMI_GE_JSON = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py 的輸出（GE 原廠編號 → 圖控畫面與座標）
 
 
@@ -176,11 +176,12 @@ def run_pid_ge(a):
     """GE 原廠編號的圖面定位（pid_ge：同一份 corpus／文字層快取／OCR 對照表＋GE 編號對照表 → cardwork/pid_ge.json，約 15 秒）。
     要在 pid_shots 之前：它引用到、pid.json 沒有的圖紙由 pid_shots 一併出圖。
     接著跑位置圖定位（loc_ge，v12：GE 清單「位置圖」欄列的配置／電纜槽／外型圖的文字層 → cardwork/loc_ge.json，約 5 秒），同樣在 pid_shots 之前。
-    再跑汽機 TSI 的接線路徑（wire_ge，v13：一號機 ST 儀控電纜接線圖＋JB 位置圖＋盤面配置＋3500 盤圖的文字層，盤端子以 signal-atlas 索引的螺絲號核對
-    → cardwork/wire_ge.json，約 10 秒）。"""
+    再跑 GE 編號的接線路徑（wire_ge，v14：一號機 ST／GT 儀控電纜接線圖、GE 燃機接線表 138T5502、JB 位置圖、電纜表、盤面配置、3500 盤圖，
+    盤端子以 signal-atlas 索引的螺絲號核對、FF 段以 FF_IN_S 段號核對；v16 另框 GPP／手動同步盤／GCB／UAT／LCI 中壓盤的端子（wire_ep，配置圖索引約 22 秒）、
+    讀 ge_tags_dir 的 wire_curated.json 畫中間設備、3500 分支、判訊號型式與供電 → cardwork/wire_ge.json，約 50 秒；燃機接線圖的向量框線第一次抽要多約 1 分鐘）。"""
     run('P&ID GE 原廠編號定位（pid_ge → %s）' % PID_GE_JSON, PY, os.path.join('tools', 'db', 'pid_ge.py'), '--out', PID_GE_JSON)
     run('位置圖 GE 原廠編號定位（loc_ge → %s）' % LOC_GE_JSON, PY, os.path.join('tools', 'db', 'loc_ge.py'), '--out', LOC_GE_JSON)
-    run('汽機 TSI 接線路徑（wire_ge → %s）' % WIRE_GE_JSON, PY, os.path.join('tools', 'db', 'wire_ge.py'), '--out', WIRE_GE_JSON, '--dcdas', paths.DCDAS_INDEX)
+    run('GE 編號接線路徑（wire_ge → %s）' % WIRE_GE_JSON, PY, os.path.join('tools', 'db', 'wire_ge.py'), '--out', WIRE_GE_JSON, '--dcdas', paths.DCDAS_INDEX)
 
 
 LOUD = []   # 重建途中「不擋建置、但位置會默默變少」的警告；印在當下，rebuild 結尾（verify_and_finish）再印一次——中間隔著幾百行輸出，只印一次沒有人看得到

@@ -811,11 +811,11 @@ def ge_card_data(ge, loc=None, pm=None):
                      ('sig', sig), ('lg', lg), ('kb', sorted(cur)), ('okb', okb), ('sp', sp), ('vl', vl), ('vi', vi), ('pr', pr), ('pi', pi), ('ps', ps), ('pv', pv)):
             if v:
                 o[k] = v
-        lo = {k: v for k, v in ((loc or {}).get(e['_i']) or {}).items() if k in ('pd', 'hm', 'hmx', 'hr', 'hms', 'ld', 'ldn', 'wp') and v}
+        lo = {k: v for k, v in ((loc or {}).get(e['_i']) or {}).items() if k in ('pd', 'hm', 'hmx', 'hr', 'hms', 'ld', 'ldn', 'wp', 'wpx', 'wpn', 'wpr') and v}
         if lo:
             o['lc'] = 1   # 這個條目在 getag-loc.json 有位置列（前端沒有這個旗標就不下載那個檔）
             locs[str(len(ents))] = lo
-        for r in (lo.get('pd') or []) + (lo.get('ld') or []) + ((lo.get('wp') or {}).get('rows') or []):
+        for r in (lo.get('pd') or []) + (lo.get('ld') or []) + [x for c in ([lo['wp']] if lo.get('wp') else []) + (lo.get('wpx') or []) for x in c.get('rows') or []]:
             d = r[4].get('d') if len(r) > 4 and isinstance(r[4], dict) else None
             if d and pm is not None and d in (pm.get('_docs') or {}):
                 ge['docs'].setdefault(d, dict(pm['_docs'][d]))
@@ -1512,7 +1512,7 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None):
     AMS 設備的 sec.pid 不受影響（pid_rows 只讀 by_tag）。
     loc_path＝tools/db/loc_ge.py 的輸出（GE 編號在位置圖上的位置，v12）：同樣的併法，by_ge 放進 `_lg`、它的圖紙記進 `_loc`（pid_doc_keys 的說明文字不同），
     docs＝位置圖文件號 → 文件庫裡的那一份檔（或找不到的原因）放進 `_lg_docs`。
-    wire_path＝tools/db/wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13）：by_ge（框）放進 `_wg`、圖紙記進 `_wire`、paths／jbs 放進 `_wg_paths`／`_wg_jbs`。"""
+    wire_path＝tools/db/wire_ge.py 的輸出（GE 編號的接線路徑，v13 汽機 TSI、v14 一號機全部）：by_ge（框）放進 `_wg`、圖紙記進 `_wire`、paths／jbs 放進 `_wg_paths`／`_wg_jbs`。"""
     if not path or not os.path.exists(path):
         return None
     j = load(path)
@@ -2426,14 +2426,35 @@ def ge_ld_rows(pm, ents, scope, kks=()):
     return rows
 
 
-GE_WIRE_HOP = {'wire': '接線圖', 'jbloc': '接線箱位置', 'cab': '盤內板位', 'vms': '3500 盤端子', 'rack': '3500 機架槽位'}
-GE_WIRE_REL = {'wire': 'exact', 'jbloc': 'exact', 'cab': 'neutral', 'vms': 'neutral', 'rack': 'neutral'}   # 一號機專屬的圖＝就是本台；GE 盤面配置與 Bently 盤圖三部機共用一份
-GE_WIRE_RULE = ('接線路徑（v13）：現場→接線箱→電子室盤的每一條芯，取自一號機 ST 儀控電纜接線圖（HT1-1-ICE01-D1005 現行最高版次 PDF 的文字層，'
-                '盤側以芯色標籤對接）；盤端子落在 Mark VIe 端子板的，以 signal-atlas 控制器索引的螺絲號核對是不是這顆元件；'
-                '接線箱位置取自汽機房儀器與 JB 位置圖（HT1-1-IIF01-D0004）、盤內板位取自 GE 盤面配置（HT0-1-TZD01-M0213）、'
-                '3500 盤端子與機架槽位取自 Bently 3500 盤圖（GE 120V8111）；文件互相矛盾的地方列在註記，不替任何一方選邊')
-GE_WIRE_MODE = {'coax': '近接探頭：同軸延長線接到接線箱裡的前置器', 'tb': '現場端子經電纜接到接線箱端子排', 'jbdev': '元件在接線箱裡（發電機 JB）',
-                'direct': '電纜從現場直拉到盤，中間沒有接線箱'}
+GE_WIRE_HOP = {'conn': 'GE 接線表（元件 → 撬上接線箱）', 'wire': '接線圖', 'jbloc': '接線箱位置', 'gtjb': '撬上接線箱位置（GE 外形等角圖）',
+               'gtjbt': '撬上接線箱座標（GE 外形圖的 JB 表）', 'jbdoc': '接線箱所在的設備圖', 'mcc': '電氣盤格位（GE EP24 盤面配置圖）', 'cs': '電纜表',
+               'cab': '盤內板位', 'vms': '3500 盤端子', 'rack': '3500 機架槽位', 'bnw': '3500 接線表（Bently 盤圖）',
+               'epnl': '電氣盤端子排（設備配置圖）'}
+GE_WIRE_REL = {'conn': 'neutral', 'wire': 'exact', 'jbloc': 'exact', 'gtjb': 'neutral', 'gtjbt': 'neutral', 'jbdoc': 'neutral', 'mcc': 'exact', 'cs': 'exact',
+               'cab': 'neutral', 'vms': 'neutral', 'rack': 'neutral', 'bnw': 'neutral', 'epnl': 'neutral'}   # 一號機專屬的圖（接線圖、JB 位置圖、電纜表、各機組一份的 MCC／PC 盤面配置）＝就是本台；
+#                                                                           GE 的表與控制盤盤面配置、Bently 盤圖各機組共用一份
+GE_WIRE_MCC_RE = re.compile(r'[GS]\d{2}B[FGK][AB]\d0[_-](NP\d-\d|A\d{1,2}[A-H]|\d{1,2}[A-F])\b')   # 480 V MCC／PC 的格位（同 wire_ge.MCC_RE；'S10BGB10-A2A' 用連字號）
+GE_WIRE_MCC_MATCH = {'same': '格內寫的 %s 與這個元件的 KKS 相同', 'same_rel': '格內寫的 %s 與接線圖說明格寫的設備 KKS 相同（這個元件自己的 KKS 沒有寫在這一格）',
+                     'system': '格內寫 %s，與這個元件的 KKS 同系統、設備號不同',
+                     'breaker': '格內只寫這一格的斷路器編號 %s，沒有負載的 KKS 可以比對', 'nokks': '格內寫 %s；接線圖這一條沒有 KKS 可以比對',
+                     'diff': '格內寫 %s，與這個元件的 KKS 不同（見註記）', 'space': '格內寫「%s」（備用，見註記）', 'none': '格內沒有讀到設備編號%s'}
+GE_WIRE_RULE = ('接線路徑（v14）：現場→接線箱→電子室盤的每一條芯，取自一號機兩份儀控電纜接線圖（汽機 HT1-1-ICE01-D1005、燃機 HT1-1-ICE01-D1004，'
+                '現行最高版次 PDF 的文字層與向量框線；盤側以芯色標籤序列對接，標籤筆誤照順序補配並註記）；燃機撬上的「元件 → 接線箱端子」取自 '
+                'GE 138T5502 Turbine Connection Diagram（HT0-1-GID01-D0003，Rev M AS-BUILT），以接線箱／端子排／端子號接上接線圖；'
+                'Foundation Fieldbus 元件接到它所在的段幹線，以控制器組態的 FF_IN_S 段號核對；盤端子落在 Mark VIe 端子板的，以 signal-atlas 控制器索引的螺絲號'
+                '（含 TDBT 的 TB1／TB2）核對是不是這顆元件（✓ 同一顆、≈ 名稱寫法不同、✗ 組態掛的是別顆或備用點）；接線箱位置取自汽機房儀器與 JB 位置圖'
+                '（HT1-1-IIF01-D0004）、GE 燃機外形圖（HT0-1-GAD01-D0001），兩份都沒有的箱子取自 GE／廠商的設備外形與配置圖（發電機電氣外形圖、氫氣封油盤、'
+                '乾燥器、氫氣偵測、汽機 VE02 控制接線位置圖、VR20 油箱、細水霧撬：只有箱子在設備上的位置，沒有廠區座標）；接線圖「接線箱」欄其實是 MCC、GPP、MSP 等'
+                '電氣盤的，寫明不是接線箱並附格位，480 V MCC／PC 的格位（v15）框在 GE EP24 盤面配置圖（EQUIPMENT ARRANGEMENT，各機組一份）正視圖上那一格，'
+                '並把格內寫的 KKS 與元件比對；沒有位置圖的附電纜表上那一端的房間；房間取自一號機儀控電纜表（HT1-1-ILE01-A1004／A1005），盤內板位取自 GE 盤面配置'
+                '（汽機 HT0-1-TZD01-M0213、燃機 HT0-1-GID01-A1002），3500 盤端子與機架槽位取自 Bently 3500 盤圖（GE 120V8111）；'
+                '文件互相矛盾的地方列在註記，不替任何一方選邊')
+GE_WIRE_MODE = {'coax': '近接探頭：同軸延長線接到接線箱裡的前置器', 'tb': '現場端子經電纜接到接線箱端子排',
+                'jbdev': '元件畫在接線箱裡（撬上接線箱、閥體接線盒、發電機 JB、MCC 或本地盤）：箱內端子 → 幹線 → 盤',
+                'direct': '電纜從現場直拉到盤，中間沒有接線箱',
+                'ff': 'Foundation Fieldbus：元件 → 段保護器的埠 → 段幹線（好幾顆元件共用）→ 電子室盤的 FF 電源調節器 → 控制器的 FF 變數'}
+GE_WIRE_OK = ('same', 'logic', 'equip', 'loc', 'suffix')
+GE_WIRE_MV = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TBTC', 'TCDM', 'SPID')   # Mark VIe 端子板（wire_ge.MARKVIE_BOARDS＋圖上的 TBTC）
 
 
 def ge_wire_join(xs):
@@ -2446,28 +2467,149 @@ def ge_wire_join(xs):
 
 
 def ge_wire_room(desc, panel_kks):
-    """接線圖盤欄的說明 'S10CCM01UC201 ST TCP ST ELECTRONIC EQUIPMENT BUILDING EER ( E-402)' → (盤名, 房間)。"""
+    """接線圖盤欄的說明 'S10CCM01UC201 ST TCP ST ELECTRONIC EQUIPMENT BUILDING EER ( E-402)'、'G11CCJ01UC201 GT TCP GT ELECTRICAL BUILDING(E-305)' → (盤名, 房間)。"""
     d = re.sub(r'\s+', ' ', desc or '').strip()
-    m = re.search(r'(\S.*?\(\s*E-?\s*\d+\s*\))\s*$', d)
-    room = re.sub(r'\(\s*', '(', re.sub(r'\s*\)', ')', m.group(1))) if m else ''
+    if panel_kks and d.startswith(panel_kks):
+        d = d[len(panel_kks):].strip()
+    m = re.search(r'\b((?:GT|ST)\s+(?:ELECTRONIC|ELECTRICAL)\b.*|MAIN\s+CONTROL\s+BUILD.*|(?:GT|ST)\s+(?:HALL|OUTDOOR)\b.*)$', d)
+    room = re.sub(r'\(\s*', '(', re.sub(r'\s*\)', ')', m.group(1))).strip() if m else ''
+    room = re.sub(r'\(E-\s*(\d+)\)+', r'(E-\1)', room).replace('BUILDIG', 'BUILDIG〔原文〕')
     name = d[:m.start()].strip() if m else d
-    if panel_kks and name.startswith(panel_kks):
-        name = name[len(panel_kks):].strip()
-    m2 = re.search(r'(ST ELECTRONIC EQUIPMENT BUILDING .*|.*EER.*)$', room)
-    return name, (m2.group(1) if m2 else room)
+    return name, room
 
 
-def ge_wire_card(pm, key):
-    """wire_ge.json 的 paths[key] → GE 卡「接線路徑」（v13）：
-    sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯一列 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對]；
+GE_WIRE_PANEL_RE = re.compile(r'\b[GSC]\d{2}(?:B[FGHJK][AB]\d{2}|MKY|CCS|CCD|CBJ|MSC|MBJ10UC|MKC10QA)|C\d0B[BC]T10|MCC|POWER CENTER|STARTER|CUBICLE|CONSOLE|PANEL|\bGPP\b|\bMSP\b|\bGCB\b|\bUAT\b')   # 電氣盤／設備（名稱 JB 開頭的不算）
+
+
+def ge_wire_ep_txt(e):
+    """其餘電氣盤的一端（wire_ge 的 paths[k].ep 一筆）→ 「〈圖〉第 N 頁 框端子排 …；框端子 …（n 芯都找到）；端子表：…；〈版次狀態〉」（v16）。
+    端子排標籤（配置圖上的 'TBTCD（共 26 點）'）與端子分開寫；同一號有幾格並接的註明框整組；全部列出（不截斷）。"""
+    if not e:
+        return ''
+    rows = '、'.join(' '.join(x for x in r_ if x) for r_ in (e.get('rows') or []))
+    n, ok = e.get('n', 0), e.get('ok', 0)
+    cnt = ('%d 芯都找到' % n) if ok == n else ('%d 芯中 %d 芯找到' % (n, ok))
+    if e.get('whole'):
+        what = '框出整面盤（接線圖只寫端子排，沒寫在哪個隔間）'
+    else:
+        what = '；'.join(x for x in (('框端子排 %s' % '、'.join(e['strips'])) if e.get('strips') else '',
+                                     ('框%s %s' % ('隔間' if e.get('lv') == 'cmp' else '端子', '、'.join(e.get('labs') or []))) if e.get('labs') else '') if x)
+    dn = e.get('dn') or ''
+    out = '%s 第 %s 頁 %s（%s）' % (e['doc'], '、'.join(str(x) for x in e.get('pages') or []), what, cnt)
+    if e.get('multi'):
+        out += '；%s 是同一號幾格並接，框整組（電纜落在哪一格圖上沒標）' % '、'.join(e['multi'])
+    if rows:
+        out += '；端子表：' + rows
+    if e.get('analog'):
+        out += '；本台沒有向量圖，框在 %s 的圖上（類比：圖上畫的是另一台，本台取同一位置%s）' % (
+            e['analog'], '；本台 52L1、52L3 對調，本台正式圖 HT0-1-EGJ01-D0072（226B4842，掃描圖）' if e.get('grp') == 'msp' else '')
+    elif e.get('shared') and '共用' not in dn and '竣工' not in dn:
+        out += '；這份圖各台共用一份，不是本台竣工'
+    if dn:
+        out += '；' + dn
+    return out
+
+
+def ge_wire_jbt(t):
+    """接線圖端子格的寫法整理：\"-TBTCD '01\" → 'TBTCD 01'（撇號是圖面殘字）。"""
+    return re.sub(r"^-?([A-Z][\w()]*)\s*'(\d+)$", r'\1 \2', t or '')
+
+
+def ge_wire_own_tb(cond):
+    """端子格自己帶端子排名（'TB2 27'、'A03-X1 27'、\"-TBTCD '01\"）→ True：表頭的端子排名（可能抄錯，如 UAT 那頁的 TB06）就不再加在前面。"""
+    cs = [c['jb'] for c in cond if c.get('jb')]
+    return bool(cs) and all(re.match(r"^-?[A-Z][\w()/-]*[\s']+'?\d", x) for x in cs)
+
+
+def ge_wire_recv(r):
+    """電氣盤這一端是受控端（指示燈、合閘迴路）、接點在另一端 → 另一端的說明；不是 → ''。
+    Mark VIe 繼電器輸出（訊號列是「繼電器…輸出」）或手動同步盤的 XDI（燈的輸入）都是這種。"""
+    rel = [x[0] for x in r.get('sig') or [] if str(x[1]).startswith('繼電器')]
+    if rel:
+        return '控制盤 Mark VIe 繼電器輸出 %s' % '、'.join(dict.fromkeys(rel))
+    ej = next((x for x in r.get('ep') or [] if x['end'] == 'jb'), None)
+    w = r.get('wire') or {}
+    if ej and ej.get('grp') == 'msp' and (str(w.get('jb_tb', '')).startswith('XDI') or any(str(c.get('jb', '')).startswith('XDI') for c in r.get('cond') or [])):
+        return '電纜另一端 %s 的接點' % (' '.join((w.get('panel_desc') or w.get('panel') or '?').split()[:3]))
+    return ''
+
+
+def ge_wire_bsrc(sh):
+    """3500 盤圖那一頁的出處：兩份同名檔（汽機、燃機的 noKKS_CABINET DESIGN DRAWING_rev-）要帶資料夾。"""
+    rel = sh.get('rel', '')
+    return 'PDF 文字層 · %s／%s 第 %s 頁' % (rel.split('/')[0], rel.rpartition('/')[2], sh.get('page', '?'))
+
+
+def ge_wire_rooms(r, w):
+    """電纜表一列兩端的房間 →（接線箱或現場那一端, 盤那一端），各為 '房間說明（房間碼）' 或 ''。
+    電纜表一列兩端各有房間碼、房間說明、設備碼；設備碼含接線箱 KKS 的那一端就是接線箱（多半是第二端），否則取第二端（第一端多半是電子室盤）。"""
+    rm = r.get('room') or {}
+    jk = re.findall(r'[GSC]\d{2}[A-Z]{3}\d{2}(?:[A-Z]{2}\d{2,3}[A-Z]?|_\w+)?', w['jb'] + ' ' + (w.get('jb_desc') or ''))
+    e = '1' if jk and jk[0] in (rm.get('d1') or '') and jk[0] not in (rm.get('d2') or '') else '2'
+
+    def end(k):
+        rd, rc = (rm.get('r%sd' % k) or '').replace('BUILDIG', 'BUILDIG〔原文〕'), rm.get('r' + k) or ''
+        return ('%s（%s）' % (rd or '—', rc)) if rc else rd
+    return end(e), end('2' if e == '1' else '1')
+
+
+def ge_wire_jb_room(r, w):
+    """接線箱（或現場盤）那一端在電纜表上的房間（v14）→ '房間說明（房間碼）' 或 ''（ge_wire_rooms 的第一個）。"""
+    return ge_wire_rooms(r, w)[0]
+
+
+def ge_wire_loop(r, w, pk, pname, room, where, jls):
+    """迴路圖（v15，card.js fillLoop 畫成 ISA-5.4 式單線圖）要的分開欄位：sum 是給人讀的句子，迴路圖要一格一格的值（空的不輸出）——
+    kk＝本台 KKS；ds＝接線圖上的說明；fc／fs＝現場電纜與規格；jb／jd／jt／px＝接線箱、說明、端子排、前置器；jl＝接線箱位置（短句）；
+    tc／ts／tl＝幹線、規格、長度 m（電纜表）；rf／rp＝電纜表上接線箱（或現場）那一端、盤那一端的房間；pk／pn／pr＝盤 KKS、盤名、盤所在房間；
+    cp＝盤內位置（板位、背板／側板、板名）；io＝[[控制器, I/O 模組, 板位, 板名, 點, 變數, 核對]…]；ff＝[段, 埠, FF_IN_S 段號, [變數…]]（FF 元件）；
+    fm＝[元件…]（這一條是 FF 段保護器本身：接在這一段的元件）；pg＝[接線圖 PDF 頁, Sheet, 共幾張]；
+    sb＝[IS 屏蔽排, OS 屏蔽排]（接線圖盤欄底部的說明：各芯屏蔽接 IS 排、電纜總屏蔽接 OS 排再接地）；kw＝接線圖說明格寫的 KKS（與 kk 不同時）；
+    v16：md＝中間設備 [[在哪（jb 箱內／field 另一個箱子／self 這個編號本身在箱內／pre 上游）, 名稱, 說明, 進線端, 出線端, 等級]…]、mg＝沒有圖的那一段、m1＝只有一條光纖進線；
+    bx＝3500 並聯分支 [種類, 機架, 槽, 通道, 模組, 接頭, 另一種讀法, 等級]；sg＝訊號型式與供電 [[點, 訊號, 供電, 等級]…]。"""
+    rf, rp = ge_wire_rooms(r, w)
+    rm = r.get('room') or {}
+    d = {'kk': r.get('kks') or '', 'ds': ' / '.join(dict.fromkeys((w.get('drawn') or '').split(' / ')))[:160], 'fc': w['field_cable'], 'fs': w['field_spec'],
+         'jb': w['jb'], 'jd': w['jb_desc'], 'jt': '' if w['jb_tb'] == '*' or r['mode'] == 'direct' or ge_wire_own_tb(r['cond']) else w['jb_tb'], 'px': w['prox'], 'jl': jls, 'tc': w['trunk'], 'ts': w['trunk_spec'], 'tl': rm.get('len') or '',
+         'rf': rf, 'rp': rp, 'pk': pk, 'pn': pname, 'pr': room, 'cp': where,
+         'io': [list(x[:6]) + [x[7] if len(x) > 7 else ''] for x in r.get('io') or []], 'pg': [w['page'], w['sheet'], w['of']],
+         'sb': [r['shield']['IS'], r['shield']['OS']] if r.get('shield') else [], 'kw': r.get('kks_drawn') or ''}
+    md = r.get('mid') or {}
+    if md.get('chain'):
+        d['md'] = [[c.get('at', ''), c.get('n', ''), c.get('s', ''), c.get('i', ''), c.get('o', ''), c.get('g', '')] for c in md['chain']]
+        d['mg'] = md.get('gap') or ''
+        d['m1'] = md.get('one') if md.get('one') in ('coax', 'fiber') else (1 if md.get('one') else 0)   # 現場 → 中間設備只有一條線（同軸／光纖）
+        if md.get('ns'):
+            d['ns'] = 1                                                   # 屏蔽不從元件拉（同軸、盤內接地、GE 段與幹線兩段不連）
+    bx = r.get('bx') or {}
+    if bx.get('kind') and bx['kind'] != 'ghm':
+        alt = bx.get('alt') or {}
+        d['bx'] = [bx['kind'], bx.get('rack') or '', bx.get('slot') or '', bx.get('ch') or '', bx.get('mod') or '', bx.get('conn') or '',
+                   ('RACK %s SLOT %s CH%s' % (alt.get('rack', '?'), alt.get('slot', '?'), alt.get('ch', '?'))) if alt else '', bx.get('g') or '',
+                   bx.get('via') or '', re.sub(r'（[^）]*）$', '', bx.get('panel') or ''), bx.get('aw') or '']
+    if r.get('sig'):
+        d['sg'] = [x[:4] for x in r['sig'][:4]]
+    ff = r.get('ff') or {}
+    if r['mode'] == 'ff' and ff.get('seg'):
+        d['ff'] = [ff['seg'], ff.get('port') or '', ff.get('s') or '', ff.get('vars') or ff.get('dev_vars') or []]
+        oth = [x for x in ff.get('members') or [] if x != r.get('tag')]
+        if oth:
+            d['fsm'] = oth[:10]                                           # 同一段的其他元件（ISA-5.4：與其他迴路的關聯）
+    elif r['mode'] == 'ff' and ff.get('members'):
+        d['fm'] = ff['members'][:16]
+    return {k: v for k, v in d.items() if v not in ('', [], None)}
+
+
+def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
+    """wire_ge.json 的 paths[key][pi] → GE 卡「接線路徑」的一條路徑（v13 起；v14 一個編號可以有好幾條：兩台燃機、多組接點）：
+    u＝機組；sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯一列 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對, 盤端子號, 組態的點]；
+    d＝迴路圖（v15）的分開欄位（ge_wire_loop）；lno＝迴路圖編號（v16，ge_wire_cards 依機組編）；
+    f＝現場那一跳（燃機：GE 138T5502 一芯一列）[[元件端子, 芯色, 電纜, 中間元件, 接線箱, 端子, 接線箱所在, 版次]…]；
     rows＝各跳的圖（與 ge_pid_rows 同格式：每張圖紙 5 列，第一列 extra 帶 s／d／p／n／img／marks／drawn／rel／how／via／hop）；
     n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：wire_ge 自動找的＋wire_notes.json 人工查證的）；
-    jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子]…]]（同一個接線箱裡的 TSI 端子）；mode＝畫法（GE_WIRE_MODE）。"""
-    r = (pm.get('_wg_paths') or {}).get(key)
-    if not r:
-        return None
+    jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子, 是不是 GE 編號]…]]（同一個接線箱的整排端子，照圖上的順序）；mode＝畫法（GE_WIRE_MODE）。"""
     w, sheets = r['wire'], pm['sheets']
-    hits = [h for h in (pm.get('_wg') or {}).get(key) or []]
+    hits = [h for h in (pm.get('_wg') or {}).get(key) or [] if h.get('pi', 0) == pi]
     s_wire = next((s for k, s in r['hops'] if k == 'wire'), None)
     sw = sheets.get(s_wire) or {}
     wsrc = 'PDF 文字層 · %s 第 %s 頁（Sheet %s OF %s）' % (sw.get('rel', '').rpartition('/')[2], w['page'], w['sheet'], w['of'])
@@ -2476,49 +2618,203 @@ def ge_wire_card(pm, key):
     pk = re.findall(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', w['panel'] + ' ' + w['panel_desc'])
     pname, room = ge_wire_room(w['panel_desc'], pk[0] if pk else '')
     s_rows = []
-    if r['mode'] == 'coax':
+    pan_jb = r['mode'] not in ('direct', 'ff') and not re.match(r'\s*JB', w['jb']) and bool(GE_WIRE_PANEL_RE.search(w['jb'] + ' ' + (w['jb_desc'] or '')))
+    recv = ge_wire_recv(r) if pan_jb else ''
+    own_tb = ge_wire_own_tb(cond)
+    fld = r.get('field') or []
+    if fld:
+        s_conn = next((s for k, s in r['hops'] if k == 'conn'), None)
+        csrc = 'PDF 文字層 · %s 第 %s 頁' % ((sheets.get(s_conn) or {}).get('rel', '').rpartition('/')[2], (sheets.get(s_conn) or {}).get('page', '?'))
+        mid = ge_wire_join(x[3] for x in fld)
+        dash = [x[0] for x in fld if x[5] in ('- -', '-', '')]
+        txt = '元件端子 %s → 電纜 %s → %s%s 端子 %s%s%s' % (
+            ge_wire_join(x[0] for x in fld), ge_wire_join(x[2] for x in fld), ('經 %s → ' % mid) if mid else '', ge_wire_join(x[4] for x in fld),
+            ge_wire_join(x[5] for x in fld if x[5] not in ('- -', '-')), ('（%s 在 GE 表上沒有端子（-））' % ge_wire_join(dash)) if dash and len(dash) < len(fld) else '',
+            ('（GE 表的位置欄：%s）' % ge_wire_join(x[6] for x in fld)) if any(x[6] for x in fld) else '')
+        s_rows.append(['現場 → 接線箱（GE 接線表）', txt, 'doc', csrc])
+    if r['mode'] == 'ff':
+        ff = r.get('ff') or {}
+        if ff.get('seg'):
+            s_rows.append(['FF 段', '%s 的 %s 埠%s；同一段的元件：%s' % (ff['seg'], ff.get('port') or '?', ('（段保護器在 %s）' % ff['loc']) if ff.get('loc') else '',
+                                                               '、'.join(ff.get('members') or []) or '—'), 'doc', wsrc])
+        elif ff.get('members'):
+            s_rows.append(['FF 段', '這是 FF 段保護器；接在這一段的元件：%s' % '、'.join(ff['members']), 'doc', wsrc])
+        s_rows.append(['段幹線', '%s（%s）→ %s %s' % (w['trunk'], w['trunk_spec'], w['jb'], w['jb_desc']), 'doc', wsrc])
+    elif r['mode'] == 'coax':
         s_rows.append(['現場 → 接線箱', '探頭 → 同軸延長線 %s（%s）→ 接線箱裡的前置器 %s' % (w['field_cable'], w['field_spec'].replace(' COAX', '').strip() or '同軸電纜', w['prox'] or '?'), 'doc', wsrc])
     elif r['mode'] == 'tb':
         s_rows.append(['現場 → 接線箱', '現場端子 %s → 電纜 %s（%s）→ 接線箱端子排 %s' % (ge_wire_join(c['field'] for c in cond), w['field_cable'], w['field_spec'], w['jb_tb'] or '?'), 'doc', wsrc])
     elif r['mode'] == 'jbdev':
-        s_rows.append(['現場 → 接線箱', '元件畫在接線箱 %s 裡%s，沒有現場電纜' % (w['jb'], ('（%s）' % w['jb_desc']) if w['jb_desc'] else ''), 'doc', wsrc])
+        nm_ = w['jb'] + (('（%s）' % w['jb_desc']) if w['jb_desc'] else '')
+        if pan_jb and recv:
+            s_rows.append(['現場 → 電氣盤', '%s 盤內是受控端（指示燈、合閘迴路等），接點在另一端（%s）；兩端之間沒有現場電纜' % (nm_, recv), 'doc', wsrc])
+        elif pan_jb:
+            s_rows.append(['現場 → 電氣盤', '元件（接點）在 %s 盤內，沒有現場電纜' % nm_, 'doc', wsrc])
+        elif r.get('unit', 'S10') == 'S10' or not fld:
+            s_rows.append(['現場 → 接線箱', '接線圖只把元件畫在 %s 的端子排旁，沒有標元件到箱子的電纜號（這一段請看現場；元件可能在箱內，也可能在箱外就近）' % nm_, 'doc', wsrc])
     else:
         s_rows.append(['現場 → 盤', '現場端子 %s → 電纜 %s（%s）直拉到盤，中間沒有接線箱' % (ge_wire_join(c['field'] for c in cond), w['field_cable'], w['field_spec']), 'doc', wsrc])
-    if r['mode'] != 'direct':
+    if r['mode'] not in ('direct', 'ff'):
         jl = r.get('jbloc')
         sj = next((s for k, s in r['hops'] if k == 'jbloc'), None)
-        jb_txt = w['jb'] + ('：汽機房儀器與 JB 位置圖 %s 第 %s 頁有畫，圖上座標 %s' % (sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords']) if jl and sj
-                            else '（汽機房儀器與 JB 位置圖上沒有這個接線箱）')
-        s_rows.append(['接線箱', jb_txt, 'doc', wsrc])
+        gj = r.get('gtjb')
+        jd = r.get('jbdoc')
+        sd = next((s for k, s in r['hops'] if k == 'jbdoc'), None)
+        jd_txt = ('%s %s 第 %s 頁有畫（圖上寫 %s；這張圖只標出箱子在設備上的位置，沒有廠區座標）' % (jd['zh'], sheets[sd].get('doc') or jd['doc'], sheets[sd]['page'], jd['drawn'])
+                  if jd and sd else '')
+        if jl and sj:
+            jb_txt = w['jb'] + '：汽機房儀器與 JB 位置圖 %s 第 %s 頁有畫，圖上座標 %s' % (sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords'])
+        elif gj:
+            jb_txt = w['jb'] + '：GE 燃機外形圖 137T6223 有 %s%s' % (gj['name'], ('（JB 表：%s，燃機座標）' % gj['coords']) if gj.get('coords') else '') + \
+                ('；%s' % jd_txt if jd_txt else '')
+        elif jd_txt:
+            jb_txt = w['jb'] + '：' + jd_txt
+        else:
+            jr = ge_wire_jb_room(r, w)
+            nm = w['jb'] + ('（%s）' % w['jb_desc'] if w['jb_desc'] else '')
+            cub = GE_WIRE_MCC_RE.search(w['jb']) or re.search(r'_([A-Z]+\d+[A-Z]?(?:-\d+)?)\b', w['jb'])
+            if not re.match(r'\s*JB', w['jb']) and GE_WIRE_PANEL_RE.search(w['jb'] + ' ' + (w['jb_desc'] or '')):
+                mc = r.get('mcc')
+                smc = next((s for k, s in r['hops'] if k == 'mcc'), None)
+                mtx = ''
+                if mc and smc:
+                    codes = re.findall(r'[GSC]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}[A-Z]?(?:-[A-Z]{1,2}\d{2})?(?:/\d)?', mc['content'])
+                    show = '、'.join(codes[:3]) if codes else (mc['content'][:40] if mc['match'] == 'space' else '')
+                    mtx = '；盤面配置圖 %s 第 %s 頁 %s 正視圖上框出 %s 格%s，%s' % (
+                        sheets[smc]['rel'].rpartition('/')[2].replace('.pdf', ''), sheets[smc]['page'], mc['lineup'], mc['cub'],
+                        '（NP 區小格的銘牌是線條字：照區內隔板由上往下數推算，另框 NP 表那一列）' if mc.get('np') else '',
+                        GE_WIRE_MCC_MATCH.get(mc['match'], '%s') % show)
+                ej = next((x for x in r.get('ep') or [] if x['end'] == 'jb'), None)   # v16：GPP、手動同步盤、GCB、UAT、LCI 中壓盤／52ET 框到端子（或隔間）
+                if ej and not mtx:
+                    mtx = '；' + ge_wire_ep_txt(ej)
+                jb_txt = nm + '：電氣盤（不是接線箱），接線箱位置圖上不畫' + ('；第 %s 格' % cub.group(1) if cub else '') + mtx + ('；電纜表上在 %s' % jr if jr else '')
+            else:
+                jb_txt = nm + ('（汽機房儀器與 JB 位置圖上沒有這個接線箱' if r.get('unit', 'S10') == 'S10' else '（GE 燃機外形圖的 JB 表上沒有這個箱子') + \
+                    ('；電纜表上在 %s）' % jr if jr else '）')
+        s_rows.append(['電氣盤' if pan_jb else '接線箱', jb_txt, 'doc', wsrc])
         inside = ('前置器 %s 的端子 %s' % (w['prox'], ge_wire_join(c['jb'].replace(w['prox'], '').strip() for c in cond)) if r['mode'] == 'coax' and w['prox']
-                  else '端子 %s%s' % ((w['jb_tb'] + ' ') if w['jb_tb'] else '', ge_wire_join(c['jb'] for c in cond)))
-        s_rows.append(['接線箱內端子', inside, 'doc', wsrc])
+                  else '端子 %s%s' % ((w['jb_tb'] + ' ') if w['jb_tb'] and not own_tb else '', ge_wire_join(ge_wire_jbt(c['jb']) for c in cond)))
+        if own_tb and w['jb_tb'] and not all(any(ge_wire_jbt(c['jb']).startswith(h_.lstrip('-')) for h_ in w['jb_tb'].split('/') if h_.strip('-'))
+                                             for c in cond if c['jb']):   # 表頭 '-TBTCD/TBBUSP/TBBAK' 列了幾排：格子的排在其中就不加這句
+            inside += '（接線圖表頭寫 %s，格子自己寫的端子排不同，照格子）' % w['jb_tb']
+        s_rows.append(['盤內端子' if pan_jb else '接線箱內端子', inside, 'doc', wsrc])
         s_rows.append(['幹線', '%s（%s），芯 %s' % (w['trunk'], w['trunk_spec'], ge_wire_join(c['core'] for c in live)), 'doc', wsrc])
+    jls = ''   # 迴路圖（v15）的接線箱位置短句（FF 的段保護器也要）
+    if r['mode'] != 'direct':
+        jl, gj, jd = r.get('jbloc'), r.get('gtjb'), r.get('jbdoc')
+        sj = next((s for k, s in r['hops'] if k == 'jbloc'), None)
+        sd = next((s for k, s in r['hops'] if k == 'jbdoc'), None)
+        if jl and sj:
+            jls = '汽機 JB 位置圖 %s p.%s：%s' % (sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords'])
+        elif gj:
+            jls = 'GE 137T6223 %s%s' % (gj['name'], ('：' + gj['coords']) if gj.get('coords') else '（等角圖標籤，沒有座標）')
+        elif jd and sd:
+            jls = '%s %s p.%s（設備上的位置，沒有廠區座標）' % (jd['zh'], sheets[sd].get('doc') or jd['doc'], sheets[sd]['page'])
+        else:
+            jr = ge_wire_jb_room(r, w)
+            pan = not re.match(r'\s*JB', w['jb']) and GE_WIRE_PANEL_RE.search(w['jb'] + ' ' + (w['jb_desc'] or ''))
+            cub = GE_WIRE_MCC_RE.search(w['jb']) or re.search(r'_([A-Z]+\d+[A-Z]?(?:-\d+)?)\b', w['jb'])
+            smc = next((s for k, s in r['hops'] if k == 'mcc'), None)
+            ej = next((x for x in r.get('ep') or [] if x['end'] == 'jb'), None)
+            jls = (('電氣盤（不是接線箱）' + ('第 %s 格' % cub.group(1) if cub else '') + ('；盤面配置圖 p.%s 有框' % sheets[smc]['page'] if smc else '')
+                    + (('；%s p.%s 框出%s%s' % (ej['doc'], '、'.join(str(x) for x in ej['pages']), '隔間' if ej.get('lv') == 'cmp' else '端子',
+                                                '（本台沒有向量圖，類比 %s 的圖）' % ej['analog'] if ej.get('analog') else '')) if ej and not smc else ''))
+                   if pan else '沒有位置圖') + ('；電纜表房間 %s' % jr if jr else '')
+    rm = r.get('room')
+    if rm:
+        s_cs = next((s for k, s in r['hops'] if k == 'cs'), None)
+        ends = [x for x in (('%s（%s）' % (rm.get('r2d') or '—', rm['r2']) if rm.get('r2') else rm.get('r2d')),
+                            ('%s（%s）' % (rm.get('r1d') or '—', rm['r1']) if rm.get('r1') else rm.get('r1d'))) if x]
+        e1, e2 = re.search(r'E-\s*\d+', room or ''), re.search(r'E-\s*\d+', ge_wire_rooms(r, w)[1])
+        rcav = ('；接線圖盤欄寫 %s、電纜表這一列盤那一端寫 %s，請以現場門牌為準' % (e1.group(0), e2.group(0))
+                if e1 and e2 and re.sub(r'\s', '', e1.group(0)) != re.sub(r'\s', '', e2.group(0)) else '')
+        s_rows.append(['電纜與房間', '電纜表的 %s%s：%s%s' % (rm['cable'], ('（%s%s）' % (rm.get('type') or '', ('，%s m' % rm['len']) if rm.get('len') else '')) if rm.get('type') or rm.get('len') else '',
+                                                      ' ↔ '.join(ends) or '—', rcav), 'doc',
+                       'PDF 文字層 · %s 第 %s 頁' % ((sheets.get(s_cs) or {}).get('rel', '').rpartition('/')[2], (sheets.get(s_cs) or {}).get('page', '?'))])
     pos = ge_wire_join(c['pos'] for c in live)
     board = ge_wire_join(c['board'] for c in live)
     m = re.match(r'^(CA\d{3})-(\w+)$', pos)
-    where = ('%s 背板 %s %s' % (m.group(1), m.group(2), board)) if m else board
-    s_rows.append(['電子室盤', '%s%s%s：%s 端子 %s' % (pk[0] + ' ' if pk else '', pname, ('（%s）' % room) if room else '', where, ge_wire_join(c['num'] for c in live)), 'doc', wsrc])
+    face = {'LEFT SIDE PANEL': '左側板', 'RIGHT SIDE PANEL': '右側板'}.get((r.get('cab') or {}).get('side', ''), '背板')
+    where = ('%s %s %s %s' % (m.group(1), face, m.group(2), board)) if m else board
+    ep_ = next((x for x in r.get('ep') or [] if x['end'] == 'panel'), None)   # v16：盤那一端也是電氣盤（UAT → GPP-AUX）
+    po = bool(ep_) or (not any(c['board'] in GE_WIRE_MV for c in live) and bool(GE_WIRE_PANEL_RE.search(w['panel'] + ' ' + w['panel_desc']))
+                       and not re.search(r'\bCC[A-Z]\d\dUC2\d\d|\bTCP\b', w['panel'] + ' ' + w['panel_desc'])) \
+        or (not any(c['board'] in GE_WIRE_MV for c in live) and bool(re.search(r'CABINET|\bMKA10UC', w['panel'] + ' ' + w['panel_desc'])))   # 終點不是控制盤 TCP（電氣盤、GHM 櫃、VMS 盤）
+    bds = list(dict.fromkeys(c['board'] for c in live if c['board']))
+    terms = ('、'.join('%s 端子 %s' % (b_, ge_wire_join(c['num'] for c in live if c['board'] == b_)) for b_ in bds) if len(bds) > 1 and not m
+             else '%s 端子 %s' % (where, ge_wire_join(c['num'] for c in live)))
+    s_rows.append(['終點盤' if po else '電子室盤', '%s%s%s：%s%s' % (pk[0] + ' ' if pk else '', pname, ('（%s）' % room) if room else '', terms,
+                                                         ('；' + ge_wire_ep_txt(ep_)) if ep_ else ''), 'doc', wsrc])
     io = r.get('io') or []
-    if io:
+    ff = r.get('ff') or {}
+    if r['mode'] == 'ff' and ff.get('seg'):
+        if ff.get('vars'):
+            s_rows.append(['Mark VIe', '控制器組態 FF_IN_S%s 段裡有這顆的變數：%s' % (ff['s'], '、'.join(ff['vars'])), 'ctrl', 'signal-atlas 控制器索引（變數宣告的 FF 段）'])
+        elif ff.get('dev_vars'):
+            s_rows.append(['Mark VIe', '控制器組態 FF_IN_S%s 段裡有中間傳送器 %s 的變數（%s）；這顆元件自己的變數名沒有讀到' % (ff['s'], ff.get('dev') or '?', '、'.join(ff['dev_vars'])),
+                           'ctrl', 'signal-atlas 控制器索引（變數宣告的 FF 段）'])
+        elif ff.get('other_s'):
+            s_rows.append(['Mark VIe', '接線圖的段＝FF_IN_S%s，控制器組態裡這顆的變數在 FF_IN_S%s（見註記）' % (ff['s'], '、S'.join(str(x) for x in ff['other_s'])), 'ctrl',
+                           'signal-atlas 控制器索引（變數宣告的 FF 段）'])
+        else:
+            s_rows.append(['Mark VIe', '接線圖的段＝FF_IN_S%s；控制器索引裡沒有找到這顆的 FF 變數（FF 元件沒有端子螺絲可核）' % ff.get('s', '?'), 'inferred', 'signal-atlas 控制器索引'])
+    elif io:
         pins = ge_wire_join('%s＝%s' % (c['num'], c['pin']) for c in live if c.get('pin'))
         txt = '；'.join('%s %s（%s %s）%s → %s%s' % (x[0], x[1], x[3], x[2], x[4], x[5] or '（沒有變數）', '（同位置的電源點 %s）' % x[6] if x[7] == 'loc' else '')
                        for x in io)
         s_rows.append(['Mark VIe', txt + ('；端子 %s' % pins if pins else ''), 'ctrl', 'signal-atlas 控制器索引（ToolboxST I/O 組態，螺絲號）'])
-    elif any(c['board'] == 'TVBA' or c['board'] in ('TTUR', 'TCSA', 'TBAI') for c in live):
+    elif any(c['board'] == 'SPID' for c in live):
+        s_rows.append(['Mark VIe', '盤端子落在 SPID（CANopen 通訊板）：組態裡這類板沒有螺絲點，訊號是 CANopen 輸入／輸出變數，沒有逐螺絲核對', 'inferred', 'signal-atlas 控制器索引'])
+    elif any(c['board'] in GE_WIRE_MV for c in live):
         s_rows.append(['Mark VIe', '盤端子落在 Mark VIe 端子板，但控制器索引沒有對到這些螺絲', 'inferred', 'signal-atlas 控制器索引'])
-    else:
+    elif any(c['board'] == '1TBVIB' for c in live):
         s_rows.append(['Mark VIe', '不進 Mark VIe：接到 Bently 3500 監測盤（VMS 盤）', 'doc', wsrc])
+    elif r['mode'] == 'ff':
+        s_rows.append(['Mark VIe', 'FF 段幹線：接到 %s 的 FFPC 端子（%s；FFPC 推定是該段的電源調節端子【推論】，圖面沒有定義）；段上各元件的控制器 FF 變數在各元件的卡上（FF 沒有螺絲可核）'
+                       % (pname or (pk[0] if pk else '') or w['panel'] or '盤', ge_wire_join(' '.join(x for x in (c['pos'], c['board'], c.get('tb', '')) if x) for c in live) or '—'),
+                       'inferred', wsrc])
+    else:
+        s_rows.append(['Mark VIe', '不進 Mark VIe：終點是 %s，沒有控制器螺絲可核' % (pname or (pk[0] if pk else '') or w['panel'] or '別的盤'), 'doc', wsrc])
     rk = r.get('rack')
+    sb_ = next((s for k, s in r['hops'] if k == 'bnw'), None)
     if rk:
         sr = next((s for k, s in r['hops'] if k == 'rack'), None)
-        s_rows.append(['Bently 3500', 'RACK %s SLOT %s CH%s（3500 盤圖的槽位表）' % (rk['rack'] or '?', rk['slot'] or '?', rk['ch'] or '?'), 'doc',
-                       'PDF 文字層 · %s 第 %s 頁' % ((sheets[sr].get('title') or sheets[sr]['rel'].rpartition('/')[2]) if sr else '3500 盤圖', sheets[sr]['page'] if sr else '?')])
+        if rk.get('by') == 'bx':   # 燃機（v16）：GT-VMP Rev D 盤圖接線表的 RDS-PP 欄（＝Mark VIe 通道順序）
+            s_rows.append(['Bently 3500', 'RACK %s SLOT %s CH%s（燃機 3500 盤 GT-VMP Rev D 接線表的 RDS-PP 欄；G11 是 RACK 1、G12 是 RACK 2）' % (rk['rack'] or '?', rk['slot'] or '?', rk['ch'] or '?'),
+                           'doc', ge_wire_bsrc(sheets[sb_]) if sb_ else ('燃機 3500 盤 EOMR HT1-1-AQB01-Q1850（GE 120V8110 Rev D）PDF p.54～55（RACK 2 接線）、p.42（RACK 2 槽位表）'
+                                                                          if r.get('unit') == 'G12' else '燃機 3500 盤 EOMR HT1-1-AQB01-Q1850（GE 120V8110 Rev D）PDF p.41（RACK 1 槽位表）')])
+        else:
+            s_rows.append(['Bently 3500', 'RACK %s SLOT %s CH%s（3500 盤圖的槽位表）' % (rk['rack'] or '?', rk['slot'] or '?', rk['ch'] or '?'), 'doc',
+                           ge_wire_bsrc(sheets[sr]) if sr else '3500 盤圖'])
+    bx = r.get('bx') or {}
+    if bx.get('lab'):   # v16：3500 怎麼收到這個訊號（並聯分支）；接頭第 n 通道＝ETB／3500 第 n 通道是推論（ET 電纜腳位沒有圖）
+        alt = bx.get('alt') or {}
+        lg = ('；另一種讀法：Bently 盤圖的 Legacy Tag 欄把它寫在 SLOT %s CH%s——若 3500 組態照 Legacy 欄命名，3500 畫面上這個名稱會是別支探頭' % (alt.get('slot', '?'), alt.get('ch', '?'))
+              if bx.get('aw') == 'legacy' else '')
+        s_rows.append(['3500 分支', bx['lab'] + lg + ('【%s】' % bx['g'] if bx.get('g') else ''), 'inferred' if '推論' in (bx.get('g') or '') else 'doc',
+                       ge_wire_bsrc(sheets[sb_]) if sb_ else ('；'.join(bx.get('cite') or []) or 'Bently 3500 盤圖（GE 120V8111／CB01-BNX-120014477）')])
+    md = r.get('mid') or {}
+    if md.get('chain'):   # v16：現場元件與接線箱端子之間的中間設備
+        txt = '；'.join('%s%s：%s%s%s【%s】' % (c.get('n', ''), ('（%s）' % c['s']) if c.get('s') else '', c.get('i', ''), ' → ' if c.get('i') and c.get('o') else '', c.get('o', ''), c.get('g', ''))
+                       for c in md['chain'])
+        at_ = (0 if all(c.get('at') == 'pre' for c in md['chain'])
+               else next((i_ + 1 for i_ in range(len(s_rows) - 1, -1, -1) if s_rows[i_][0].startswith('現場')), 0))   # 照訊號路徑排：上游元件在最前、其餘接在「現場 → …」之後
+        s_rows.insert(at_, ['中間設備', txt + (('；沒有圖的部分：%s' % md['gap']) if md.get('gap') else ''),
+                                        'inferred' if any('推論' in (c.get('g') or '') and '定讞' not in (c.get('g') or '') for c in md['chain']) else 'doc',
+                                        '；'.join(dict.fromkeys(c.get('src', '') for c in md['chain'] if c.get('src')))])
+    sgs = (r.get('sig') or [])[:4]
+    for x in sgs:   # v16：訊號型式與迴路供電（照接線判；組態寫法不一致的另列註記；規則附註接在後面）
+        s_rows.append(['訊號與供電' + (('（%s）' % x[0]) if len(sgs) > 1 and x[0] else ''),
+                       '%s：%s；%s【%s】%s' % (x[0] or 'FF 段', x[1], x[2], x[3], ''.join('；' + y for y in (x[7] if len(x) > 7 else []) or [])),
+                       {'組態': 'ctrl', '文字層': 'doc'}.get(x[3], 'inferred'),
+                       ('、'.join(x[6]) if len(x) > 6 and x[6] else 'Mark VIe 端子板手冊') + '；signal-atlas 控制器索引（I/O 組態）'])
     t = []
     for c in cond:
-        fld = c['field'] + (('（%s）' % c['field_core']) if c['field_core'] else '')
-        pt = ' '.join(x for x in (c['pos'], c['board'], c['num']) if x) or ('（盤側不落端子）' if c['core'].startswith('SH') else '（沒有讀到）')
-        t.append([c['core'], fld, c['jb'], pt, c.get('pin') or '', c.get('io') or ''])
+        fl = c['field'] + (('（%s）' % c['field_core']) if c['field_core'] else '')
+        pt = ' '.join(x for x in (c['pos'], c['board'], c.get('tb', ''), c['num']) if x) or (
+            ('（盤側沒畫端子；這一頁盤欄底部印「IS → %s 排、OS → %s 排接地」）' % (r['shield']['IS'], r['shield']['OS']) if r.get('shield') else '（盤側不落端子）')
+            if c['core'].startswith('SH') else '（沒有讀到）')
+        t.append([c['core'], fl, ge_wire_jbt(c['jb']), pt, c.get('pin') or '', c.get('io') or '', c['num'], c.get('pt') or ''])
     rows = []
     for gi, (kind, s) in enumerate(r['hops']):
         sh = sheets[s]
@@ -2533,31 +2829,144 @@ def ge_wire_card(pm, key):
         if kind == 'wire':
             pos_t = '① 接線箱端子（%s）、② 盤端子（%s）、③ 元件框' % (ge_wire_join(c['jb'] for c in cond), ge_wire_join(' '.join(x for x in (c['board'], c['num']) if x) for c in live)) \
                 if r['mode'] != 'direct' else '① 現場端子、② 盤端子、③ 元件框'
-            how = 'PDF 文字層；接線圖由試算表範本產生、欄位固定，芯色標籤配端子格保持上下順序，盤側以芯色標籤對接（不照列對齊）'
+            how = 'PDF 文字層；接線圖由試算表範本產生、欄位固定，芯色標籤配端子格保持上下順序，盤側以芯色標籤對接（不照列對齊）' if r.get('doc', 'wire') == 'wire' \
+                else 'PDF 文字層＋向量框線（欄位由框線定位；每條芯以接線短線定位），盤側以芯色標籤序列對接'
         elif kind == 'jbloc':
             pos_t = '① 接線箱符號、② 標籤（KKS 與座標）' if len(marks) > 1 else '① 標籤（KKS 與座標；圖上的符號在引線另一端）'
             how = 'PDF 文字層找到標籤，再沿藍色引線找到紅色接線箱符號'
+        elif kind == 'gtjb':
+            pos_t = '① 等角圖上的 %s 標籤（引線指向箱子）' % lab
+            how = 'PDF 文字層（GE 137T6223 O/L MECHANICAL GT & GENERATOR；各台燃機共用一份）'
+        elif kind == 'gtjbt':
+            pos_t = '① JB 表上 %s 那一列（X／Y／Z 燃機座標，in [mm]）' % lab
+            how = 'PDF 文字層'
+        elif kind == 'mcc':
+            mc = r.get('mcc') or {}
+            if mc.get('np'):
+                pos_t = '① %s 正視圖上 NP 區的第 %s 格（推算）、② 左上 NP 表上 %s 那一列' % (mc.get('lineup', ''), mc.get('cub', '')[-1:], mc.get('cub', ''))
+                how = ('PDF 文字層＋向量框線：NP 區頂上的 NP%s-1 是文字，小格的銘牌是線條字（不在文字層），照區內從左緣拉到右緣的隔板由上往下數第 %s 格（推算）；'
+                       'NP 表那一列是文字層；GE EP24 盤面配置圖各機組一份（檔名沒有文件號，照檔名找最高版次）' % (mc.get('cub', '')[2:3], mc.get('cub', '')[-1:]))
+            else:
+                pos_t = '① %s 正視圖上 %s 這一格（格位標籤寫在格子左下角）' % (mc.get('lineup', ''), mc.get('cub', ''))
+                how = ('PDF 文字層找到格位標籤，再用向量框線定出這一格（MCC 框門板範圍，右邊的配線槽不算）；GE EP24 盤面配置圖各機組一份'
+                       '（檔名沒有文件號，照檔名找最高版次）；格內寫的 KKS 與這個元件比對（不判定誰對）')
+        elif kind == 'jbdoc':
+            pos_t = '① 圖上的箱名或 KKS 標籤 %s（同一頁出現幾次就框幾個，最多 4 個）' % lab
+            how = 'PDF 文字層：先找接線箱的 KKS 寫法，沒有才找箱名（短號在別張圖可能是另一個箱子）；這張圖沒有廠區座標'
+        elif kind == 'conn':
+            pos_t = '① GE 接線表上這顆元件的每一芯（一芯一列）'
+            how = 'PDF 文字層（表格欄位由表頭下緣的格線定位）；以接線箱／端子排／端子號接上接線圖'
+        elif kind == 'cs':
+            pos_t = '① 電纜表上 %s 那一列（兩端的房間、設備、型式、長度）' % lab
+            how = 'PDF 文字層'
         elif kind == 'cab':
             pos_t = '① 板位 %s 的約略範圍' % pos
             how = '板名是圖上的線條字（不在文字層）：框由背板的欄、列標籤推算，是約略範圍'
         elif kind == 'vms':
             pos_t = '① 1TBVIB 現場訊號端子（DIN 軌）的標註'
             how = 'PDF 文字層'
+        elif kind == 'epnl':
+            e_ = next((x for x in r.get('ep') or [] if sh['page'] in (x.get('pages') or [])), None) or {}
+            pos_t = '① %s%s（%s那一端）' % ('隔間 ' if e_.get('lv') == 'cmp' else '端子排與端子表那一列 ', lab, '接線箱' if e_.get('end') == 'jb' else '盤')
+            how = 'PDF 文字層＋向量框線：%s；%s%s' % (e_.get('how', ''), e_.get('doc', ''), ('；' + e_['dn']) if e_.get('dn') else '')
+            if e_.get('rel'):
+                first['rel'] = e_['rel']
+        elif kind == 'bnw':
+            pos_t = '① 3500 接線表上這一條的列與機架槽位標題（Mark VIe TVBA 緩衝輸出 → ET 排線 → 3500 模組）'
+            how = ('PDF 文字層（Bently 盤圖的「To Mark VIe」接線表；燃機是 GT-VMP 製造完成報告裡的 Rev D 盤圖，只框 G11 的 RACK 1 那幾頁）；'
+                   '接頭內第 n 通道＝3500 CHn 是推論（ET 排線的腳位沒有圖）')
         else:
             pos_t = '① 槽位表上這顆元件 KKS 那一格'
             how = 'PDF 文字層（槽＝同一欄的 SLOT 表頭、通道＝同一列的 CH）'
-        rows.append([GE_WIRE_HOP[kind], pid_sheet_name(sh), 'doc', src, first])
+        if kind in ('bnw', 'rack'):
+            src = ge_wire_bsrc(sh)
+        ep_h = (next((x for x in r.get('ep') or [] if sh['page'] in (x.get('pages') or [])), None) or {}) if kind == 'epnl' else {}
+        hop_n = '電氣盤配置圖（只到隔間）' if ep_h.get('lv') == 'cmp' else GE_WIRE_HOP[kind]
+        rows.append([hop_n, pid_sheet_name(sh), 'inferred' if ep_h.get('analog') else 'doc', src, first])   # 框在別台的圖上（類比）＝推論
         rows.append(['圖面頁次', 'PDF 第 %s 頁%s' % (sh['page'], ('（共 %s 頁）' % sh['pages']) if isinstance(sh.get('pages'), int) else ''), 'doc', src, dict(base)])
         rows.append(['所在位置', pos_t, 'doc', src, dict(base)])
         rows.append(['圖上標示', lab, 'doc', src, dict(base)])
         rows.append(['對應方式', how, 'doc', src, dict(base)])
-    out = {'mode': r['mode'], 'sum': s_rows, 't': t, 'rows': rows}
+    dl = ge_wire_loop(r, w, pk[0] if pk else '', pname, room, where, jls)
+    if lno:
+        dl['no'] = lno
+    if po:
+        dl['po'] = 1                       # 迴路圖第四欄：對方電氣盤（不是電子室控制盤）
+    if pan_jb:
+        dl['jr'] = recv or 'contact'       # 迴路圖第二欄：受控端（接點在另一端）或接點在盤內
+    if sw.get('doc'):
+        dl['wd'] = sw['doc'] + (' Rev.%s' % sw['rev'] if sw.get('rev') else '')
+    out = {'mode': r['mode'], 'sum': s_rows, 't': t, 'rows': rows, 'u': r.get('unit', 'S10'), 'd': dl}
+    if fld:
+        out['f'] = fld
     if r.get('notes'):
         out['n'] = r['notes']
-    jb = (pm.get('_wg_jbs') or {}).get(w['jb']) if w['jb'] else None
+    jbs = pm.get('_wg_jbs') or {}
+    jb = (jbs.get('%s|%s' % (r.get('unit', 'S10'), w['jb'])) or jbs.get(w['jb'])) if w['jb'] else None
     if jb and jb.get('strip'):
-        out['jb'] = [w['jb'], [x[:4] for x in jb['strip']]]
+        out['jb'] = [w['jb'], [x[:4] + [1 if (len(x) > 7 and x[7]) or (len(x) <= 7) else 0] for x in jb['strip']]]
     return out
+
+
+def ge_wire_cards(pm, key, units):
+    """這個編號在本站機組（units）的每一條接線路徑 → [卡片資料…]（wire_ge.json v2 的 paths[key] 是清單；v1 是單一條）。"""
+    plist = (pm.get('_wg_paths') or {}).get(key) or []
+    if isinstance(plist, dict):
+        plist = [plist]
+    sel = [(pi, r) for pi, r in enumerate(plist) if not units or r.get('unit', 'S10') in units]
+    per, seen, out = {}, {}, []
+    for _pi, r in sel:
+        per[r.get('unit', 'S10')] = per.get(r.get('unit', 'S10'), 0) + 1
+    for pi, r in sel:   # 迴路圖編號（v16）：LP-機組-GE 編號（照寫，不改標點：'52ET/CLOSED' 與 '52ET_CLOSED' 是對照表上兩筆）；同一台有好幾條才加 -P 序號
+        u = r.get('unit', 'S10')
+        seen[u] = seen.get(u, 0) + 1
+        lno = 'LP-%s-%s%s' % (u, key.split('|', 1)[-1], ('-P%d' % seen[u]) if per[u] > 1 else '')
+        c = ge_wire_card(pm, key, r, pi, len(plist) > 1, lno)
+        if per[u] > 1:
+            c['d']['nn'] = per[u]          # 這一台這個編號共幾條（標題欄「-P2（共 4 條）」）
+        out.append(c)
+    return out
+
+
+GE_CTRL_UNIT = {'G11': 'G11', 'G11S': 'G11', 'G12': 'G12', 'G12S': 'G12', 'S1': 'S10', 'S1S': 'S10'}
+
+
+def ge_wire_xref(pm, e, key, units):
+    """沒有路徑、但 Mark VIe 訊號接在實體螺絲上的編號：接線圖上那組螺絲畫在哪個編號的路徑底下（v14）→
+    [[機組, 控制器.變數, 板位 板名 點名, 那個 GE 編號, 接線圖頁]…]（每台機組最多 4 筆）。
+    來源是各路徑核對螺絲時記下的組態點（paths[k].io：[控制器, 模組, 板位, 板名, 點, 變數, DeviceTag, 關係]），不另查索引；
+    常見的是同一台設備的另一組接點（'23HG-1/2 /AVAIL' → 23HG-1）、別名（MIC-2996 → ME-2996）、或圖面與組態不一致——只指出位置，不判定是不是同一顆。"""
+    rev = pm.get('_wg_rev')
+    if rev is None:
+        rev = pm['_wg_rev'] = {}
+        for k, pl in (pm.get('_wg_paths') or {}).items():
+            for pi, r in enumerate(pl if isinstance(pl, list) else [pl]):
+                for x in r.get('io') or []:
+                    if len(x) >= 6 and x[5]:
+                        rev.setdefault((x[0], str(x[5]).lower()), []).append((k, pi, r))
+    out, seen = [], set()
+    for lg in e.get('logic') or []:
+        ct, _d, var = str(lg).partition('.')
+        un = GE_CTRL_UNIT.get(ct, '')
+        if not var or (units and un not in units):
+            continue
+        for k, pi, r in rev.get((ct, var.lower()), ()):
+            if k == key:
+                continue
+            for x in r.get('io') or []:
+                if x[0] == ct and str(x[5]).lower() == var.lower():
+                    pg = (r.get('wire') or {}).get('page')
+                    sig = (un, k, pg, x[2], x[3], x[4])
+                    if sig not in seen:
+                        seen.add(sig)
+                        out.append([un, '%s.%s' % (ct, x[5]), ' '.join(v for v in (x[2], x[3], x[4]) if v), k.split('|', 1)[-1], pg])
+    out.sort(key=lambda v: (v[0], v[4] or 0, v[3]))
+    keep, per = [], {}
+    for v in out:                                        # 每台機組最多 4 筆（卡上只列本台）
+        per[v[0]] = per.get(v[0], 0) + 1
+        if per[v[0]] <= 4:
+            keep.append(v)
+    return keep
 
 
 GE_LD_NO_RE = re.compile(r'(?:HT\d-\d-)?([A-Z]{3}\d\d-[A-Z]\d{4})|(?<![0-9A-Z])(\d{3}T\d{4})(?![0-9])')
@@ -2756,15 +3165,27 @@ def ge_loc_build(ge, pm, hm, old_card=None):
             for k2 in ('ld', 'ldn'):
                 if old[(scope, e['tag'])].get(k2):
                     o[k2] = old[(scope, e['tag'])][k2]
-        # 接線路徑（v13）：wp＝{mode, sum, t, rows, n, jb}（ge_wire_card）；只有 wire_ge.json 有的條目（汽機 TSI）才有
+        # 接線路徑（v13 起；v14 全部 GE 編號）：wp＝第一條路徑 {u, mode, sum, t, f, rows, n, jb}（ge_wire_card）、wpx＝其餘路徑（兩台燃機、多組接點）；
+        # 沒有路徑但有 Mark VIe 訊號的編號帶 wpn＝1（卡上說查過哪些圖、沒有讀到），其餘（閥本體、孔板…）不出這一塊
         if pm is not None and pm.get('_wg') is not None:
-            if scope and key in (pm.get('_wg_paths') or {}):
-                o['wp'] = ge_wire_card(pm, key)
-                for r in o['wp']['rows']:
-                    if len(r) > 4 and 'marks' in r[4]:
-                        pid_used[r[4]['s']] = pid_used.get(r[4]['s'], 0) + 1
-        elif pm is None and (scope, e['tag']) in old and old[(scope, e['tag'])].get('wp'):
-            o['wp'] = old[(scope, e['tag'])]['wp']
+            cards = ge_wire_cards(pm, key, GE_SITE_UNITS.get(scope) or ()) if scope and key in (pm.get('_wg_paths') or {}) else []
+            if cards:
+                o['wp'] = cards[0]
+                if len(cards) > 1:
+                    o['wpx'] = cards[1:]
+                for c in cards:
+                    for r in c['rows']:
+                        if len(r) > 4 and 'marks' in r[4]:
+                            pid_used[r[4]['s']] = pid_used.get(r[4]['s'], 0) + 1
+            elif scope and e.get('logic'):
+                o['wpn'] = 1
+                xr = ge_wire_xref(pm, e, key, GE_SITE_UNITS.get(scope) or ())
+                if xr:
+                    o['wpr'] = xr
+        elif pm is None and (scope, e['tag']) in old:
+            for k2 in ('wp', 'wpx', 'wpn', 'wpr'):
+                if old[(scope, e['tag'])].get(k2):
+                    o[k2] = old[(scope, e['tag'])][k2]
         if hm is not None:
             hits = (hm.get('_ge') or {}).get(key) or []
             if hits and scope:
@@ -3501,17 +3922,19 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     ge_loc, ge_pid_used, ge_hmi_used = ge_loc_build(ge, pm, hm, old_card)
     if ge is not None:
         ld_sheets = {r[4]['s'] for v in ge_loc.values() for r in v.get('ld') or [] if len(r) > 4 and 'marks' in r[4]}
-        wp_sheets = {r[4]['s'] for v in ge_loc.values() for r in (v.get('wp') or {}).get('rows') or [] if len(r) > 4 and 'marks' in r[4]}
+        wp_all = [c for v in ge_loc.values() for c in ([v['wp']] if v.get('wp') else []) + (v.get('wpx') or [])]
+        wp_sheets = {r[4]['s'] for c in wp_all for r in c.get('rows') or [] if len(r) > 4 and 'marks' in r[4]}
         stats['getag_loc'] = {'pid_entries': sum(1 for v in ge_loc.values() if v.get('pd')), 'hmi_entries': sum(1 for v in ge_loc.values() if v.get('hm')),
                               'hmi_related_only': sum(1 for v in ge_loc.values() if v.get('hr') and not v.get('hm')),
                               'pid_sheets': len(set(ge_pid_used) - ld_sheets - wp_sheets), 'hmi_screens': len(ge_hmi_used),
                               'ld_entries': sum(1 for v in ge_loc.values() if v.get('ld')), 'ld_sheets': len(ld_sheets),
                               'ld_listed_missing': sum(1 for v in ge_loc.values() if v.get('ldn')),
-                              'wp_entries': sum(1 for v in ge_loc.values() if v.get('wp')), 'wp_sheets': len(wp_sheets),
-                              'wp_notes': sum(len((v.get('wp') or {}).get('n') or []) for v in ge_loc.values())}
+                              'wp_entries': sum(1 for v in ge_loc.values() if v.get('wp')), 'wp_paths': len(wp_all), 'wp_sheets': len(wp_sheets),
+                              'wp_notes': sum(len(c.get('n') or []) for c in wp_all), 'wp_none': sum(1 for v in ge_loc.values() if v.get('wpn')),
+                              'wp_xref': sum(1 for v in ge_loc.values() if v.get('wpr'))}
         print('getag: GE 編號卡 %(pid_entries)d 個編號有 P&ID 圖面位置（%(pid_sheets)d 張圖紙）、%(hmi_entries)d 個有圖控畫面位置（%(hmi_screens)d 個畫面）、'
               '%(ld_entries)d 個有位置圖位置（%(ld_sheets)d 張圖紙；%(ld_listed_missing)d 個編號的清單位置圖至少一份沒有位置）、'
-              '%(wp_entries)d 個有接線路徑（%(wp_sheets)d 張圖紙、%(wp_notes)d 則註記）' % stats['getag_loc'])
+              '%(wp_entries)d 個有接線路徑（%(wp_paths)d 條、%(wp_sheets)d 張圖紙、%(wp_notes)d 則註記；有 Mark VIe 訊號但沒有路徑 %(wp_none)d 個，其中 %(wp_xref)d 個的組態螺絲畫在別的編號底下）' % stats['getag_loc'])
     # ---- 圖控畫面影像（card/hmi/<slug>.json，走既有 *.json 加密路徑）；--no-hmi 的 --recompare 保留上次發布的
     if hm is not None:
         hmi_ix = hmi_write_images(outdir, out, hm, stats, ge_hmi_used)

@@ -82,11 +82,18 @@
   // GE 編號卡「位置圖」：GE 清單列的位置圖各自的狀態（getag-loc.json 的 ldn；build_card_aux GE_LD_STATE）
   const GE_LD_STATE = { nofile: '文件庫裡找不到這份圖', noscope: '圖的範圍（燃機／汽機）與這個編號不同，沒有比對', miss: '圖上沒有讀到這個編號或它的 KKS',
     hit: '有位置', cap: '有位置（超過張數上限沒有列出）' };
-  // GE 編號卡「接線路徑」（v13，wire_ge.py）：接線圖的畫法（getag-loc.json 的 wp.mode；build_card_aux GE_WIRE_MODE）
+  // GE 編號卡「接線路徑」（v13 汽機 TSI、v14 一號機全部，wire_ge.py）：接線圖的畫法（getag-loc.json 的 wp.mode；build_card_aux GE_WIRE_MODE）
   const GE_WIRE_MODE = { coax: '近接探頭：同軸延長線接到接線箱裡的前置器，前置器出線經幹線到盤', tb: '現場端子經電纜接到接線箱端子排，再經幹線到盤',
-    jbdev: '元件在接線箱裡（發電機的接線箱），由接線箱端子經幹線到盤', direct: '電纜從現場直拉到盤，中間沒有接線箱' };
-  const GE_WIRE_HOP = { wire: '接線圖', jbloc: '接線箱位置', cab: '盤內板位', vms: '3500 盤端子', rack: '3500 機架槽位' };   // 圖紙標頭前的這一跳名稱（extra.hop）
-  const GE_WIRE_IO = { same: '✓ 控制器組態的這顆螺絲就是這個元件', loc: '✓ 同位置的另一個點（例：LVDT 的電源點）', diff: '✗ 控制器組態的這顆螺絲是別的元件', none: '控制器組態沒有這顆螺絲' };
+    jbdev: '元件畫在接線箱裡（撬上接線箱、閥體接線盒、發電機接線箱、MCC 或本地盤），由箱內端子經幹線到盤', direct: '電纜從現場直拉到盤，中間沒有接線箱',
+    ff: 'Foundation Fieldbus：元件 → 段保護器的埠 → 段幹線（好幾顆元件共用一條）→ 電子室盤的 FF 電源調節器 → 控制器的 FF 變數' };
+  const GE_WIRE_HOP = { conn: 'GE 接線表', wire: '接線圖', jbloc: '接線箱位置', gtjb: '撬上接線箱位置', gtjbt: '撬上接線箱座標', jbdoc: '接線箱所在設備圖', mcc: '電氣盤格位', cs: '電纜表',
+    cab: '盤內板位', vms: '3500 盤端子', rack: '3500 機架槽位', bnw: '3500 接線表', epnl: '電氣盤端子排' };   // 圖紙標頭前的這一跳名稱（extra.hop）
+  const GE_WIRE_IO = { same: '✓ 控制器組態的這顆螺絲就是這個元件', logic: '✓ 這顆螺絲的變數就是這個元件的 Mark VIe 訊號',
+    equip: '✓ 這顆螺絲的 DeviceTag 是同一個設備（同一個 KKS 本體，或對照表連在一起的量測鏈）', loc: '✓ 同位置的另一個點（例：LVDT 的電源點）',
+    suffix: '✓ 同一顆，編號後綴寫法不同（4WW ↔ 4WW-1）', alias: '≈ 組態的名稱與圖上的編號寫法不同，多半是同一顆的另一種寫法（見註記）',
+    other: '✗ 控制器組態的這顆螺絲掛的是另一個 GE 編號（見註記）', spare: '✗ 控制器組態的這顆螺絲是備用點（沒有變數）', diff: '✗ 控制器組態的這顆螺絲是別的元件',
+    none: '控制器組態沒有這顆螺絲' };
+  const GE_WIRE_MARK = { same: ' ✓', logic: ' ✓', equip: ' ✓', loc: ' ✓', suffix: ' ✓', alias: ' ≈', other: ' ✗', spare: ' ✗', diff: ' ✗' };
   const PID_REF_OTHER = ['這一處只是圖上提到這支位號的地方，不是儀器符號', '圖上提到的地方'];
   // JK 開頭的位號（HART 多工器模組）沒有列入 P&ID 比對：[摘要組的短句, 完整資料區的整句]。不可以寫「查無」。
   const PID_JK = ['不在 P&ID 比對範圍（JK 開頭的位號是 HART 多工器模組，圖面沒有比對這一類）',
@@ -941,7 +948,7 @@
         const lo = L(id);
         const pd = pick(lo.pd, (ex) => !site || !ex.gu || ex.gu.includes(site));
         const hm = pick(lo.hm, (ex) => !site || !ex.gu || ex.gu === site);
-        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => (L(i).pd || []).concat(L(i).ld || [], (L(i).wp || {}).rows || [])) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
+        this.pidRelease({ sec: { pid: { rows: ids.flatMap((i) => (L(i).pd || []).concat(L(i).ld || [], ...[L(i).wp].concat(L(i).wpx || []).filter(Boolean).map((w) => w.rows || []))) } } }, ix);   // 上一張卡的圖紙影像：這張卡用不到的收掉
         if (pd.length) { gp.innerHTML = ''; this.fillPid({ rows: pd }, ix, gp, mode, true); }
         else none(gp, !e.sc ? '沒有比對（GE 文件沒寫是燃機還是汽機，不知道要找哪一套圖）'
           : `查無（GE 示意圖與 P&ID 的 PDF 文字層、OCR 都沒有讀到這個編號${(e.kb || []).length ? '或它的 KKS' : ''}；不代表圖上沒有畫，可能是線條字沒讀到或只畫在接線圖上）`);
@@ -969,10 +976,40 @@
           gl.appendChild(U.h('p', { class: 'muted small aux-note' }, 'GE 清單「位置圖」欄列的圖：'
             + lo.ldn.map(([no, st]) => `${no}（${GE_LD_STATE[st] || st}）`).join('、')));
         }
-        // 接線路徑（v13）：只有汽機 TSI 的條目有 wp，沒有的不出這一塊（不是每張 GE 卡都要多一句「查無」）
-        if (lo.wp) {
+        // 接線路徑（v13 汽機 TSI、v14 一號機全部）：wp＝第一條路徑、wpx＝其餘（兩台燃機、同一顆的多組接點）；有站別（G11_…）時只列那一台的。
+        // 沒有路徑：有 Mark VIe 訊號的（wpn）說查過哪些圖，其餘（閥本體、孔板…）不出這一塊
+        const wps = [lo.wp].concat(lo.wpx || []).filter((w) => w && (!site || !w.u || w.u === site));
+        if (wps.length) {
           const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
-          this.fillWire(lo.wp, ix, gw, mode, (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : ''));
+          gw.innerHTML = '';
+          const href = (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : '');
+          wps.forEach((w, i) => {
+            const box = U.h('div', { class: 'wire-path' });
+            const body = U.h('div', { class: 'wire-path-b' });   // fillWire 會先清空它的容器：標題放在外面
+            if (wps.length > 1) {
+              const pan = ((w.sum || []).find((x) => x[0] === '電子室盤') || [])[1] || '';
+              box.appendChild(U.h('h4', { class: 'wire-path-h' }, (w.u ? w.u + ' ' : '') + '第 ' + (i + 1) + ' 條' + (pan ? '：' + pan : '')));
+            }
+            box.appendChild(body);
+            gw.appendChild(box);
+            this.fillWire(w, ix, body, mode, href, { tag: e.t, open: i === 0 });
+          });
+        } else if (lo.wpn) {
+          const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
+          none(gw, '查無：一號機兩份儀控電纜接線圖（汽機 D1005、燃機 D1004）與 GE 燃機接線表 138T5502 都沒有讀到這個編號。它有 Mark VIe 訊號，可能是 FF 段上 GE 表沒有列的元件、'
+            + '撬內或盤內配線、說明格寫成別名，或接線圖這一頁的畫法這一版還沒有解析（兩層熱電偶頁）。');
+          // wpr（v14）：組態把這個訊號接在實體螺絲上，接線圖上同一組螺絲畫在別的編號底下——只指出在哪裡，不判定是不是同一顆
+          const xr = (lo.wpr || []).filter(([un]) => !site || un === site);
+          if (xr.length) {
+            const href = (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : '');
+            const ul = U.h('ul', { class: 'wire-xref' });
+            for (const [un, v, where, tag, pg] of xr) {
+              ul.appendChild(U.h('li', {}, `${un} ${v}（${where}）→ 接線圖第 ${pg} 頁畫在 `, U.h('a', { class: 'lk', href: href(tag) }, tag), ' 底下'));
+            }
+            gw.appendChild(U.h('p', { class: 'muted small aux-note' }, '不過控制器組態把這個訊號接在實體螺絲上，接線圖上同一組螺絲畫在別的編號底下'
+              + '（常見是同一台設備的另一組接點、別名，或圖面與組態不一致；這裡只指出位置，不判定是不是同一顆）：'));
+            gw.appendChild(ul);
+          }
         }
         for (const [un, rep, list] of lo.hms || []) {
           if (site && un !== site) continue;
@@ -990,10 +1027,19 @@
      *  sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對（GE_WIRE_IO）]；
      *  n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：不替任何一方選邊，原樣列出）；rows＝各跳的圖，與 P&ID 同格式，直接交給 fillPid
      *  （接線圖、接線箱位置、盤內板位、3500 盤端子、3500 機架槽位；第一張展開、其餘收合，展開才下載）；
-     *  jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子]…]]：同一個接線箱裡的 TSI 端子排（收合，元件連到它的卡）。 */
-    fillWire(wp, ix, el, mode, href) {
+     *  jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子]…]]：同一個接線箱裡的 TSI 端子排（收合，元件連到它的卡）。
+     *  lp＝{tag, open}：迴路圖（v15，fillLoop）的編號與要不要先展開（多條路徑時只展開第一條）。 */
+    fillWire(wp, ix, el, mode, href, lp) {
       el.innerHTML = '';
       if (GE_WIRE_MODE[wp.mode]) el.appendChild(U.h('p', { class: 'muted small wire-mode' }, GE_WIRE_MODE[wp.mode]));
+      if (lp && lp.tag) this.fillLoop(wp, el, lp.tag, lp.open);
+      if ((wp.f || []).length) {   // 燃機撬上：GE 138T5502 的「元件端子 → 撬上接線箱端子」（一芯一列）
+        const fb = U.h('tbody');
+        for (const row of wp.f) fb.appendChild(U.h('tr', {}, ...row.slice(0, 8).map((v) => U.h('td', { class: 'mono' }, v || ''))));
+        el.appendChild(U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini wire-field' },
+          U.h('caption', { class: 'muted small' }, '元件 → 撬上接線箱（GE 138T5502 Rev M 一芯一列；版次欄＝該列最後修改的版次）'),
+          U.h('thead', {}, U.h('tr', {}, ...['元件端子', '芯色', '電纜', '經過', '接線箱', '端子', '接線箱所在', '版次'].map((h) => U.h('th', { scope: 'col' }, h)))), fb)));
+      }
       const sb = U.h('tbody');
       for (const [k, v, lvl, src] of wp.sum || []) {
         sb.appendChild(U.h('tr', {}, U.h('th', { scope: 'row' }, k), U.h('td', { title: this.srcLabel(lvl) + (src ? ' · ' + src : '') }, v)));
@@ -1003,10 +1049,10 @@
         const tb = U.h('tbody');
         for (const [core, fld, jb, pt, pin, chk] of wp.t) {
           tb.appendChild(U.h('tr', {}, U.h('td', { class: 'mono' }, core), U.h('td', { class: 'mono' }, fld), U.h('td', { class: 'mono' }, jb), U.h('td', { class: 'mono' }, pt),
-            U.h('td', { class: 'mono', title: GE_WIRE_IO[chk] || '' }, pin ? pin + (chk === 'same' || chk === 'loc' ? ' ✓' : chk === 'diff' ? ' ✗' : '') : '')));
+            U.h('td', { class: 'mono', title: GE_WIRE_IO[chk] || '' }, pin ? pin + (GE_WIRE_MARK[chk] || '') : '')));
         }
         el.appendChild(U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini wire-cond' },
-          U.h('caption', { class: 'muted small' }, '每一條芯（幹線芯色 → 盤端子；✓＝控制器組態的螺絲號核對過是這個元件）'),
+          U.h('caption', { class: 'muted small' }, '每一條芯（幹線芯色 → 盤端子；✓＝控制器組態的螺絲號核對過是這個元件、≈＝名稱寫法不同、✗＝組態掛的是別的點，滑鼠停在上面看說明）'),
           U.h('thead', {}, U.h('tr', {}, ...['芯', '現場端子', '接線箱端子', '盤端子', 'Mark VIe 腳位'].map((h) => U.h('th', { scope: 'col' }, h)))), tb)));
       }
       if ((wp.n || []).length) {
@@ -1020,14 +1066,389 @@
       if (wp.jb && (wp.jb[1] || []).length) {
         const [name, strip] = wp.jb;
         const tb = U.h('tbody');
-        for (const [jt, core, tag, pt] of strip) {
+        for (const [jt, core, tag, pt, isge] of strip) {
           tb.appendChild(U.h('tr', {}, U.h('td', { class: 'mono' }, jt), U.h('td', { class: 'mono' }, core),
-            U.h('td', { class: 'mono' }, href ? U.h('a', { class: 'lk', href: href(tag) }, tag) : tag), U.h('td', { class: 'mono' }, pt)));
+            U.h('td', { class: isge === 0 ? 'small' : 'mono' }, href && isge !== 0 && tag ? U.h('a', { class: 'lk', href: href(tag) }, tag) : tag), U.h('td', { class: 'mono' }, pt)));
         }
-        el.appendChild(U.h('details', { class: 'wire-jb' }, U.h('summary', {}, `接線箱 ${name} 裡的 TSI 端子（${strip.length} 條芯；只列汽機 TSI 元件）`),
+        el.appendChild(U.h('details', { class: 'wire-jb' }, U.h('summary', {}, `接線箱 ${name} 的端子排（${strip.length} 條芯，照接線圖上的順序；認得 GE 編號的可以點）`),
           U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini' },
             U.h('thead', {}, U.h('tr', {}, ...['接線箱端子', '芯', '元件', '盤端子'].map((h) => U.h('th', { scope: 'col' }, h)))), tb))));
       }
+    }
+
+    /** 迴路圖（v15，CONTRACT.md「v15」）：一條接線路徑畫成一張 ISA-5.4 式單線圖——元件 → 現場端子 → 現場電纜 → 接線箱端子 → 幹線（芯色、電纜號、規格、長度）
+     *  → 電子室盤端子 → Mark VIe 腳位（✓≈✗ 與表格同一套）。資料全取自卡上這條路徑（wp.d 分開欄位、wp.t 每條芯、wp.f 燃機 GE 接線表、wp.n 註記、
+     *  wp.rows 出處圖紙），不另載檔。SVG 用字串組（U.h 建的是 HTML 元素，畫不出 SVG）；「列印這張迴路圖」把它放進 body 底下的 #loop-print 再 window.print
+     *  （app.css 的 @media print 只留它、A4 橫向），「下載 SVG」存成獨立檔（樣式寫在 SVG 自己的 <style>，選擇器都掛在 .loop-svg 底下，不影響頁面）。 */
+    fillLoop(wp, el, tag, open) {
+      if (!(wp.t || []).length) return;
+      const svg = this.loopSvg(wp, tag);
+      const name = '迴路圖_' + String(tag).replace(/[\\/:*?"<>|\s]+/g, '_') + (wp.u ? '_' + wp.u : '') + '.svg';
+      const pr = U.h('button', { type: 'button', class: 'btn xs loop-print-btn', onclick: () => {
+        const old = document.getElementById('loop-print');
+        if (old) old.remove();
+        const box = U.h('div', { id: 'loop-print', html: svg });
+        document.body.appendChild(box);
+        document.body.classList.add('print-loop');
+        const done = () => { window.removeEventListener('afterprint', done); document.body.classList.remove('print-loop'); box.remove(); };
+        window.addEventListener('afterprint', done);
+        window.print();
+      } }, '列印這張迴路圖');
+      const dl = U.h('button', { type: 'button', class: 'btn xs loop-svg-btn', onclick: () => {
+        const url = URL.createObjectURL(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }));
+        const a = U.h('a', { href: url, download: name });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } }, '下載 SVG');
+      el.appendChild(U.h('details', Object.assign({ class: 'wire-loop' }, open ? { open: true } : {}),
+        U.h('summary', {}, '迴路圖（ISA-5.4 式單線圖：元件 → 接線箱端子 → 幹線 → 盤端子 → Mark VIe 腳位）'),
+        U.h('div', { class: 'loop-tools' }, pr, dl, U.h('span', { class: 'muted small' }, '依接線圖、電纜表與控制器組態由程式整理，本圖未經簽核；文件互相矛盾的地方在圖下方 ⚠ 註記')),
+        U.h('div', { class: 'loop-fig', html: svg })));
+    }
+
+    /** fillLoop 的 SVG 字串。版面（寬 1120）：標題列 → 五區（現場｜接線箱｜幹線｜電子室盤｜Mark VIe，虛線分隔）→ 一條芯一列（芯色寫在幹線上；屏蔽線畫虛線，
+     *  盤側沒畫端子的屏蔽線只畫到盤邊、不推測接地；這一頁盤欄底部印著屏蔽排說明的（d.sb：IS → B、OS → A 接地）照抄在盤框底部）→ 接線箱位置、房間、
+     *  接線圖說明 → 出處、⚠ 註記、圖例。每條芯從元件圓圈上各自的點出線（共用一點會看成接在一起）。畫法依 wp.mode：direct 沒有接線箱；coax 箱內畫前置器；
+     *  jbdev 沒有 GE 接線表的：電氣盤（MCC／PC 的格）把盤框從現場區延伸過來框住元件（接點在盤內），其他接線箱畫成元件直接接到箱內端子排（接線圖沒有現場電纜號）；ff 有 GE 接線表的：元件端子 → 中間的 FF 傳送器 → 支線接段保護器的埠 → 段匯流排 → 段幹線 → FFPC → 控制器 FF_IN_S 段；
+     *  ff 而這一條是段幹線本身的（段保護器，沒有段號）不畫元件圓圈。 */
+    loopSvg(wp, tag) {
+      const d = wp.d || {}; const t = wp.t || []; const E = U.esc; const mode = wp.mode;
+      const vw = (x) => { let n = 0; for (const c of String(x || '')) { const k = c.charCodeAt(0); n += k > 0x2e7f || (k >= 0x2190 && k <= 0x23ff) ? 2 : 1; } return n; };   // 字寬：全形、箭頭與數學符號算 2
+      const cut = (x, n) => { x = String(x || ''); if (!n || vw(x) <= n) return x; let o = ''; for (const c of x) { if (vw(o + c) > n - 1) break; o += c; } return o + '…'; };
+      const wrap = (x, n, max) => {
+        const out = []; let cur = '';
+        for (const tk of String(x || '').match(/[⺀-￿]|[^⺀-￿\s]+\s*|\s+/g) || []) {
+          if (cur && vw(cur + tk.trimEnd()) > n) { out.push(cur.trimEnd()); cur = ''; }
+          let k = tk;
+          while (vw(k) > n) { out.push(cut(k, n + 1).slice(0, -1)); k = k.slice(out[out.length - 1].length); }
+          cur += cur || k.trim() ? k : '';
+        }
+        if (cur.trim()) out.push(cur.trimEnd());
+        if (max && out.length > max) { out.length = max; out[max - 1] = cut(out[max - 1] + '……', n); }
+        return out;
+      };
+      const T = (x, y, v, cls, n, anchor, tip) => {
+        const full = String(v == null ? '' : v);
+        if (!full) return '';
+        const sh = cut(full, n);
+        const ti = tip || (sh !== full ? full : '');
+        return `<text x="${x}" y="${y}" class="${cls}"${anchor ? ` text-anchor="${anchor}"` : ''}>${ti ? `<title>${E(ti)}</title>` : ''}${E(sh)}</text>`;
+      };
+      const L = (x1, y1, x2, y2, cls) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls || 'lp-w'}"/>`;
+      const R = (x, y, w, h, cls) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" class="${cls}"/>`;
+      const OPEN = (x, y) => `<path d="M${x} ${y - 5}v10" class="lp-w"/>`;   // 線畫到這裡為止（接線圖這一端沒畫端子）
+      const GND = (x, y) => `<path d="M${x} ${y}v7M${x - 6} ${y + 7}h12M${x - 4} ${y + 10}h8M${x - 2} ${y + 13}h4" class="lp-w"/>`;
+      const shield = (r) => /^SH/i.test(r[0] || '') || /^SHD?\b/i.test(r[1] || '');
+      const io = d.io || []; const ff = d.ff; const direct = mode === 'direct'; const coax = mode === 'coax';
+      const isPanel = /^電氣盤/.test(d.jl || '');
+      const segRow = mode === 'ff' && !(ff && ff[0]);                         // FF 段幹線本身（段保護器）：沒有元件
+      const ffF = mode === 'ff' && !segRow ? (wp.f || []) : [];                // FF 元件的 GE 接線表各芯（元件端子 → 傳送器 → 段保護器的埠）
+      const fr = t.map((r) => (mode === 'ff' ? null : (wp.f || []).find((f) => { const j = String(f[5] || ''); return r[2] && (j === r[2] || j.endsWith(' ' + r[2])); }) || null));
+      const hasF = fr.some(Boolean);
+      const ffPairs = [];   // FF 段保護器內部：支線端子（5+、5−、S）各自接到幹線端子（SIG+、SIG−、SH）
+      if (ffF.length) {
+        const used = new Set();
+        ffF.forEach((f, i) => {
+          const pt = String(f[5] || '').split(/\s+/)[1] || '';
+          if (!pt || /^-/.test(pt)) return;
+          const want = /\+/.test(pt) ? /\+/ : /[-−]/.test(pt) ? /-|−/ : /^S/i.test(pt) ? /^S(H|HD)?\b|SH/i : null;
+          let j = want ? t.findIndex((r, k) => !used.has(k) && want.test(String(r[2] || ''))) : -1;
+          if (j < 0) j = t.findIndex((_r, k) => !used.has(k));
+          if (j < 0) return;
+          used.add(j); ffPairs.push([i, j, pt, String(t[j][2] || '')]);
+        });
+      }
+      // 中間設備（v16，d.md）：jb＝在這個接線箱裡（電荷放大器、前置器、安全柵＋PLC、光電模組）、field＝先進另一個箱子（發電機上的 JB-164）、
+      // self＝這個編號本身就在接線箱裡（JB87 的 DVP）、pre＝上游還有一個沒有 GE 編號的感測器
+      const md = d.md || []; const mdJ = md.find((x) => x[0] === 'jb'); const mdF = md.find((x) => x[0] === 'field');
+      const mdS = md.find((x) => x[0] === 'self'); const mdP = md.find((x) => x[0] === 'pre');
+      const selfIn = !!mdS && mode === 'jbdev' && !hasF && !isPanel;
+      const inBox = (mode === 'jbdev' && !hasF && isPanel) || selfIn;        // 電氣盤的格：元件接點在盤內，沒有現場電纜；DVP：這個編號就在箱裡
+      const atJb = mode === 'jbdev' && !hasF && !isPanel && !selfIn;          // 接線圖上元件直接畫在接線箱端子排旁，沒有現場電纜號
+      const mdIn = !!mdJ && !ffF.length && !coax && mode !== 'direct';        // 箱內的中間設備：接線箱框往左延伸把它框進去
+      const bx = d.bx && /^(tvba|shra)/.test(d.bx[0]) ? d.bx : null;          // 3500 並聯分支（Mark VIe 下方再畫一個 3500 框）
+      const bxH = bx ? 76 : 0;
+      const n = t.length; const nf = ffF.length; const m = Math.max(n, nf); const RH = 28; const TOP = 124;
+      const base = TOP + (Math.max(m, 3) - m) * RH / 2 + RH / 2;
+      const ys = t.map((_r, i) => base + ((m - n) / 2 + i) * RH);
+      const yf = ffF.map((_r, i) => base + ((m - nf) / 2 + i) * RH);
+      const y0 = ys[0]; const y1 = ys[n - 1];
+      const yTop = Math.min(y0, nf ? yf[0] : y0); const yBot = Math.max(y1, nf ? yf[nf - 1] : y1); const mid = (yTop + yBot) / 2;
+      const sbH = d.sb && d.sb.length ? 36 : 0;                                  // 盤框底部抄屏蔽排說明的高度
+      const by0 = inBox ? Math.min(yTop - 46, mid - 64) : yTop - 46;
+      const by1 = Math.max(yBot + 20 + sbH, mid + (inBox ? 78 : 40), mdIn || mdF ? yBot + 58 : 0);   // 中間設備框下面寫說明與進、出線端
+      const W = 1120; const FX = 178; const JX = 384; const PX = 712; const MX0 = 900; const MX1 = 1112;
+      const srcM = new Map();   // 同一份圖的頁碼併成一筆（'電氣盤端子排 … p.5、6、14'）
+      (wp.rows || []).filter((r) => r[4] && r[4].hop).forEach((r) => { const k = `${r[0] || GE_WIRE_HOP[r[4].hop]} ${r[1]}`; if (!srcM.has(k)) srcM.set(k, []); if (!srcM.get(k).includes(r[4].p)) srcM.get(k).push(r[4].p); });
+      const srcs = [...srcM].map(([k, ps]) => `${k} p.${ps.join('、')}`);
+      const srcL = wrap('出處：' + srcs.join('；'), 196, 4);
+      const notes = wp.n || [];
+      const noteL = notes.slice(0, 8).flatMap((x, i) => wrap(`⚠${i + 1} ${x[0]}`, 196, 3));
+      if (notes.length > 8) noteL.push(`（另有 ${notes.length - 8} 則註記，見卡片）`);
+      const locY = by1 + 18 + bxH;
+      const jlL = direct ? [] : wrap('位置：' + (d.jl || '—'), 46, 3);
+      if (!direct && d.rf && !/電纜表房間/.test(d.jl || '')) jlL.push(cut('電纜表房間：' + d.rf, 46));
+      if (ffPairs.length) jlL.push(cut('段保護器內部：' + ffPairs.map((x) => `${x[2]}→${x[3] || '?'}`).join('、') + '（各自一條，不相通）', 46));
+      if (d.fsm) jlL.push(...wrap('同一段的元件：' + d.fsm.join('、'), 46, 2));   // ISA-5.4：與其他迴路的關聯（FF 段共用）
+      const fl = (nf && d.kk ? ['元件 KKS：' + d.kk] : []).concat(wrap('接線圖說明：' + (d.ds || '—'), 44, 4), direct && d.rf ? wrap('現場那一端（電纜表）：' + d.rf, 44, 2) : [],
+        mdP ? wrap(`上游感測器：${mdP[1]}（${mdP[2]}）`, 44, 3) : []);
+      const roomL = wrap('房間：' + (d.pr || d.rp || '—'), 42, 2);
+      // 訊號型式與迴路供電（v16，d.sg）：照接線判；等級寫在括號（組態＝組態直接寫、文字層＝手冊或圖面、推論）
+      const sg = d.sg || [];
+      const sgL = sg.length ? [].concat(wrap(`【${sg[0][3]}】訊號：` + (sg[0][0] ? sg[0][0] + ' ' : '') + sg[0][1], 38, 3), wrap(`供電：${sg[0][2]}`, 38, 6),
+        sg.slice(1).map((x) => cut(`另 ${x[0]}：${x[1]}`, 38))) : [];
+      const footY = locY + Math.max(fl.length, jlL.length, roomL.length, sgL.length) * 12 + 16;
+      const TBH = 40;   // 標題欄（v16）：迴路圖編號、元件、依據的接線圖、產生日期
+      const H = footY + 14 + (srcL.length + noteL.length) * 13 + 70 + TBH;   // 圖例四行
+      let g = '';
+      let tb = '';   // 端子方塊最後才畫（蓋在線上）
+      // ---- 標題列、五區
+      g += T(16, 27, '迴路圖 LOOP DIAGRAM', 'lp-h1');
+      g += T(W / 2, 27, [tag, d.kk ? d.kk + (d.kw ? '（接線圖寫 ' + d.kw + '）' : '') : '', wp.u].filter(Boolean).join('　'), 'lp-h1', 84, 'middle');
+      g += T(W - 16, 27, d.pg ? `接線圖 p.${d.pg[0]}（Sheet ${d.pg[1]} of ${d.pg[2]}）` : '', 'lp-s', 0, 'end');
+      g += L(4, 40, W - 4, 40, 'lp-w');
+      const zt = [[0, 250, '現場 FIELD'], [250, 500, direct ? '（沒有接線箱）' : mode === 'ff' ? 'FF 段保護器' : isPanel ? '電氣盤（不是接線箱）' : '接線箱 JUNCTION BOX'],
+        [500, 650, '幹線 CABLE'], [650, 890, d.po ? '終點盤 PANEL' : '電子室盤 PANEL'], [890, W, io.length || (ff && ff[2]) ? 'Mark VIe' : mode === 'ff' ? 'Mark VIe（FF 段）' : '終點']];
+      for (const [a, b, s] of zt) {
+        g += T((a + b) / 2, 58, s, 'lp-z', 0, 'middle');
+        if (a) g += L(a, 44, a, footY - 6, 'lp-sep');
+      }
+      g += L(4, 66, W - 4, 66, 'lp-sep');
+      // ---- 現場：元件圓圈（ISA 現場安裝＝沒有橫線的圓）與 KKS；元件畫在箱／盤裡的，箱子框從現場區延伸過來把它框進去
+      const cx = inBox ? 84 : nf ? 44 : 64; const cy = mid; const cr = nf ? 26 : 30; const BX0 = inBox ? 14 : mdIn ? 190 : 290; const BX1 = 488;
+      const stub = (k, tot) => { const a = (tot > 1 ? -55 + 110 * k / (tot - 1) : 0) * Math.PI / 180; return [+(cx + cr * Math.cos(a)).toFixed(1), +(cy + cr * Math.sin(a)).toFixed(1)]; };
+      if (inBox) {
+        g += R(BX0, by0, BX1 - BX0, by1 - by0, isPanel ? 'lp-box lp-pan lp-fill' : 'lp-box lp-fill');
+        g += T(BX0 + 8, by0 + 13, d.jb + (d.jd ? '（' + d.jd + '）' : ''), 'lp-b', 72);
+        if (selfIn) {   // JB87 的 DVP：這個編號就是箱裡的定位器，現場的電動致動器以接頭插在箱上
+          g += T(BX0 + 8, by0 + 25, `${tag} 是 ${mdS[1]}（${mdS[2]}）【${mdS[5]}】`, 'lp-s', 78);
+          g += T(BX0 + 8, by0 + 37, mdS[3], 'lp-s', 78);
+        } else if (d.jr && d.jr !== 'contact') {
+          g += T(BX0 + 8, by0 + 25, `盤內是受控端，接點在另一端（${d.jr}）`, 'lp-s', 78);
+        } else g += T(BX0 + 8, by0 + 25, '元件的接點在這個盤裡（接線圖畫在盤內），沒有現場電纜', 'lp-s', 78);
+      } else if (mdIn) g += R(BX0, by0, BX1 - BX0, by1 - by0, 'lp-box lp-fill');   // 先鋪底：蓋掉框內的分區虛線（中間設備的線之後才畫）
+      if (segRow) {
+        wrap('這一條是 FF 段幹線本身：段保護器' + (d.jt ? ' ' + d.jt : '') + ' 在 ' + (d.jb || '接線箱') + ' 裡；'
+          + (d.fm ? '這一段接的元件：' + d.fm.join('、') : '接在這一段的元件各有自己的卡'), 44, 7).forEach((x, i) => { g += T(10, by0 + 14 + i * 12, x, 'lp-s'); });
+      } else {
+        g += `<circle cx="${cx}" cy="${cy}" r="${cr}" class="lp-bub"/>`;
+        const tl = vw(tag) <= 8 ? [tag] : (() => { const k = String(tag).lastIndexOf('-'); return k > 0 ? [tag.slice(0, k), tag.slice(k)] : [tag]; })();
+        tl.forEach((x, i) => { g += T(cx, cy + 4 + (i - (tl.length - 1) / 2) * 13, x, tl.length > 1 || vw(x) > 6 ? 'lp-tag sm' : 'lp-tag', 10, 'middle', tag); });
+        if (!nf) g += T(Math.max(cx, vw(d.kk) * 3.1 + (inBox ? 20 : 8)), cy + cr + 14, d.kk, 'lp-m sm', 30, 'middle');   // FF 元件的 KKS 寫在下面（圓圈旁是端子）
+      }
+      // ---- 現場 → 接線箱（或直拉到盤）
+      const cab = (x, ya, yb) => `<ellipse cx="${x}" cy="${(ya + yb) / 2}" rx="5" ry="${(yb - ya) / 2 + 9}" class="lp-cab"/>`;
+      if (nf) {   // FF 元件：元件端子 → 傳送器 → 支線 → 段保護器的埠
+        const EX = 132; const VX0 = 150; const VX1 = 236; const PB0 = 300; const PB1 = 346;
+        const via = [...new Set(ffF.map((f) => String(f[3] || '').replace(/\s+\S+$/, '')).filter(Boolean))].join('／');
+        const port = [...new Set(ffF.map((f) => String(f[5] || '').split(/\s+/)[0]).filter((x) => x && x !== '-'))].join('／');
+        ffF.forEach((f, i) => {
+          const y = yf[i]; const sh = /SHD?/i.test(f[0] || '');
+          const [sx, sy] = stub(i, nf);
+          g += L(sx, sy, EX - 4, y, 'lp-w' + (sh ? ' lp-dash' : '')) + `<circle cx="${EX}" cy="${y}" r="3.5" class="lp-term"/>`;
+          g += T(EX - 8, y > cy + 1 ? y + 12 : y - 5, f[0], 'lp-m sm', 12, 'end');
+          g += L(EX + 4, y, via ? VX0 : PB0, y, 'lp-w' + (sh ? ' lp-dash' : ''));
+          if (via) g += T(VX0 + 4, y - 3, String(f[3] || '').split(/\s+/).pop(), 'lp-m sm', 6);
+          const pt = String(f[5] || '').split(/\s+/).slice(1).join(' ');
+          if (via && pt && pt !== '-') g += L(VX1, y, PB0, y, 'lp-w' + (sh ? ' lp-dash' : ''));
+          if (pt && pt !== '-') tb += T(PB0 + 23, y + 3.5, pt, 'lp-m sm', 6, 'middle');
+        });
+        if (via) {
+          g += R(VX0, yf[0] - 13, VX1 - VX0, yf[nf - 1] - yf[0] + 26, 'lp-box lp-px');
+          g += T((VX0 + VX1) / 2, yf[0] - 18, via, 'lp-b', 16, 'middle');
+          g += T((VX0 + VX1) / 2, yf[0] - 30, 'FF 傳送器', 'lp-s', 0, 'middle');
+        }
+        g += T((VX0 + VX1) / 2, yf[nf - 1] + 26, '電纜 ' + ffF[0][2], 'lp-s', 20, 'middle');
+        g += R(PB0, yf[0] - 12, PB1 - PB0, yf[nf - 1] - yf[0] + 24, 'lp-box lp-px');
+        ffPairs.forEach(([i, j], k) => { const x = 352 + 6 * k; g += L(PB1, yf[i], x, yf[i], 'lp-bus') + L(x, yf[i], x, ys[j], 'lp-bus') + L(x, ys[j], JX, ys[j], 'lp-bus'); });
+      } else if (mode === 'ff' && !segRow) {   // FF 元件、GE 接線表沒有它：支線一條到段保護器
+        g += L(cx + cr, cy, 300, cy, 'lp-w');
+        g += T(184, cy - 7, `支線 → ${ff[0]} 埠 ${ff[1] || '?'}`, 'lp-s', 40, 'middle');
+        g += L(300, cy, 358, cy, 'lp-bus') + L(358, Math.min(cy, y0), 358, Math.max(cy, y1), 'lp-bus');
+        t.forEach((r, i) => { g += L(358, ys[i], JX, ys[i], 'lp-bus'); });
+      } else if (inBox || atJb) {
+        const known = !!(mdJ || mdF);                                         // 有中間設備的資料：畫實線，經過中間設備的框
+        const lc = 'lp-w' + (atJb && !known ? ' lp-lt' : '');   // 灰線：接線圖上元件畫在端子排旁，中間有沒有別的設備這張圖沒畫
+        const FB0 = 116; const FB1 = 196; const DB0 = 202; const DB1 = 282;   // 另一個箱子（現場區）／箱內的中間設備
+        const sig = t.map((r, i) => (shield(r) ? null : ys[i])).filter((y) => y != null);   // 箱內的中間設備只接訊號芯；屏蔽芯繞過它直接接到箱內的屏蔽端子
+        const sy0 = sig.length ? Math.min(...sig) : y0; const sy1 = sig.length ? Math.max(...sig) : y1;
+        const one = d.m1 === 'coax' ? 'coax' : d.m1 && (mdIn || mdF) ? 'fiber' : '';   // 現場 → 中間設備只有一條線：同軸延長線／光纖
+        t.forEach((r, i) => {
+          const sh = shield(r) ? ' lp-dash' : ''; const y = ys[i]; const thru = mdIn && !sh;
+          if (sh && d.ns) { if (mdF) return; g += L(250, y, JX, y, lc + sh); return; }   // 屏蔽不從元件拉：只畫接線箱這一端
+          if (!(one && (mdIn || mdF))) { const [sx, sy] = stub(i, n); g += L(sx, sy, mdF ? FB0 : thru ? DB0 : 250, y, lc + sh); }
+          if (mdF) g += L(FB1, y, thru ? DB0 : JX, y, 'lp-w lp-lt' + sh);   // 現場另一個箱子 → 接線箱：GE 範圍電纜，一號機接線圖沒畫（灰線）
+          else if (!thru) g += L(250, y, JX, y, lc + sh);
+          if (thru) g += L(DB1, y, JX, y, lc + sh);
+        });
+        if (one && (mdIn || mdF)) {
+          const tx = mdF ? FB0 : DB0; const ty2 = mdF ? (y0 + y1) / 2 : (sy0 + sy1) / 2;
+          g += L(cx + cr, cy, tx, ty2, one === 'coax' ? 'lp-w lp-coax' : 'lp-w lp-fib') + T((cx + cr + tx) / 2, Math.min(cy, ty2) - 7, one === 'coax' ? '同軸' : '光纖', 'lp-s', 0, 'middle');
+        }
+        if (mdF) g += T((FB1 + BX0) / 2, y0 - 9, 'GE 段電纜', 'lp-s', 12, 'middle');
+        const mbox = (x0, x1, it, inJb) => {   // 中間設備框（蓋在線上）：名稱在框內，說明與進、出線端寫在框下
+          const nm = wrap(it[1], 14, 2); const a = inJb ? sy0 : y0; const b = inJb ? sy1 : y1;
+          let o = R(x0, a - 14, x1 - x0, b - a + 28, 'lp-box lp-px lp-fill');
+          nm.forEach((v, k) => { o += T((x0 + x1) / 2, (a + b) / 2 + 4 + (k - (nm.length - 1) / 2) * 12, v, 'lp-b', 16, 'middle', it[1]); });
+          const sub = [it[2] + (inJb && it[5] ? '【' + it[5] + '】' : ''), it[3] ? '入 ' + it[3] : '', it[4] ? '出 ' + it[4] : ''].filter(Boolean);
+          sub.slice(0, 3).forEach((v, k) => { o += T(x0, y1 + 26 + k * 11, v, 'lp-s', inJb ? 34 : 26); });
+          return o;
+        };
+        if (mdF) tb += mbox(FB0, FB1, mdF, false);
+        if (mdIn) tb += mbox(DB0, DB1, mdJ, true);
+        if (atJb && !known) wrap('接線圖上元件畫在端子排旁、沒有現場電纜號；中間若有轉換器、放大器或另一個箱子，不在這張圖上', 46, 2).forEach((x, i) => { g += T(10, by0 + 12 + i * 12, x, 'lp-s'); });
+        else if (known && d.mg) wrap('沒有圖的部分：' + d.mg, mdIn ? 34 : 46, 2).forEach((x, i) => { g += T(8, by0 + 12 + i * 12, x, 'lp-s'); });
+      } else if (coax) {
+        g += L(cx + cr, cy, 302, cy, 'lp-w lp-coax');
+        g += T(196, cy - 8, d.fc, 'lp-m sm', 32, 'middle');
+        g += T(196, cy + 15, d.fs, 'lp-s', 32, 'middle');
+      } else if (!segRow) {
+        t.forEach((r, i) => {
+          const y = ys[i]; const sh = shield(r); const f = fr[i];
+          const lab = (f ? f[0] + (f[1] && f[1] !== f[0] ? '（' + f[1] + '）' : '') : String(r[1] || '')).replace(/^(.+)（\1）$/, '$1');
+          if (!lab) return;
+          const [sx, sy] = stub(i, n);
+          g += L(sx, sy, FX - 4, y, 'lp-w' + (sh ? ' lp-dash' : ''));
+          g += `<circle cx="${FX}" cy="${y}" r="3.5" class="lp-term"/>`;
+          g += T(FX - 8, y > cy + 1 ? y + 12 : y - 5, lab, 'lp-m sm', 14, 'end');   // 斜線從圓圈過來：圓圈下方的列字放線下，免得被線穿過
+          const end = direct && !r[6] ? 680 : direct ? PX : JX;
+          g += L(FX + 4, y, end, y, 'lp-w' + (sh ? ' lp-dash' : ''));
+          if (direct && !r[6]) g += OPEN(end, y) + T(686, y + 3.5, '盤側沒畫端子', 'lp-s', 0);
+        });
+        if (!direct) {
+          const fc = hasF ? [...new Set(fr.filter(Boolean).map((f) => f[2]))].join('／') : d.fc;
+          const via = hasF ? [...new Set(fr.filter(Boolean).map((f) => f[3]).filter(Boolean))].join('／') : '';
+          g += cab(236, y0, y1);
+          g += T(214, y0 - 30, fc, 'lp-m sm', 34, 'middle');
+          g += T(214, y0 - 18, hasF ? (via ? '經 ' + via : 'GE 接線表 138T5502') : d.fs, 'lp-s', 34, 'middle');
+        }
+      }
+      // ---- 接線箱
+      if (direct) {
+        g += T(375, by0 + 12, '沒有接線箱：電纜從現場直拉到盤', 'lp-s', 0, 'middle');
+      } else {
+        if (!inBox) {
+          g += R(BX0, by0, BX1 - BX0, by1 - by0, isPanel ? 'lp-box lp-pan' : 'lp-box');
+          g += T(BX0 + 6, by0 + 13, d.jb, 'lp-b', 28);
+          g += T(BX0 + 6, by0 + 25, mode === 'ff' && ff ? `段保護器 ${ff[0]}：埠 ${ff[1] || '?'}` : segRow ? (d.jt ? '段保護器 ' + d.jt : '')
+            : d.jd || (d.jt && !coax ? '端子排 ' + d.jt : ''), 'lp-s', 34);
+        } else if (d.jt) g += T(JX, y0 - 17, '端子排 ' + d.jt, 'lp-s', 24, 'middle');
+        if (coax) {
+          g += R(BX0 + 12, y0 - 12, 58, y1 - y0 + 24, 'lp-box lp-px');
+          g += T(BX0 + 41, mid - 2, d.px, 'lp-m sm', 10, 'middle');
+          g += T(BX0 + 41, mid + 11, '前置器', 'lp-s', 0, 'middle');
+        }
+        t.forEach((r, i) => {
+          const y = ys[i]; const lab = coax && d.px ? String(r[2] || '').replace(d.px, '').trim() : r[2];
+          if (coax) g += L(BX0 + 70, y, JX, y, 'lp-w' + (shield(r) ? ' lp-dash' : ''));
+          if (!lab) return;
+          const w = Math.min(150, Math.max(30, vw(lab) * 5.8 + 10));
+          tb += R(JX - w / 2, y - 7, w, 14, 'lp-tb') + T(JX, y + 3.5, lab, 'lp-m sm', 25, 'middle');
+        });
+      }
+      // ---- 幹線（直拉時這一段就是現場電纜）：電纜號、規格、長度分三行
+      t.forEach((r, i) => {
+        const y = ys[i]; const sh = shield(r);
+        if (!direct) {
+          g += L(JX, y, r[6] ? PX : 680, y, 'lp-w' + (sh ? ' lp-dash' : ''));
+          if (!r[6]) g += OPEN(680, y) + T(686, y + 3.5, '盤側沒畫端子', 'lp-s', 0);
+        }
+        g += T(540, y - 4, r[0], 'lp-m sm', 9, 'middle');
+      });
+      g += cab(596, y0, y1);
+      g += T(575, yTop - 40, direct ? d.fc : d.tc, 'lp-m sm', 28, 'middle');
+      g += T(575, yTop - 28, direct ? d.fs : d.ts, 'lp-s', 30, 'middle');
+      g += T(575, yTop - 16, d.tl ? d.tl + ' m（電纜表）' : '', 'lp-s', 0, 'middle');
+      // ---- 電子室盤
+      g += R(664, by0, 220, by1 - by0, 'lp-box');
+      g += T(670, by0 + 13, [d.pk, d.pn].filter(Boolean).join(' '), 'lp-b', 34);
+      g += T(670, by0 + 25, d.cp, 'lp-s', 40);
+      t.forEach((r, i) => {
+        if (!r[6]) return;
+        const y = ys[i]; const rest = String(r[3] || '');
+        tb += R(PX - 15, y - 7, 30, 14, 'lp-tb') + T(PX, y + 3.5, r[6], 'lp-m sm', 6, 'middle');
+        g += T(PX + 20, y + 3.5, rest.endsWith(' ' + r[6]) ? rest.slice(0, -r[6].length - 1) : rest, 'lp-s', 28);
+      });
+      if (sbH) {   // 接線圖盤欄底部印的屏蔽排說明（範本）：照抄，不把哪一條屏蔽線接到哪一排連起來
+        g += R(670, by1 - sbH - 2, 208, sbH - 2, 'lp-box lp-px');
+        g += T(676, by1 - sbH + 11, `屏蔽排：IS → ${d.sb[0]} 排　OS → ${d.sb[1]} 排`, 'lp-s', 0) + GND(860, by1 - sbH + 4);
+        g += T(676, by1 - sbH + 22, '（接線圖盤欄底部的說明，沒有逐芯畫）', 'lp-s', 0);
+      }
+      // ---- Mark VIe（或終點）
+      const mvRow = (wp.sum || []).find((x) => x[0] === 'Mark VIe');
+      if (io.length || (ff && ff[2])) {
+        const h = io[0] || [];
+        g += R(MX0, by0, MX1 - MX0, by1 - by0, 'lp-box lp-mv');
+        g += T(MX0 + 6, by0 + 13, io.length ? `${h[0]} ${h[1]}` : `FF_IN_S${ff[2]}`, 'lp-b', 32);
+        const vars = [...new Set(io.map((x) => x[5]).filter(Boolean))].join('、');
+        g += T(MX0 + 6, by0 + 25, io.length ? [h[2], h[3]].filter(Boolean).join(' ') + (vars ? '：' + vars : '') : (ff[3] || []).join('、') || '段變數（FF 元件沒有螺絲可核）', 'lp-s', 38);
+        if (!io.length) g += L(884, mid, MX0, mid, 'lp-bus') + T(MX0 + 6, by0 + 37, 'FF 匯流排：組態沒有螺絲點，以段變數對應（✓ 不適用）', 'lp-s', 40);
+        else g += T(MX0 + 6, y0 - 12, '螺絲 | 通道 | 變數', 'lp-s', 0);
+        t.forEach((r, i) => {
+          if (!r[4] && !r[7]) return;
+          const y = ys[i];
+          const v = (io.find((x) => x[4] === r[7] && x[5]) || [])[5] || '';
+          g += L(884, y, MX0, y, 'lp-w');
+          g += T(MX0 + 6, y + 3.5, [r[4], r[7], v].filter(Boolean).join(' | '), 'lp-m xs', 38);   // 螺絲 | 通道 | 變數（右邊留給 ✓）
+          const mk = (GE_WIRE_MARK[r[5]] || '').trim();
+          if (mk) g += T(MX1 - 6, y + 4, mk, 'lp-mk ' + (mk === '✓' ? 'ok' : mk === '≈' ? 'al' : 'ng'), 0, 'end', GE_WIRE_IO[r[5]] || '');
+        });
+      } else {
+        g += R(MX0, by0, MX1 - MX0, by1 - by0, 'lp-box lp-end');
+        const rk = d.bx && !bx && d.bx[1] ? `；Bently 3500 RACK ${d.bx[1]} SLOT ${d.bx[2]} CH${d.bx[3]}（${d.bx[4]}）` : '';   // 1TBVIB 速度型：只有 3500 收
+        wrap((mvRow ? mvRow[1] : '不進 Mark VIe') + rk, 38, 7).forEach((x, i) => { g += T(MX0 + 6, by0 + 15 + i * 12, x, 'lp-s'); });
+      }
+      if (bx) {   // 3500 並聯分支（v16）：Mark VIe 先收到訊號，3500 收 TVBA 的緩衝輸出（SEDP 是 SHRA 轉送的 4–20 mA）；接頭第 n 通道＝3500 CHn 是推論
+        const y3 = by1 + 14;
+        g += L(MX0 + 22, by1, MX0 + 22, y3, 'lp-w') + T(MX0 + 28, by1 + 10, bx[0] === 'shra_4_20' ? '另一塊 SHRA 卡轉送 4–20 mA' : `緩衝輸出 ${String(bx[5]).split('（')[0]}`, 'lp-s', 40);
+        g += R(MX0, y3, MX1 - MX0, 58, 'lp-box lp-px');
+        g += T(MX0 + 6, y3 + 13, `Bently 3500 RACK ${bx[1] || '?'} SLOT ${bx[2] || '?'} CH${bx[3] || '?'}${bx[6] ? ' ⚠' : ''}`, 'lp-b', 38);
+        g += T(MX0 + 6, y3 + 26, [bx[9], bx[4]].filter(Boolean).join('；'), 'lp-s', 40);
+        g += T(MX0 + 6, y3 + 38, String(bx[8] || '').replace(/^來源 /, '').replace(' → VMS 盤 ', ' → ').replace(/（SHLD[^）]*）/, ''), 'lp-s', 40);
+        g += T(MX0 + 6, y3 + 50, bx[6] ? (bx[10] === 'legacy' ? 'Legacy 欄讀法：' : '照接線圖排法：') + bx[6] + '（見 ⚠）'
+          : /推論/.test(bx[7] || '') ? (/ETB/.test(bx[8] || '') ? '推測：第 n 通道＝ETB n（排線腳位沒圖）' : '推測：第 n 通道＝CHn（排線腳位沒圖）') : '', bx[6] ? 'lp-n' : 'lp-s', 42);
+      }
+      g += tb;
+      // ---- 位置、房間、接線圖說明（說明放在下面，不在現場的斜線上）
+      jlL.forEach((x, i) => { g += T(254, locY + i * 12, x, 'lp-s'); });
+      fl.forEach((x, i) => { g += T(8, locY + i * 12, x, 'lp-s'); });
+      roomL.forEach((x, i) => { g += T(654, locY + i * 12, x, 'lp-s'); });
+      sgL.forEach((x, i) => { g += T(MX0 + 4, locY + i * 12, x, 'lp-s'); });
+      // ---- 出處、註記、圖例
+      g += L(4, footY - 6, W - 4, footY - 6, 'lp-w');
+      let fy = footY + 8;
+      for (const x of srcL) { g += T(12, fy, x, 'lp-s'); fy += 13; }
+      for (const x of noteL) { g += T(12, fy, x, 'lp-n'); fy += 13; }
+      g += T(12, H - TBH - 53, '── 芯線　- - - 屏蔽線（盤側沒畫端子的只畫到盤邊）　······ 光纖　━━ 同軸　灰線＝接線圖沒畫這一段（示意）　⊂⊃ 同一條電纜　○ 元件端子　粗框＝電氣盤（不是接線箱）', 'lp-s', 0);
+      g += T(12, H - TBH - 40, '灰底小框＝中間設備（前置器、放大器、安全柵、轉換模組、另一個箱子）　Mark VIe 下方的框＝Bently 3500 並聯分支　紅字＝文件互相矛盾時的另一種讀法', 'lp-s', 0);
+      g += T(12, H - TBH - 27, '✓ 控制器組態核對是這個元件　≈ 名稱寫法不同　✗ 組態掛的是別顆或備用點（依據見網頁卡片的 Mark VIe 列）　【定讞】看過圖面原文　【文字層】只讀文字層或手冊文字　【推論】推測，待現場確認　【組態】依控制器組態', 'lp-s', 0);
+      g += T(12, H - TBH - 14, '本圖由程式依上列文件自動整理，本身不是簽核過的竣工圖；文件互相矛盾的地方列在 ⚠，不替任何一方選邊；截斷的文字全文見網頁卡片；現場作業以現場標示為準', 'lp-s', 0);
+      // ---- 標題欄（ISA-5.4 的迴路圖編號欄）：編號是本站自編（LP-機組-GE 編號，同一台好幾條加 -P 序號），不是 GE 或 EPC 的圖號
+      const ty = H - TBH - 4; const today = new Date(); const p2 = (x) => String(x).padStart(2, '0');
+      const cells = [[4, 300, d.nn ? '迴路圖編號（本站自編；-P＝這一台這個編號的第幾條）' : '迴路圖編號（本站自編）', (d.no || ['LP', wp.u, tag].filter(Boolean).join('-')) + (d.nn ? `（共 ${d.nn} 條）` : ''), 'lp-b'],
+        [300, 620, '元件／KKS／機組', [tag, d.kk, wp.u].filter(Boolean).join('　'), 'lp-m'],
+        [620, 900, '依據的接線圖', d.wd ? `${d.wd}${d.pg ? ` p.${d.pg[0]}（Sheet ${d.pg[1]}）` : ''}` : '—', 'lp-m sm'],
+        [900, W - 4, '產生日期', `${today.getFullYear()}-${p2(today.getMonth() + 1)}-${p2(today.getDate())}　程式整理・本圖未經簽核`, 'lp-s']];
+      g += R(4, ty, W - 8, TBH, 'lp-box');
+      for (const [a, b, k, v, cls] of cells) {
+        if (a > 4) g += L(a, ty, a, ty + TBH, 'lp-w');
+        g += T(a + 6, ty + 13, k, 'lp-s') + T(a + 6, ty + 31, v, cls, Math.floor((b - a - 12) / (cls === 'lp-b' ? 6.4 : 5.6)));
+      }
+      const css = '.loop-svg .lp-bg{fill:#fff}.loop-svg .lp-frame{fill:none;stroke:#222;stroke-width:1.2}'
+        + '.loop-svg text{font-family:"Microsoft JhengHei","Noto Sans TC","PingFang TC",sans-serif;fill:#111;font-size:10.5px}'
+        + '.loop-svg .lp-h1{font-size:15px;font-weight:700}.loop-svg .lp-z{font-size:11.5px;font-weight:700;fill:#333}.loop-svg .lp-b{font-weight:700;font-size:11px}'
+        + '.loop-svg .lp-s{font-size:9.5px;fill:#333}.loop-svg .lp-n{font-size:9.5px;fill:#8a1c1c}'
+        + '.loop-svg .lp-m,.loop-svg .lp-tag{font-family:Consolas,"Courier New",monospace}.loop-svg .lp-m{font-size:10.5px}.loop-svg .lp-m.sm{font-size:9.5px}.loop-svg .lp-m.xs{font-size:8.6px}'
+        + '.loop-svg .lp-tag{font-size:13px;font-weight:700}.loop-svg .lp-tag.sm{font-size:10.5px}'
+        + '.loop-svg .lp-w{stroke:#111;stroke-width:1.1;fill:none}.loop-svg .lp-dash{stroke-dasharray:4 3}.loop-svg .lp-coax{stroke-width:2.4}'
+        + '.loop-svg .lp-sep{stroke:#999;stroke-width:1;stroke-dasharray:6 4}.loop-svg .lp-bub{fill:#fff;stroke:#111;stroke-width:1.5}'
+        + '.loop-svg .lp-term,.loop-svg .lp-tb{fill:#fff;stroke:#111;stroke-width:1}.loop-svg .lp-box{fill:none;stroke:#111;stroke-width:1.2}'
+        + '.loop-svg .lp-pan{stroke-width:2.4}.loop-svg .lp-end{stroke:#888}.loop-svg .lp-lt{stroke:#888}.loop-svg .lp-fib{stroke:#555;stroke-width:1.6;stroke-dasharray:1 3}.loop-svg .lp-bus{stroke:#555;stroke-width:1.6;fill:none}.loop-svg .lp-fill{fill:#fff}.loop-svg .lp-mv{fill:#f3f6fa}.loop-svg .lp-px{fill:#f7f7f7}.loop-svg .lp-cab{fill:none;stroke:#555;stroke-width:1}'
+        + '.loop-svg .lp-mk{font-size:12px;font-weight:700}.loop-svg .lp-mk.ok{fill:#1a7f37}.loop-svg .lp-mk.al{fill:#9a6700}.loop-svg .lp-mk.ng{fill:#cf222e}';
+      return `<svg xmlns="http://www.w3.org/2000/svg" class="loop-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${E('迴路圖 ' + tag)}">`
+        + `<style>${css}</style>${R(0, 0, W, H, 'lp-bg')}${R(4, 4, W - 8, H - 8, 'lp-frame')}${g}</svg>`;
     }
 
     /** 查無此鍵：05 虛擬捲動表無法用 Ctrl+F 找到畫面外的列 → 直接給建議與「在 05 搜尋」連結（ENG-05） */

@@ -348,38 +348,127 @@ def ge_ld(page, ctx, ck):
 
 
 # v13：接線路徑（wire_ge.py）——汽機 TSI 54 顆：VP-1X 近接探頭（JB 前置器 → TVBA，螺絲號與控制器組態核對）、VP-5XVL 速度型（1TBVIB，
-# 接線圖寫 57 而 3500 盤圖寫 47 的矛盾要在卡上）、SEDP-1 直拉、39VS-91 發電機接線箱；非 TSI 的 GE 卡不出這一塊
+# 接線圖寫 57 而 3500 盤圖寫 47 的矛盾要在卡上）、SEDP-1 直拉、39VS-91 發電機接線箱。
+# v14：一號機全部 GE 編號——燃機 96CD-2A 兩台各一條（wp＝G11、wpx＝G12，TBAI 螺絲 ✓）、FF 元件 CT-DA-4（GE 接線表那一跳＋FF_IN_S28）、
+# 加熱毯 23WR-1B 圖面與組態對調（✗＋註記指名 23WR-3A）、FBSP-GT-26 段號矛盾（96HDASDP-3A 的註記指名 FF_IN_S15）；
+# 有 Mark VIe 訊號但沒有路徑的帶 wpn；孔板 FO-3（沒有訊號）不出這一塊；
+# wpn 裡組態螺絲畫在別的編號底下的帶 wpr（露點計 MIC-2996 的螺絲在接線圖上畫成 ME-2996）；
+# 接線箱所在的設備圖（jbdoc）：LT-260 的 JB/21 框在汽機潤滑油箱配置圖上；燃機 39VC-101R 的 JB-5D 不在發電機外形圖上（註記）；52GT-1 的 GPP 是電氣盤（寫房間）
+# v15：每條路徑都有迴路圖資料（wp.d）；電氣盤格位（mcc）：23HG-1 框在 GT1 MCC 盤面配置圖 G11BGB10 的 A1C 格（格內 G11MKA10EB001/2 與元件 KKS 相同）；
+# 88BT-2 的 G12 那條：接線圖寫 PC-GT112、盤面配置圖 G12BGA10 叫 PC-GT122（註記）
+# v16：其餘電氣盤的端子排（epnl）：14HRI 框在燃機 GPP 配置圖 AUX TBTCD(A) 25／26（端子表線號 4898）；49GCB 帶 GCB XT100 30／31 與未結事項的註記；
+# 41E-1 框在 G11 手動同步盤 XDI 13；中間設備：96KP-1 的電荷放大器（GE 表 5／8）；3500 分支：VP-1X 在 RACK 1 SLOT 8、39V-1A（燃機）RACK 1 SLOT 13；
+# RP-1 (Jumpered) 不再掛槽位；訊號型式與供電：96CD-2A 兩線式；迴路圖編號 LP-機組-GE 編號；對照表沒有 '-REDP-1A'（併進 REDP-1A）
 WP_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
-  const at = (t) => (by[String(E.findIndex((e) => e.t === t && e.sc === 'S'))] || {}).wp || null;
+  const lo = (t, sc) => by[String(E.findIndex((e) => e.t === t && e.sc === sc))] || {};
+  const at = (t) => lo(t, 'S').wp || null;
+  const tsiRe = /^(VP-[1-5][XY](VL)?|EP-[1-4]|ZP-201[ABC]|RP-1|DEDP-[1-8]|REDP-1[AB]|SEDP-[12]|ST-20[12][ABC]|39VS-(91|92|101|102)|39V-[45][AB])$/;
+  const tsi = E.map((e, k) => (e.sc === 'S' && tsiRe.test(e.t) ? (by[String(k)] || {}).wp : null)).filter(Boolean);
   const all = E.map((e, k) => (by[String(k)] || {}).wp).filter(Boolean);
   const vp = at('VP-1X'); const vl = at('VP-5XVL'); const se = at('SEDP-1'); const g9 = at('39VS-91');
-  const mv = all.flatMap((w) => (w.t || []).filter((r) => /(TVBA|TTUR|TCSA|TBAI)/.test(r[3])));
-  return { n: all.length, vpMode: vp && vp.mode, vpT: vp ? vp.t.map((r) => r.join('|')) : [], vpSum: vp ? vp.sum.map((r) => r[0] + '：' + r[1]) : [],
-    vpHops: vp ? vp.rows.filter((r) => r[4] && r[4].marks).map((r) => r[4].hop) : [], vpJb: vp && vp.jb ? vp.jb[1].length : 0,
+  const mv = tsi.flatMap((w) => (w.t || []).filter((r) => /(TVBA|TTUR|TCSA|TBAI)/.test(r[3])));
+  const cd = lo('96CD-2A', 'G'); const ct = lo('CT-DA-4', 'G').wp; const wr = lo('23WR-1B', 'G').wp; const hd = lo('96HDASDP-3A', 'G').wp; const mic = lo('MIC-2996', 'G');
+  const lt = at('LT-260'); const vc = lo('39VC-101R', 'G').wp; const gp = lo('52GT-1', 'G').wp;
+  const hg = lo('23HG-1', 'G').wp; const bt = lo('88BT-2', 'G'); const bts = [bt.wp].concat(bt.wpx || []).filter(Boolean);
+  const hri = lo('14HRI', 'G').wp; const gcb = lo('49GCB', 'G').wp; const ee = lo('41E-1', 'G').wp; const kp = lo('96KP-1', 'G').wp; const v1a = lo('39V-1A', 'G').wp;
+  const rpj = lo('RP-1 (Jumpered)', 'S').wp;
+  const sumOf = (w, k) => (w ? w.sum.filter((r) => r[0] === k).map((r) => r[1]).join('｜') : '');
+  const hopsOf = (w) => (w ? w.rows.filter((r) => r[4] && r[4].marks).map((r) => r[4].hop) : []);
+  return { n: all.length, tsi: tsi.length, wpn: E.filter((e, k) => (by[String(k)] || {}).wpn).length, wpr: E.filter((e, k) => (by[String(k)] || {}).wpr).length,
+    micWp: !!mic.wp, micR: (mic.wpr || []).map((r) => r.join('|')), vpMode: vp && vp.mode, vpT: vp ? vp.t.map((r) => r.join('|')) : [],
+    vpSum: vp ? vp.sum.map((r) => r[0] + '：' + r[1]) : [], vpHops: vp ? vp.rows.filter((r) => r[4] && r[4].marks).map((r) => r[4].hop) : [], vpJb: vp && vp.jb ? vp.jb[1].length : 0,
     vlNotes: vl ? (vl.n || []).map((x) => x[0]).join('｜') : '', vlT: vl ? vl.t.map((r) => r[3]).join('｜') : '',
-    seMode: se && se.mode, g9Mode: g9 && g9.mode, mvN: mv.length, mvBad: mv.filter((r) => !['same', 'loc'].includes(r[5])).map((r) => r.join('|')) }; }"""
+    seMode: se && se.mode, g9Mode: g9 && g9.mode, mvN: mv.length, mvBad: mv.filter((r) => !['same', 'loc'].includes(r[5])).map((r) => r.join('|')),
+    cdU: [cd.wp && cd.wp.u, ...(cd.wpx || []).map((w) => w.u)], cdT: cd.wp ? cd.wp.t.map((r) => r.join('|')) : [],
+    ctMode: ct && ct.mode, ctF: ct ? (ct.f || []).length : 0, ctSum: ct ? ct.sum.map((r) => r[0] + '：' + r[1]) : [], ctHops: ct ? ct.rows.filter((r) => r[4] && r[4].marks).map((r) => r[4].hop) : [],
+    wrIo: wr ? wr.t.map((r) => r[5]) : [], wrN: wr ? (wr.n || []).map((x) => x[0]).join('｜') : '', hdN: hd ? (hd.n || []).map((x) => x[0]).join('｜') : '',
+    jbdocN: all.filter((w) => hopsOf(w).includes('jbdoc')).length, ltHops: hopsOf(lt), ltSum: lt ? lt.sum.map((r) => r[0] + '：' + r[1]) : [],
+    vcN: vc ? (vc.n || []).map((x) => x[0]).join('｜') : '', gpSum: gp ? gp.sum.map((r) => r[0] + '：' + r[1]) : [],
+    lpN: all.filter((w) => w.d && w.d.pg).length, mccN: all.filter((w) => hopsOf(w).includes('mcc')).length, hgHops: hopsOf(hg),
+    hgSum: hg ? hg.sum.map((r) => r[0] + '：' + r[1]) : [], hgJl: hg && hg.d ? hg.d.jl || '' : '',
+    btN: bts.filter((w) => w.u === 'G12').map((w) => (w.n || []).map((x) => x[0]).join('｜')).join('｜'),
+    epN: all.filter((w) => hopsOf(w).includes('epnl')).length, hriJb: sumOf(hri, '電氣盤'), hriHops: hopsOf(hri), gcbN: gcb ? (gcb.n || []).map((x) => x[0]).join('｜') : '',
+    gcbJb: sumOf(gcb, '電氣盤'), eeJb: sumOf(ee, '電氣盤'), kpMd: kp && kp.d.md ? kp.d.md.map((x) => x[1]).join('|') : '', kpF: kp ? (kp.f || []).length : 0,
+    kpHops: hopsOf(kp), kpMid: sumOf(kp, '中間設備'), vpBx: vp && vp.d.bx ? vp.d.bx.slice(0, 4).join('|') : '', vpBr: sumOf(vp, '3500 分支'),
+    v1aRk: sumOf(v1a, 'Bently 3500'), rpjRk: sumOf(rpj, 'Bently 3500'), sgN: all.filter((w) => w.d && (w.d.sg || []).length).length,
+    cdSg: cd.wp && cd.wp.d.sg ? cd.wp.d.sg[0].join('|') : '', vpNo: vp ? vp.d.no || '' : '', cdNo: cd.wp ? cd.wp.d.no || '' : '', cdWd: cd.wp ? cd.wp.d.wd || '' : '',
+    redpDash: E.some((e) => e.t === '-REDP-1A' || e.t === '-REDP-1B'), redp: E.some((e) => e.t === 'REDP-1A' && e.sc === 'S') }; }"""
 WP_TAG = 'VP-1X'
+WP_GT = '96CD-2A'
+NOWIRE_TAG = 'FO-3'           # 燃機孔板：沒有 Mark VIe 訊號、接線圖上沒有 → 卡上不出「接線路徑」
+XREF_TAG = 'MIC-2996'         # 發電機乾燥器露點計：接線圖畫成 ME-2996 → 卡上「查無」＋指向 ME-2996 的連結
 WP_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'); if (!g) return null; const w = g.querySelector('.ge-loc .ge-wire');
   if (!w) return { none: true };
   return { loading: /載入中/.test(w.textContent), sum: w.querySelectorAll('table.wire-sum tbody tr').length, cond: w.querySelectorAll('table.wire-cond tbody tr').length,
     ok: w.querySelectorAll('table.wire-cond tbody td[title]').length, sheets: [...w.querySelectorAll('.pid-sheet')].map((b) => (b.querySelector('.pid-head') || b).textContent),
     img: w.querySelectorAll('.wire-pics img').length, mk: w.querySelectorAll('.wire-pics .hmi-box, .wire-pics .hmi-mk').length,
-    link: [...w.querySelectorAll('.pid-bar a')].map((a) => a.href), jb: !!w.querySelector('details.wire-jb'), text: w.textContent.slice(0, 400) }; }"""
+    paths: [...w.querySelectorAll('.wire-path-h')].map((h) => h.textContent), nPaths: w.querySelectorAll('.wire-path').length,
+    link: [...w.querySelectorAll('.pid-bar a')].map((a) => a.href), jb: !!w.querySelector('details.wire-jb'), xref: [...w.querySelectorAll('.wire-xref a')].map((a) => a.textContent), text: w.textContent.slice(0, 400),
+    loop: w.querySelectorAll('details.wire-loop').length, loopOpen: w.querySelectorAll('details.wire-loop[open]').length, loopSvg: w.querySelectorAll('.wire-loop svg.loop-svg').length,
+    loopTxt: [...w.querySelectorAll('.wire-loop svg.loop-svg')].map((x) => [...x.querySelectorAll('text')].map((t) => t.textContent).join(' ')).join('｜').slice(0, 8000),
+    loopW: (() => { const x = w.querySelector('details.wire-loop[open] svg.loop-svg'); return x ? Math.round(x.getBoundingClientRect().width) : 0; })(),
+    printBtn: w.querySelectorAll('.loop-print-btn').length, svgBtn: w.querySelectorAll('.loop-svg-btn').length }; }"""
+# 「列印這張迴路圖」：把 window.print 換成記錄器——按下時 #loop-print 裡要有這張 SVG、body 要有 print-loop；afterprint 後兩者都要收掉
+LOOP_PRINT = """() => { const b = document.querySelector('.ge-only .ge-loc .ge-wire .loop-print-btn'); if (!b) return null; const out = {};
+  const orig = window.print; window.print = () => { const p = document.getElementById('loop-print');
+    out.svg = p ? p.querySelectorAll('svg.loop-svg').length : 0; out.cls = document.body.classList.contains('print-loop'); out.txt = p ? [...p.querySelectorAll('svg text')].map((t) => t.textContent).join(' ').slice(0, 300) : '';
+    window.dispatchEvent(new Event('afterprint')); };
+  try { b.click(); } finally { window.print = orig; }
+  out.after = !document.getElementById('loop-print') && !document.body.classList.contains('print-loop'); return out; }"""
 
 
 def ge_wp(page, ctx, ck):
     v = page.evaluate(WP_JS)
-    ck('v13 wiring paths: 54 ST TSI entries carry a 接線路徑', bool(v) and v['n'] == 54, v and v['n'])
+    ck('v14 wiring paths: all 54 ST TSI entries keep a 接線路徑, and 1,000+ GE entries carry one; 300+ entries with a Mark VIe signal but no path carry wpn',
+       bool(v) and v['tsi'] == 54 and v['n'] >= 1000 and v['wpn'] >= 300, v and (v['tsi'], v['n'], v['wpn']))
     ck('VP-1X: coax path, BK-1 → JB VX-1X -VDC → CA004-1L1A TVBA 04, pin N24V02 checked against the controller config',
        bool(v) and v['vpMode'] == 'coax' and any(x.startswith('BK-1|COAX|VX-1X -VDC|CA004-1L1A TVBA 04|N24V02|same') for x in v['vpT']), v and v['vpT'][:2])
-    ck('VP-1X: hops = wiring diagram, JB location, board position, 3500 rack; Mark VIe row names a_39vb1x; JB strip listed',
-       bool(v) and v['vpHops'][:1] == ['wire'] and {'jbloc', 'cab', 'rack'} <= set(v['vpHops']) and any(s.startswith('Mark VIe') and 'a_39vb1x' in s for s in v['vpSum'])
-       and v['vpJb'] >= 20, v and (v['vpHops'], v['vpJb']))
+    ck('VP-1X: hops = wiring diagram, JB location, cable schedule, board position, 3500 rack; Mark VIe row names a_39vb1x; full JB strip listed',
+       bool(v) and v['vpHops'][:1] == ['wire'] and {'jbloc', 'cs', 'cab', 'rack'} <= set(v['vpHops']) and any(s.startswith('Mark VIe') and 'a_39vb1x' in s for s in v['vpSum'])
+       and any(s.startswith('電纜與房間') and 'E-402' in s for s in v['vpSum']) and v['vpJb'] >= 20, v and (v['vpHops'], v['vpJb']))
     ck('VP-5XVL: lands on 1TBVIB (57 as drawn) and the card carries the 57 vs 47 conflict note',
        bool(v) and '1TBVIB 57' in v['vlT'] and '57' in v['vlNotes'] and '47' in v['vlNotes'], v and (v['vlT'], v['vlNotes'][:120]))
     ck('SEDP-1 direct pull, 39VS-91 inside the generator JB', bool(v) and v['seMode'] == 'direct' and v['g9Mode'] == 'jbdev', v and (v['seMode'], v['g9Mode']))
-    ck('every conductor landing on a Mark VIe board (TVBA/TTUR/TCSA/TBAI) is checked against the controller screw map (116, none off)',
+    ck('JB location on equipment drawings (jbdoc): 100+ first paths boxed; LT-260 JB/21 on the VR20 lube-tank arrangement; '
+       'GT 39VC-101R notes JB-5D is not on the GT generator outline; 52GT-1 GPP row says it is a panel and gives the cable-schedule room',
+       bool(v) and v['jbdocN'] >= 100 and 'jbdoc' in v['ltHops'] and any(x.startswith('接線箱：') and 'MLI VR20' in x for x in v['ltSum'])
+       and 'JB-5D 不在燃機發電機電氣外形圖' in v['vcN'] and any(x.startswith('電氣盤：') and 'E-305' in x for x in v['gpSum']),
+       v and (v['jbdocN'], v['ltHops'], [x for x in v['ltSum'] if x.startswith('接線箱')], v['vcN'][:80], [x for x in v['gpSum'] if x.startswith('電氣盤')]))
+    ck('v15 loop diagrams: every first path carries the structured loop data wp.d (wiring page, panel KKS)',
+       bool(v) and v['lpN'] == v['n'], v and (v['lpN'], v['n']))
+    ck('v15 MCC/PC cubicles (mcc hop): 80+ first paths boxed on the GE EP24 equipment arrangement; 23HG-1 → G11BGB10 A1C on p.11 with G11MKA10EB001 matching; '
+       '88BT-2 (G12) notes PC-GT112 vs PC-GT122',
+       bool(v) and v['mccN'] >= 80 and 'mcc' in v['hgHops'] and any(x.startswith('電氣盤：') and 'G11BGB10 正視圖上框出 A1C 格' in x and 'G11MKA10EB001' in x and 'KKS 相同' in x
+                                                                 for x in v['hgSum']) and '盤面配置圖 p.11 有框' in v['hgJl']
+       and 'PC-GT112' in v['btN'] and 'PC-GT122' in v['btN'],
+       v and (v['mccN'], v['hgHops'], [x for x in v['hgSum'] if x.startswith('電氣盤')], v['hgJl'], v['btN'][:120]))
+    ck('v16 other electrical panels (epnl hop): 250+ first paths boxed on the GPP / manual synch plate / GCB / UAT / LCI MV drawings; 14HRI → GT GPP '
+       'AUX TBTCD(A) 25/26 with wire 4898 on the shared GE 140T1264; 41E-1 → G11 manual synch plate XDI 13; 49GCB notes XT100 30/31 coil supervision and OI 2025041406',
+       bool(v) and v['epN'] >= 250 and 'epnl' in v['hriHops'] and 'TBTCD(A) 25' in v['hriJb'] and '4898' in v['hriJb'] and '各台共用' in v['hriJb']
+       and 'G11 手動同步盤' in v['eeJb'] and 'XDI 13' in v['eeJb'] and '-XT100 30' in v['gcbJb'] and '2025041406' in v['gcbN'] and '-B.K14' in v['gcbN'],
+       v and (v['epN'], v['hriHops'], v['hriJb'][:160], v['eeJb'][:120], v['gcbJb'][:120], v['gcbN'][:80]))
+    ck('v16 intermediate devices: 96KP-1 joins the GE 138T5502 probe rows (charge amp terminals 5/8) and draws the charge amplifier; '
+       '3500 branch: VP-1X RACK 1 SLOT 8 CH2, GT 39V-1A RACK 1 SLOT 13 (new), RP-1 (Jumpered) carries no rack',
+       bool(v) and v['kpMd'].startswith('電荷放大器') and v['kpF'] >= 2 and 'conn' in v['kpHops'] and '5' in v['kpMid'] and 'EX682M85' in v['kpMid']
+       and v['vpBx'].startswith('tvba_vib|1|8|2') and 'JA1' in v['vpBr'] and 'RACK 1 SLOT 13' in v['v1aRk'] and not v['rpjRk'],
+       v and (v['kpMd'], v['kpF'], v['kpHops'], v['kpMid'][:80], v['vpBx'], v['vpBr'][:80], v['v1aRk'], v['rpjRk']))
+    ck('v16 signal type and loop power on 1,100+ first paths (96CD-2A: two-wire 4-20 mA from P24V); loop numbers LP-S10-VP-1X / LP-G11-96CD-2A with the wiring '
+       'drawing revision; crosswalk merged -REDP-1A/1B into REDP-1A/1B',
+       bool(v) and v['sgN'] >= 1100 and '兩線式' in v['cdSg'] and v['vpNo'] == 'LP-S10-VP-1X' and v['cdNo'] == 'LP-G11-96CD-2A'
+       and v['cdWd'].startswith('HT1-1-ICE01-D1004 Rev.') and not v['redpDash'] and v['redp'],
+       v and (v['sgN'], v['cdSg'][:80], v['vpNo'], v['cdNo'], v['cdWd'], v['redpDash'], v['redp']))
+    ck('every TSI conductor landing on a Mark VIe board (TVBA/TTUR/TCSA/TBAI) is checked against the controller screw map (116, none off)',
        bool(v) and v['mvN'] == 116 and not v['mvBad'], v and (v['mvN'], v['mvBad'][:3]))
+    ck('96CD-2A (GT): one path per unit (G11 then G12); BK-1 → JB TBA 13 → CA004-1L4A TBAI 17, pin P24V5 ✓',
+       bool(v) and v['cdU'] == ['G11', 'G12'] and any(x.startswith('BK-1||TBA 13|CA004-1L4A TBAI 17|P24V5|same') for x in v['cdT']), v and (v['cdU'], v['cdT'][:2]))
+    ck('CT-DA-4 (GT FF thermocouple): ff mode, GE 138T5502 field rows, FF segment row, Mark VIe row on FF_IN_S28; first hop is the GE connection table',
+       bool(v) and v['ctMode'] == 'ff' and v['ctF'] >= 3 and any(s.startswith('FF 段') for s in v['ctSum']) and any(s.startswith('Mark VIe') and 'FF_IN_S28' in s for s in v['ctSum'])
+       and v['ctHops'][:2] == ['conn', 'wire'], v and (v['ctMode'], v['ctF'], v['ctHops'], v['ctSum'][:3]))
+    ck('wpr: 75+ no-path entries point to the path their controller screws are drawn under; MIC-2996 → ME-2996 on G11 p.388 (CA001-1B2A TBAI AnalogInput03)',
+       bool(v) and v['wpr'] >= 75 and not v['micWp'] and any(x.startswith('G11|G11.a_96mic2996|1B2A TBAI AnalogInput03|ME-2996|388') for x in v['micR']),
+       v and (v['wpr'], v['micWp'], v['micR'][:2]))
+    ck('23WR-1B: drawing vs controller swap shows ✗ (other) and the note names 23WR-3A; 96HDASDP-3A note names FF_IN_S15 (FBSP-GT-26 segment number)',
+       bool(v) and v['wrIo'][:2] == ['other', 'other'] and '23WR-3A' in v['wrN'] and 'FF_IN_S15' in v['hdN'], v and (v['wrIo'], v['wrN'][:80], v['hdN'][:80]))
     s = ge_query(page, ctx, WP_TAG)
     ck('「%s」→ GE card (wiring path test)' % WP_TAG, s['ge'] and s['tag'] == WP_TAG, s['tag'])
     page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-wire'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
@@ -389,12 +478,42 @@ def ge_wp(page, ctx, ck):
     st = page.evaluate(WP_STATE)
     ck('%s: 接線路徑 part shows the hop table, 4 conductors with checks, the wiring sheet first (Drive link, image, marks) and the JB strip' % WP_TAG,
        bool(st) and not st.get('none') and st['sum'] >= 6 and st['cond'] == 4 and st['ok'] >= 3 and st['sheets'] and 'ICE01-D1005' in st['sheets'][0]
-       and any('drive.google.com' in h for h in st['link']) and st['img'] >= 1 and st['mk'] >= 1 and st['jb'], st and {k: st[k] for k in st if k != 'text'})
+       and any('drive.google.com' in h for h in st['link']) and st['img'] >= 1 and st['mk'] >= 1 and st['jb'] and st['nPaths'] == 1, st and {k: st[k] for k in st if k != 'text'})
+    ck('%s: 迴路圖 (ISA-5.4 style SVG) shown open above the tables — coax JB proximitor terminals, TVBA panel terminal 04, pin N24V02 with ✓; v16 title block (LP-S10-VP-1X), '
+       '3500 branch box and loop-power line; print and SVG buttons' % WP_TAG,
+       bool(st) and st['loop'] == 1 and st['loopOpen'] == 1 and st['loopSvg'] == 1 and st['loopW'] >= 300 and all(x in st['loopTxt'] for x in ('VP-1X', '-VDC', 'TVBA', 'N24V02', '✓'))
+       and all(x in st['loopTxt'] for x in ('LP-S10-VP-1X', 'Bently 3500 RACK 1 SLOT 8 CH2', '供電：', '迴路圖編號'))
+       and st['printBtn'] == 1 and st['svgBtn'] == 1, st and {k: st[k] for k in ('loop', 'loopOpen', 'loopSvg', 'loopW', 'printBtn', 'svgBtn')})
+    pr = page.evaluate(LOOP_PRINT)
+    ck('%s: 「列印這張迴路圖」 puts only this SVG into #loop-print with body.print-loop, and cleans both up after printing' % WP_TAG,
+       bool(pr) and pr.get('svg') == 1 and pr.get('cls') and 'VP-1X' in pr.get('txt', '') and pr.get('after'), pr)
+    with page.expect_download() as dl:
+        page.click('.ge-only .ge-loc .ge-wire .loop-svg-btn')
+    d_ = dl.value
+    body = open(d_.path(), encoding='utf-8').read() if d_.path() else ''
+    ck('%s: 「下載 SVG」 saves a standalone .svg (xml header, xmlns, own <style>)' % WP_TAG,
+       d_.suggested_filename.endswith('.svg') and 'VP-1X' in d_.suggested_filename and body.startswith('<?xml') and 'xmlns="http://www.w3.org/2000/svg"' in body
+       and '<style>' in body and 'N24V02' in body, (d_.suggested_filename, body[:80]))
     shot(page, ctx, 'getag_wp')
-    s = ge_query(page, ctx, LD_TAG)
-    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-ld'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    s = ge_query(page, ctx, WP_GT)
+    ck('「%s」→ GE card (GT wiring paths)' % WP_GT, s['ge'] and s['tag'] == WP_GT, s['tag'])
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-wire'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
     st = page.evaluate(WP_STATE)
-    ck('%s (not ST TSI): no 接線路徑 part' % LD_TAG, bool(st) and st.get('none'), st)
+    ck('%s: two paths (G11, G12) with headings; the first wiring sheet is the GT connection diagram D1004' % WP_GT,
+       bool(st) and not st.get('none') and st['nPaths'] == 2 and len(st['paths']) == 2 and st['paths'][0].startswith('G11') and st['paths'][1].startswith('G12')
+       and st['sheets'] and 'ICE01-D1004' in st['sheets'][0], st and {k: st[k] for k in st if k != 'text'})
+    ck('%s: one loop diagram per path, only the first one open; both name the TBAI panel terminal 17 and pin P24V5' % WP_GT,
+       bool(st) and st['loop'] == 2 and st['loopOpen'] == 1 and st['loopSvg'] == 2 and st['loopTxt'].count('P24V5') >= 2 and 'TBAI' in st['loopTxt'],
+       st and (st['loop'], st['loopOpen'], st['loopSvg'], st['loopTxt'][:160]))
+    s = ge_query(page, ctx, NOWIRE_TAG)
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-pid'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    st = page.evaluate(WP_STATE)
+    ck('%s (orifice, no Mark VIe signal): no 接線路徑 part' % NOWIRE_TAG, bool(st) and st.get('none'), st)
+    s = ge_query(page, ctx, XREF_TAG)
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-pid'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    st = page.evaluate(WP_STATE)
+    ck('%s (no path, screws drawn as ME-2996): 接線路徑 part says 查無 and links ME-2996' % XREF_TAG,
+       bool(st) and not st.get('none') and '查無' in st['text'] and 'ME-2996' in (st.get('xref') or []), st)
 
 
 def ge_loc(page, ctx, ck):
@@ -442,8 +561,9 @@ def ge_loc(page, ctx, ck):
     page.wait_for_function("document.querySelector('.ge-loc .ge-pid img')", timeout=60000)
     page.wait_for_timeout(800)
     st = page.evaluate(LOC_STATE)
-    ck('%s: location block has P&ID, HMI and location-drawing parts, placed before the spec blocks' % SPEC_TAG,
-       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置', '位置圖位置（GE 配置／電纜槽／外型圖）'] and st['before'], st and (st['heads'], st['before']))
+    ck('%s: location block has P&ID, HMI, location-drawing and (v14) wiring-path parts, placed before the spec blocks' % SPEC_TAG,
+       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置', '位置圖位置（GE 配置／電纜槽／外型圖）', '接線路徑（現場 → 接線箱 → 電子室盤）'] and st['before'],
+       st and (st['heads'], st['before']))
     ck('%s: P&ID sheet header names GFD01-D0005 Rev.3, PDF p.7, zone A-3, with a Drive link and a loaded image with marks' % SPEC_TAG,
        bool(st) and st['sheets'] and 'HT0-1-GFD01-D0005' in st['sheets'][0] and '第 7' in st['sheets'][0] and 'A-3' in st['sheets'][0]
        and any('drive.google.com' in h for h in st['pidLink']) and st['pidImg'] >= 1 and st['pidMk'] >= 1,
