@@ -250,6 +250,9 @@ def main():
     ap.add_argument('--no-loc', action='store_true', help='不併入 loc_ge.json（GE 編號的位置圖位置）')
     ap.add_argument('--wire-ge', default=None, help='wire_ge.py 的輸出（汽機 TSI 的接線路徑；預設 <pid.json 同目錄>\\wire_ge.json；不存在就不出這些圖）')
     ap.add_argument('--no-wire', action='store_true', help='不併入 wire_ge.json（汽機 TSI 的接線路徑）')
+    ap.add_argument('--wire-kks', default=None, help='wire_kks.py 的輸出（只有 KKS 的元件的接線路徑，v17；預設 <pid.json 同目錄>\\wire_kks.json；不存在就不出這些圖）')
+    ap.add_argument('--no-wire-kks', action='store_true', help='不併入 wire_kks.json')
+    ap.add_argument('--pid-kks', default=None, help='v17：pid_index.py --tags-file 的輸出（KKS 編號卡的 P&ID 位置；預設 <pid.json 同目錄>\\pid_kks.json；不存在就不出這些圖）')
     ap.add_argument('--library', default=paths.LIBRARY_ROOT, help='文件庫根目錄（預設 paths.LIBRARY_ROOT；唯讀）')
     ap.add_argument('--jobs', type=int, default=min(6, os.cpu_count() or 1), help='同時渲染幾張')
     ap.add_argument('--max-minutes', type=float, default=0, help='最多跑幾分鐘（0＝不限）；做不完回傳碼 2，再跑一次即可續')
@@ -271,7 +274,9 @@ def main():
     here = os.path.dirname(os.path.abspath(a.pid))
     for fn, path, off, what in (('pid_ge.json', a.pid_ge or os.path.join(here, 'pid_ge.json'), a.no_ge_loc, 'P&ID 圖面位置'),
                                 ('loc_ge.json', a.loc_ge or os.path.join(here, 'loc_ge.json'), a.no_loc, '位置圖位置'),
-                                ('wire_ge.json', a.wire_ge or os.path.join(here, 'wire_ge.json'), a.no_wire, '接線路徑')):
+                                ('wire_ge.json', a.wire_ge or os.path.join(here, 'wire_ge.json'), a.no_wire, '接線路徑'),
+                                ('wire_kks.json', a.wire_kks or os.path.join(here, 'wire_kks.json'), a.no_wire_kks, 'KKS 元件的接線路徑'),
+                                ('pid_kks.json', a.pid_kks or os.path.join(here, 'pid_kks.json'), a.no_wire_kks, 'KKS 編號卡的 P&ID 圖面位置')):
         if off:
             continue
         if not os.path.exists(path):
@@ -280,7 +285,7 @@ def main():
         with open(path, encoding='utf-8') as f:
             pg = json.load(f)
         gsh = pg.get('sheets') or {}
-        gused = sorted({e['sheet'] for v in (pg.get('by_ge') or {}).values() for e in v})
+        gused = sorted({e['sheet'] for v in (pg.get('by_ge') or pg.get('by_tag') or {}).values() for e in v})   # pid_kks.json（v17）是 pid.json 的格式（by_tag）
         miss = [s for s in gused if s not in gsh]
         if miss:
             sys.exit('%s 的 by_ge 引用了 sheets 裡沒有的圖紙：%s' % (fn, miss[:5]))
@@ -294,7 +299,7 @@ def main():
                 sheets[s] = gsh[s]
                 n_ge_only += 1
         used = sorted(set(used) | set(gused))
-        print('%s：GE 編號引用 %d 張圖紙，其中 %d 張先前沒有引用（一併出圖）' % (fn, len(gused), n_ge_only))
+        print('%s：%s引用 %d 張圖紙，其中 %d 張先前沒有引用（一併出圖）' % (fn, 'KKS ' if '_kks' in fn else 'GE 編號', len(gused), n_ge_only))
     for s in used:
         if not L.SLUG_RE.match(s):
             sys.exit('slug 不合規則：%r' % s)

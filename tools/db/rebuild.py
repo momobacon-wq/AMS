@@ -42,6 +42,9 @@ sys.path.insert(0, HERE)
 import paths  # noqa: E402  （tools/db/paths.py：repo 外路徑的唯一來源）
 PID_GE_JSON = os.path.join(paths.CARDWORK, 'pid_ge.json')   # tools/db/pid_ge.py 的輸出（GE 原廠編號 → P&ID 圖紙與座標）
 LOC_GE_JSON = os.path.join(paths.CARDWORK, 'loc_ge.json')   # tools/db/loc_ge.py 的輸出（GE 原廠編號 → 位置圖與座標，v12）
+PID_KKS_JSON = os.path.join(paths.CARDWORK, 'pid_kks.json')   # v17：KKS 編號卡的 P&ID 位置（pid_index.py --tags-file）
+HMI_KKS_JSON = os.path.join(paths.CARDWORK, 'hmi_kks.json')   # v17：KKS 編號卡的圖控位置（hmi_index.py --tags-file）
+WIRE_KKS_JSON = os.path.join(paths.CARDWORK, 'wire_kks.json')   # tools/db/wire_kks.py 的輸出（只有 KKS 的元件的接線路徑，v17）
 WIRE_GE_JSON = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py 的輸出（GE 編號的接線路徑，v13 汽機 TSI、v14 一號機全部）
 HMI_GE_JSON = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py 的輸出（GE 原廠編號 → 圖控畫面與座標）
 
@@ -136,10 +139,11 @@ def ge_flags(a):
     GE 編號卡的 P&ID／圖控位置（v10）、位置圖位置（v12）與接線路徑（v13）一併明指 pid_ge.json／hmi_ge.json／loc_ge.json／wire_ge.json
     （build_card_aux 在 pid.json／hmi.json 在而它們不在時以非 0 結束）。"""
     if ge_on(a):
-        return ['--ge-tags', paths.GE_TAGS, '--pid-ge', PID_GE_JSON, '--hmi-ge', HMI_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON]
+        return ['--ge-tags', paths.GE_TAGS, '--pid-ge', PID_GE_JSON, '--hmi-ge', HMI_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON,
+                '--wire-kks', WIRE_KKS_JSON, '--pid-kks', PID_KKS_JSON, '--hmi-kks', HMI_KKS_JSON]
     why = '--skip-ge' if a.skip_ge else '沒有 GE 編號對照表 %s' % (paths.GE_TAGS or '（paths.GE_TAGS 未設定：hst-docsearch config.json 沒有 ge_tags_dir）')
     print('\n!! %s → build_card_aux 走 --no-ge：沿用上次發布的「GE 原廠編號」；從沒發布過就沒有這一段' % why, flush=True)
-    return ['--no-ge']
+    return ['--no-ge'] + ([] if os.path.exists(WIRE_KKS_JSON) else ['--no-kks'])   # v17：KKS 版的接線路徑要對照表才產生得出來；上次的還在就沿用
 
 
 def run_pid(a):
@@ -155,7 +159,7 @@ def run_pid(a):
         if ge_on(a) and os.path.exists(paths.PID_JSON):   # GE 原廠編號的圖面／位置圖定位照跑（對照表可能換過），新引用到的圖紙要出圖
             run_pid_ge(a)
             run('P&ID 圖紙影像（pid_shots：pid.json＋pid_ge.json＋loc_ge.json＋wire_ge.json 引用到的圖紙，有快取 → %s）' % paths.PID_SHOTS, PY,
-                os.path.join('tools', 'db', 'pid_shots.py'), '--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON)
+                os.path.join('tools', 'db', 'pid_shots.py'), '--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON, '--wire-kks', WIRE_KKS_JSON, '--pid-kks', PID_KKS_JSON)
         return
     if not os.path.isdir(paths.LIBRARY_ROOT):
         raise SystemExit('沒有工程文件庫根目錄 %s（設 AMS_LIBRARY_ROOT，或用 --skip-pid 沿用 cardwork 裡上次的 pid.json／pid_shots）' % paths.LIBRARY_ROOT)
@@ -168,7 +172,7 @@ def run_pid(a):
     if ge_on(a):
         run_pid_ge(a)
     run('P&ID 圖紙影像（pid_shots：pid.json%s 引用到的圖紙 → %s）' % ('＋pid_ge.json＋loc_ge.json＋wire_ge.json' if ge_on(a) else '', paths.PID_SHOTS), PY,
-        os.path.join(db, 'pid_shots.py'), *(['--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON] if ge_on(a)
+        os.path.join(db, 'pid_shots.py'), *(['--pid-ge', PID_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON, '--wire-kks', WIRE_KKS_JSON, '--pid-kks', PID_KKS_JSON] if ge_on(a)
                                             else ['--no-ge-loc', '--no-loc', '--no-wire']))
 
 
@@ -182,6 +186,12 @@ def run_pid_ge(a):
     run('P&ID GE 原廠編號定位（pid_ge → %s）' % PID_GE_JSON, PY, os.path.join('tools', 'db', 'pid_ge.py'), '--out', PID_GE_JSON)
     run('位置圖 GE 原廠編號定位（loc_ge → %s）' % LOC_GE_JSON, PY, os.path.join('tools', 'db', 'loc_ge.py'), '--out', LOC_GE_JSON)
     run('GE 編號接線路徑（wire_ge → %s）' % WIRE_GE_JSON, PY, os.path.join('tools', 'db', 'wire_ge.py'), '--out', WIRE_GE_JSON, '--dcdas', paths.DCDAS_INDEX)
+    # v17：只有 KKS 的元件（HRSG／電氣 I&C／BOP 接線圖＋燃機／汽機圖上沒有 GE 編號的框）的接線路徑——同一支建置、KKS 分支，約 80 秒
+    run('KKS 元件接線路徑（wire_kks → %s）' % WIRE_KKS_JSON, PY, os.path.join('tools', 'db', 'wire_kks.py'), '--out', WIRE_KKS_JSON, '--dcdas', paths.DCDAS_INDEX)
+    # KKS 編號卡的 P&ID 與圖控位置：同一支定位器，位號換成 wire_kks.json 的 KKS（AMS 那兩份 pid.json／hmi.json 一個字都不動）
+    run('KKS 編號卡的 P&ID 位置（pid_index --tags-file → %s）' % PID_KKS_JSON, PY, os.path.join('tools', 'db', 'pid_index.py'), '--tags-file', WIRE_KKS_JSON, '--out', PID_KKS_JSON)
+    if os.path.exists(paths.HMI_JSON):
+        run('KKS 編號卡的圖控位置（hmi_index --tags-file → %s）' % HMI_KKS_JSON, PY, os.path.join('tools', 'db', 'hmi_index.py'), '--tags-file', WIRE_KKS_JSON, '--out', HMI_KKS_JSON)
 
 
 LOUD = []   # 重建途中「不擋建置、但位置會默默變少」的警告；印在當下，rebuild 結尾（verify_and_finish）再印一次——中間隔著幾百行輸出，只印一次沒有人看得到
@@ -268,6 +278,8 @@ def spec_lacks_pid(check_pid=True, check_ge=True):
     dev_ge = next((it for it in (groups.get('dev') or {}).get('items') or [] if it.get('kind') == 'getag'), None)
     if check_pid and ('pid' not in groups or 'pid' not in secs):
         return '還沒有「P&ID 圖面位置」的摘要組／區段'
+    if check_pid and 'wire' not in groups:
+        return '還沒有「接線路徑」的摘要組（v17）'
     if check_ge and ('getag' not in secs or dev_ge is None):
         # GE 原廠編號（2026-10-21）：sec.getag 由 build_card_aux 每次重算，規格（dev 組那一格與附加區段）同樣只靠 patch_site_spec 進站
         return '還沒有「GE 原廠編號」的摘要格／區段'
@@ -281,6 +293,9 @@ def spec_lacks_pid(check_pid=True, check_ge=True):
         want_item = next((it for it in dev.get('items') or [] if it.get('kind') == 'getag'), None)
     except Exception:   # noqa: BLE001
         return ''
+    want_wire = next((g for g in spec['groups'] if g.get('key') == 'wire'), None)
+    if check_pid and want_wire is not None and want_wire != groups.get('wire'):
+        return '的「接線路徑」摘要組與 extract_db 現在的規格不同'
     if check_pid and want is not None and want != secs['pid']:
         return '的「P&ID 圖面位置」區段（標題／說明文字）與 extract_db 現在的規格不同'
     if check_ge and want_ge is not None and want_ge != secs['getag']:

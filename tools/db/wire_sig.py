@@ -99,7 +99,7 @@ def matches(rule, x):
     n = first_int(x['pt'])
     if 'pt_num' in w and (n is None or not (w['pt_num'][0] <= n <= w['pt_num'][1])):
         return False
-    if any(x['params'].get(k) != v for k, v in w.get('params_eq', {}).items()):
+    if any(x['params'].get(k.replace('{n}', str(n))) != v for k, v in w.get('params_eq', {}).items()):   # 'JP{n}B'＝這個點的跳線（v17）
         return False
     if 'vib_type' in w and not any(v in w['vib_type'] for k, v in x['params'].items() if k.startswith('VIB_Type')):
         return False

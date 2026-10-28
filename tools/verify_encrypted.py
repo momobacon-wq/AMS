@@ -115,6 +115,12 @@ def verify_site(docs, pw):
             # card/index.json 的 getag.files = GE 編號卡的整份對照表（card/getag.json；CONTRACT.md「v8」）
             for f in ((ix.get("getag") or {}).get("files")) or []:
                 refs.add(f)
+            # v17：AMS 設備卡的接線路徑塊（card/wire-NN.json；沒有接線路徑的分塊是 null）與 KKS 編號卡（card/kkstag.json＋kkstag-loc-NN.json）
+            for f in ((ix.get("wire") or {}).get("files")) or []:
+                if f:
+                    refs.add(f)
+            for f in ((ix.get("kkstag") or {}).get("files")) or []:
+                refs.add(f)
     missing = sorted(r for r in refs if r not in texts)
     orphan = sorted(r for r in texts if r != "manifest.json" and r not in refs)
     (ok if not missing else err)(f"{len(missing)} referenced files missing" + (": " + ", ".join(missing[:5]) if missing else ""))

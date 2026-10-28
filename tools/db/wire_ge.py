@@ -53,6 +53,7 @@ JB 位置圖、電纜表、GE 的盤面配置、Bently 3500 盤圖；本檔把�
   py tools/db/wire_ge.py --debug-doc wiregt --debug-pages 10,380   # 只印這幾頁接線圖的解析結果與對到的 GE 鍵，不寫檔
 """
 import argparse
+import copy
 import io
 import json
 import os
@@ -83,6 +84,8 @@ WIRE_UNIT = 'HT1'                 # 本站＝1 號機（build_card_aux.GE_SITE_U
 BAND = {'fdesc': (130, 216), 'fterm': (216, 238), 'fcore': (238, 262), 'fcab': (262, 354), 'jbin': (354, 376), 'jbterm': (376, 399),
         'jbcore': (399, 428), 'trunk': (428, 552), 'pcore': (552, 584), 'pterm': (584, 632), 'pdesc': (632, 745)}
 DRAW_Y = (95, 560)                # 圖區（標頭以下、IS／OS 接地列以上；標題欄與 REV 欄在 x > 745）
+DRAW_X = 745.0                    # 圖區右界（v17：HRSG／BOP 接線圖的範本在 890，wire_epc.use_layout 逐頁換掉）
+FIELD_REQUIRED = True             # 接線頁一定有 'FIELD' 欄名（v17：電氣 I&C 接線圖的左欄名是 MCC 的 KKS，wire_epc 關掉）
 CORE_RE = re.compile(r'^(BK|WH|RD|BU|BL|GN|YE|YL|OR|BR|BN|GY|VT|PK|PU|SH|GND)(?:-(\d+))?$')
 CAB_RE = re.compile(r'-WG-\d+$')
 CAB_ROW_RE = re.compile(r'-WG-?\d+$')                # 電纜表的列起點：刪除線的舊列有 'G12CCJ01UC201-WG008'（少一個連字號），也要算一列，否則併進下一列
@@ -93,7 +96,8 @@ CAB_DOC = 'HT0-1-TZD01-M0213'     # ST 控制盤盤面配置（GE 137T8654AL，�
 VMS_FILE_RE = re.compile(r'CABINET DESIGN DRAWING', re.I)   # Bently 3500 盤（ST1 VMS PANEL）盤圖：檔名沒有 HT 編號
 VMS_GE_NO = '120V8111'
 VMS_BOARD = '1TBVIB'
-MARKVIE_BOARDS = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TCDM', 'SPID')   # TCDM＝燃燒動態（96KP）、SPID＝CANopen（90VGC）
+MARKVIE_BOARDS = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TCDM', 'SPID',
+                  'STCI', 'SRLY')   # TCDM＝燃燒動態（96KP）、SPID＝CANopen（90VGC）；STCI／SRLY＝HRSG、BOP 控制器的接點輸入／繼電器（v17）
 UNIT_CTRLS = {'S10': ('S1', 'S1S'), 'G11': ('G11', 'G11S'), 'G12': ('G12', 'G12S')}   # 本站（1 號機）各機組的控制器（一般／安全）
 SITE_UNITS = ('S10', 'G11', 'G12')
 WIRE_GT_DOC = 'HT1-1-ICE01-D1004'  # 一號機燃機儀控電纜接線圖（CTCI；GT-11／GT-12 兩半本，wire_gt.py 解析）
@@ -127,6 +131,7 @@ MCC_DOCS = (   # v15：480 V MCC／PC 的盤面配置圖（GE EP24 EQUIPMENT ARR
     ('S10', 'EQUIPMENT ARRANGEMENT - 480V POWER CENTER (S10BFA10, S10BGA10)'),
 )
 MCC_RE = re.compile(r'([GS]\d{2}B[FGK][AB]\d0)[_-](NP\d-\d|A\d{1,2}[A-H]|\d{1,2}[A-F])\b')   # 接線圖「接線箱」欄：'G11BGB10_A1C'、'…PC-GT111/G11BFA10_2D'、'S10BGB10-A2A'、'G11BKB20_NP3-3'
+MCC_EPC_RE = re.compile(r'\b([GSC]\d{2}B[FGK][AB]\d0)_(A\d{1,2})_(A\d{1,2}[A-H])\b')   # v17 HRSG／BOP 接線圖的 MCC 格：'G11BFB30_A1_A1E'（排_欄_格）
 MCC_LAB_RE = re.compile(r'^(?:A\d{1,2}[A-H]|\d{1,2}[A-F]|NP\d-\d)$')                 # 正視圖上的格位標籤（格子左下角）；'A1'（欄頭、單元號）、'A3'（圖紙尺寸）沒有尾字母，不算
 MCC_NAME_RE = re.compile(r'\b(E?MCC|PC)[\s-]*(GT|ST)[\s-]*(\d{2,3})\b')         # 排的名稱：'MCC GT-112'、'(MCC GT112)'、'EMCC-ST-10'、'PC-GT122' → 'MCC-GT112'
 MCC_KKS_RE = re.compile(r'[GSC]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}[A-Z]?(?:-[A-Z]{1,2}\d{2})?')
@@ -178,9 +183,9 @@ def text_of(ws):
 
 
 def sheet_no(words):
-    """圖框右下 '295 OF 414' → (295, 414)；找不到 (None, None)。"""
+    """圖框右下 '295 OF 414'（BOP 接線圖寫 '293 of 975'）→ (295, 414)；找不到 (None, None)。"""
     for i, w in enumerate(words):
-        if w['t'] == 'OF' and 0 < i < len(words) - 1 and words[i - 1]['t'].isdigit() and words[i + 1]['t'].isdigit() and w['x0'] > 745:
+        if w['t'].upper() == 'OF' and 0 < i < len(words) - 1 and words[i - 1]['t'].isdigit() and words[i + 1]['t'].isdigit() and w['x0'] > 745:
             return int(words[i - 1]['t']), int(words[i + 1]['t'])
     return None, None
 
@@ -194,7 +199,7 @@ HDR_PANEL_RE = re.compile(r'^PANEL\.?\s*:?\s*(.*)$')
 def header(ws, y_top):
     """圖區上方的標頭 → {jb, jb_desc, jb_tb, panel, panel_tb, field_tb}（同一行左右兩段先切開；JB 端子排名在 x ≥ 300 的
     'TERMINAL NO.'，現場端子格的在左邊）。"""
-    top = [w for w in ws if DRAW_Y[0] < w['y0'] < y_top and w['x1'] < 745]
+    top = [w for w in ws if DRAW_Y[0] < w['y0'] < y_top and w['x1'] < DRAW_X]
     h = {'jb': '', 'jb_desc': '', 'jb_tb': '', 'panel': '', 'panel_tb': '', 'field_tb': ''}
     sgs = []
     for sg in segs_of(top):                               # 'GENERATOR JBX (BEARING)  TERMINAL NO. : -TBB' 間距不夠大：在 TERMINAL 前再切一刀
@@ -316,9 +321,9 @@ def parse_page(pg):
     COAX 型的 SH 芯在盤側不落端子，兩邊列數不同（舊試算表照列對齊就把 VP-1Y 的 TVBA 01 錯配給 VP-1X）。"""
     ws = disp_words(pg)
     sno, of = sheet_no(ws)
-    if not any(w['t'] == 'FIELD' for w in ws) or not sno:
+    if (FIELD_REQUIRED and not any(w['t'] == 'FIELD' for w in ws)) or not sno:
         return None
-    draw = [w for w in ws if DRAW_Y[0] < w['y0'] < DRAW_Y[1] and w['x1'] < 745]
+    draw = [w for w in ws if DRAW_Y[0] < w['y0'] < DRAW_Y[1] and w['x1'] < DRAW_X]
     cores = [w for w in draw if CORE_RE.match(w['t'])]
     if not cores:
         return {'sheet': sno, 'of': of, 'h': {}, 'mode': '', 'groups': [], 'trunks': [], 'rows': [], 'pdesc': '', 'flags': ['no_cores']}
@@ -714,6 +719,67 @@ def mark_of(pg, R, box):
     return [r5(f[0]), r5(f[1]), r5(f[2] - f[0]), r5(f[3] - f[1])]
 
 
+def loc_label(ws, w):
+    """位置圖上一個字 w 是不是位置標籤（下一行是廠區座標 'E … N … U …'）→ (標籤框, 座標字串) 或 None（v17 從 jb_locate 拆出來，wire_epc 也用）。
+    同一頁右下的 JB TABLE 也印著 KKS，但下一行不是座標 → 不算。"""
+    nxt = sorted([x for x in ws if 0 < x['y0'] - w['y0'] <= 14 and abs(x['x0'] - w['x0']) <= 4], key=lambda x: x['y0'])
+    line = [x for x in ws if nxt and abs(x['y0'] - nxt[0]['y0']) <= 2 and x['x0'] >= w['x0'] - 4 and x['x0'] - w['x1'] < 120]
+    txt = ' '.join(x['t'] for x in sorted(line, key=lambda x: x['x0']))
+    if not re.match(r'^E\s?\d{6,}', txt):
+        return None
+    return ubox([w] + line), txt
+
+
+def jb_segments(pdf_abs, pno):
+    """位置圖那一頁的藍色引線段與紅線小長方形（JB 符號）→ (segs, red)，顯示座標（v17 從 jb_locate 拆出來，wire_epc 逐頁快取）。"""
+    import fitz
+    doc = fitz.open(pdf_abs)
+    page = doc[pno - 1]
+    M = page.rotation_matrix
+    items = page.get_drawings()
+    doc.close()
+    segs, red = [], []
+    for it in items:
+        col = tuple(round(c, 2) for c in (it.get('color') or ()))
+        if col == (0.0, 0.0, 1.0) and not it.get('fill'):
+            for x in it['items']:
+                if x[0] == 'l':
+                    segs.append((x[1] * M, x[2] * M))
+        elif col == (1.0, 0.0, 0.0):
+            r = it['rect'] * M
+            if r.width <= 30 and r.height <= 30:
+                red.append(r)    # JB 符號是紅線畫的小長方形（一段一段的 'l'，不是 rect 物件）
+    return segs, red
+
+
+def jb_walk(lab, segs, red):
+    """標籤框 → 從標籤框出發的藍色引線（折線一段段接下去）→ 線尾附近的紅線小長方形 → 符號框（顯示座標）或 None。"""
+    import fitz
+    # 沿著藍色引線走：起點是碰到標籤框的那一端，接上的下一段的另一端……走到底就是 JB 符號
+    box = fitz.Rect(lab) + (-JB_TOUCH, -JB_TOUCH, JB_TOUCH, JB_TOUCH)
+    ends = []
+    for i, (p1, p2) in enumerate(segs):
+        for a_, b_ in ((p1, p2), (p2, p1)):
+            if box.contains(a_) and not box.contains(b_):
+                ends.append((i, b_))
+    best = None
+    for i0, tip in ends:
+        used = {i0}                                  # 走過的線段不再走（不然會在同一段上來回）
+        for _hop in range(JB_HOPS):
+            nxt = [(i, b_) for i, (p1, p2) in enumerate(segs) if i not in used for a_, b_ in ((p1, p2), (p2, p1))
+                   if abs(a_.x - tip.x) + abs(a_.y - tip.y) < 1.5 and abs(b_.x - tip.x) + abs(b_.y - tip.y) > 1.5 and not box.contains(b_)]
+            if not nxt:
+                break
+            i, tip = max(nxt, key=lambda t: abs(t[1].x - tip.x) + abs(t[1].y - tip.y))
+            used.add(i)
+        q = [x for x in red if abs((x.x0 + x.x1) / 2.0 - tip.x) + abs((x.y0 + x.y1) / 2.0 - tip.y) < JB_SYM_NEAR]
+        if q and best is None:
+            best = q
+    if best:
+        return (min(x.x0 for x in best) - 3, min(x.y0 for x in best) - 3, max(x.x1 for x in best) + 3, max(x.y1 for x in best) + 3)
+    return None
+
+
 def jb_locate(pdf_abs, pg, R, pno, kks):
     """接線箱平面位置圖（IIF01-D0004）上這個 JB 的標籤（JB 的 KKS，下一行是廠區座標 'E … N … U …'）與它的符號：
     標籤 → 從標籤框出發的藍色引線（折線一段段接下去）→ 線尾附近的紅線小長方形（JB 符號，圖例 'JUNCTION BOX'）。
@@ -722,53 +788,12 @@ def jb_locate(pdf_abs, pg, R, pno, kks):
     for w in ws:
         if w['t'] != kks:
             continue
-        nxt = sorted([x for x in ws if 0 < x['y0'] - w['y0'] <= 14 and abs(x['x0'] - w['x0']) <= 4], key=lambda x: x['y0'])
-        line = [x for x in ws if nxt and abs(x['y0'] - nxt[0]['y0']) <= 2 and x['x0'] >= w['x0'] - 4 and x['x0'] - w['x1'] < 120]
-        txt = ' '.join(x['t'] for x in sorted(line, key=lambda x: x['x0']))
-        if not re.match(r'^E\s?\d{6,}', txt):
+        hit = loc_label(ws, w)
+        if not hit:
             continue
-        lab = ubox([w] + line)
-        sym = None
+        lab, txt = hit
         try:
-            import fitz
-            doc = fitz.open(pdf_abs)
-            page = doc[pno - 1]
-            M = page.rotation_matrix
-            items = page.get_drawings()
-            doc.close()
-            segs, red = [], []
-            for it in items:
-                col = tuple(round(c, 2) for c in (it.get('color') or ()))
-                if col == (0.0, 0.0, 1.0) and not it.get('fill'):
-                    for x in it['items']:
-                        if x[0] == 'l':
-                            segs.append((x[1] * M, x[2] * M))
-                elif col == (1.0, 0.0, 0.0):
-                    r = it['rect'] * M
-                    if r.width <= 30 and r.height <= 30:
-                        red.append(r)    # JB 符號是紅線畫的小長方形（一段一段的 'l'，不是 rect 物件）
-            # 沿著藍色引線走：起點是碰到標籤框的那一端，接上的下一段的另一端……走到底就是 JB 符號
-            box = fitz.Rect(lab) + (-JB_TOUCH, -JB_TOUCH, JB_TOUCH, JB_TOUCH)
-            ends = []
-            for i, (p1, p2) in enumerate(segs):
-                for a_, b_ in ((p1, p2), (p2, p1)):
-                    if box.contains(a_) and not box.contains(b_):
-                        ends.append((i, b_))
-            best = None
-            for i0, tip in ends:
-                used = {i0}                                  # 走過的線段不再走（不然會在同一段上來回）
-                for _hop in range(JB_HOPS):
-                    nxt = [(i, b_) for i, (p1, p2) in enumerate(segs) if i not in used for a_, b_ in ((p1, p2), (p2, p1))
-                           if abs(a_.x - tip.x) + abs(a_.y - tip.y) < 1.5 and abs(b_.x - tip.x) + abs(b_.y - tip.y) > 1.5 and not box.contains(b_)]
-                    if not nxt:
-                        break
-                    i, tip = max(nxt, key=lambda t: abs(t[1].x - tip.x) + abs(t[1].y - tip.y))
-                    used.add(i)
-                q = [x for x in red if abs((x.x0 + x.x1) / 2.0 - tip.x) + abs((x.y0 + x.y1) / 2.0 - tip.y) < JB_SYM_NEAR]
-                if q and best is None:
-                    best = q
-            if best:
-                sym = (min(x.x0 for x in best) - 3, min(x.y0 for x in best) - 3, max(x.x1 for x in best) + 3, max(x.y1 for x in best) + 3)
+            sym = jb_walk(lab, *jb_segments(pdf_abs, pno))
         except Exception:                                  # noqa: BLE001 — 找不到符號就只框標籤
             sym = None
         return {'label': lab, 'coords': txt, 'sym': sym}
@@ -1404,6 +1429,24 @@ def io_lookup(by_screw, unit, c):
     return cands, ''
 
 
+def end_toks(v):
+    """接線箱／MCC 格的寫法 → (前 8 碼, 其餘各段)：'C10BBA10-5_2'、'C10BBA10_5-2' → ('C10BBA10', ['5', '2'])；'S10BGA10_2_2C' → ('S10BGA10', ['2', '2C'])。"""
+    v = (v or '').strip().lstrip('=- ').upper()
+    return v[:8], [t for t in re.split(r'[-_\s]+', re.sub(r'\([A-Z]+\)$', '', v[8:])) if t]   # 'G12BGA10-1B(Rear)'＝1B
+
+
+def same_end(a, b):
+    """v17：接線圖與電纜表寫的同一端是不是同一個（分隔字元不計；一邊只寫格、另一邊寫欄＋格算同一個：'S10BGA10_2_2C' ↔ 'S10BGA10_2C'）。
+    HRSG MCC 的 'G12BKB30_A9_A2D'：格位是最後一段 A2D，中間的 A9 是盤面配置圖那一格裡寫的單元標籤（電纜表寫成 A2_A2D），只比格位。"""
+    (la, ta), (lb, tb) = end_toks(a), end_toks(b)
+    if la != lb:
+        return False
+    if ta and tb and re.fullmatch(r'A\d{1,2}[A-H]', ta[-1]) and re.fullmatch(r'A\d{1,2}[A-H]', tb[-1]):
+        return ta[-1] == tb[-1]
+    n = min(len(ta), len(tb))
+    return ta[len(ta) - n:] == tb[len(tb) - n:]          # 一邊只寫排（'G11MSA30'、'C00BQV10'）＝沒有可比的
+
+
 def io_relates(dt, tag, kks):
     """控制器 I/O 點的 DeviceTag 與這個元件的關係：'same'（同一個 KKS 或 GE 編號，'ST-202A,B,C' 這種逗號合寫也算）、
     'loc'（同一個位置、量測碼不同：LVDT 的電源點 MAD10CY004_PWR 與訊號點 MAD10BG004）、''（不相干）。"""
@@ -1456,6 +1499,13 @@ def io_rel(h, e, kks, dkks=(), other=None):
       ✗ 'other'（DeviceTag 是對照表裡的另一個 GE 編號，數字也不同：23WR-1B 的螺絲在組態是 23WR-3A）、'spare'（這顆螺絲的點沒有變數也沒有 DeviceTag：組態裡是備用點）。
     other＝函式（DeviceTag 一段 → 對照表裡的鍵集合），沒有就不分 alias／other。"""
     dt = re.sub(r'-\s+', '-', h['dt'] or '')            # 組態 DeviceTag 'MAV01AP003- MA01'（連字號後多一個空白）
+    if e.get('system') == 'KKS':                          # v17：KKS 編號（BOP 控制器同時管 G11／G12／S10 的同名設備，比本體會把別台的點判成同一個）
+        full = [m_.group(0) for m_ in re.finditer(r'(?<![A-Z0-9])[A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', ('%s %s' % (dt, h['var'] or '')).upper())]
+        me = e['tag'].upper()
+        if any(f == me for f in full):
+            return 'same' if me in dt.upper() else 'logic'   # DeviceTag 是母設備（EW001）、變數是 G11MST10EW005XB01：變數就是這個設備的點
+        if any(f[3:] == me[3:] and f[:3] != me[:3] for f in full):
+            return 'unit'                                 # 只差機組碼（S10BGB10EG001 ↔ 組態 G11BGB10EG001）
     rel = io_relates(dt, e['tag'], re.sub(r'[\s-]', '', kks or ''))   # KKS 帶連字號（MAB12QN001-MB01）時 io_relates 永遠對不上
     if rel == 'same':
         return rel
@@ -1515,7 +1565,7 @@ def io_rel(h, e, kks, dkks=(), other=None):
     return 'alias'
 
 
-IO_RANK = {'same': 0, 'logic': 1, 'equip': 2, 'loc': 2, 'suffix': 3, 'alias': 5, 'other': 6, 'spare': 7}
+IO_RANK = {'same': 0, 'logic': 1, 'equip': 2, 'loc': 2, 'suffix': 3, 'alias': 5, 'other': 6, 'unit': 6, 'spare': 7}   # unit（v17）：只差機組碼
 IO_OK = ('same', 'logic', 'equip', 'loc', 'suffix')   # 卡上打 ✓ 的關係；alias＝≈；other／spare＝✗
 
 
@@ -1555,6 +1605,12 @@ def sheet_rec(d, pg, pno, n_pages, R, method, kind, tags):
 
 def build(a, log):
     t0 = time.time()
+    kks = bool(getattr(a, 'kks', False))   # v17：KKS 版（wire_kks.py 呼叫）——接線圖上沒有 GE 編號、只有 KKS 的元件；GE 版（False）的輸出不變
+    if kks:
+        import wire_epc as WP
+    KP = r'[A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}' if kks else r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}'   # 盤／JB 的 KKS（KKS 版多 C10、C00 的共用盤與 JB）
+    epc_kinds = {kd_ for kd_, _dn, _zh in WP.EPC_DOCS} if kks else set()
+    uord = lambda u: (SITE_UNITS.index(u) if u in SITE_UNITS else len(SITE_UNITS), u)   # noqa: E731  機組排序（KKS 版多 C10、C00…）
     ents, names, kks_of, logic_of = all_entries(a.ge_tags)
     cura = load_curated(a.curated, log)
     lib = L.walk_pdfs(a.library)
@@ -1570,6 +1626,13 @@ def build(a, log):
     for dk, how, val in WE.doc_specs():   # v16：其餘電氣盤的配置圖（GPP、手動同步盤、GCB、UAT、LCI 中壓盤／52ET）
         docs[dk] = resolve_doc(lib, val) if how == 'docno' else WE.resolve_fragment(lib, val, L.copy_flags, L.rev_rank)
     docs['vms'] = resolve_vms(lib, a.library, a.text_cache)
+    if kks:                               # v17：HRSG／電氣 I&C／BOP 接線圖、三份電纜表、一號機儀器與接線箱位置圖（IIF01）
+        for kd_, dn_, _zh in WP.EPC_DOCS:
+            docs[kd_] = resolve_doc(lib, dn_)
+        for kd_, dn_ in WP.CS_DOCS:
+            docs[kd_] = resolve_doc(lib, dn_)
+        for kd_, dn_, _zh in WP.LOC_DOCS:
+            docs.setdefault(kd_, resolve_doc(lib, dn_))
     for k, d in docs.items():
         log('%s：%s' % (k, d.get('rel') or d.get('why')))
     if not docs['wire'].get('rel'):
@@ -1577,11 +1640,17 @@ def build(a, log):
     tx = {k: load_full_text(a.library, d, a.text_cache) for k, d in docs.items() if d.get('rel')}
     by_screw, by_dev = io_index(a.dcdas)
     boards = boards_index(a.dcdas)
+    epc_ix = WP.io_index(a.dcdas) if kks else None   # v17：HRSG、BOP 的控制器（盤端子格沒有板名，鍵不含板名）
+    if epc_ix:
+        by_dev.update(epc_ix['by_dev'])
     # 組態裡「這個編號實際在哪顆螺絲」：圖面畫的螺絲在組態是別顆或備用點時，找出這個編號真正的點（先用字串粗篩，再用 io_rel 確認）
     where_idx = defaultdict(list)
     for (u_, cab_, pos_, board_, num_), hs_ in (by_screw or {}).items():
         for h_ in hs_:
             where_idx[u_].append(((ge_cmp(h_['dt']) + ' ' + ge_cmp(h_['var'])), (cab_, pos_, board_, num_), h_))
+    for (ctl_, cab_, pos_, num_), hs_ in ((epc_ix or {}).get('by_pos') or {}).items():   # v17：鍵是控制器
+        for h_ in hs_:
+            where_idx[ctl_].append(((ge_cmp(h_['dt']) + ' ' + ge_cmp(h_['var'])), (cab_, pos_, h_['board'], num_), h_))
 
     def io_where(unit, e, kks):
         tc, kc = ge_cmp(e['tag']), kks_core(kks)[:10] if kks else ''
@@ -1634,18 +1703,70 @@ def build(a, log):
         return {k: ('io', 0.0) for k, v in votes.items() if live and v * 2 >= live}
 
     def other_keys(kind):
+        if kks:                                    # v17：DeviceTag 是另一個設備的 KKS → 那個設備
+            return lambda x: {'KKS|%s' % d_ for d_ in [WP.dev_of(x)[0]] if d_}
         sysset = ('ST', 'ST-GEN') if kind == 'wire' else ('GT', 'GT-GEN')
         return lambda x: {k for s_ in sysset for k in (names.get(s_) or {}).get(ge_cmp(x), ())} | \
             ({k for s_ in sysset for k in (kks_of.get(s_) or {}).get(kks_core(x), ())} if kks_core(x) else set())
 
+    def kks_ent(dev):
+        """v17：設備 KKS → 鍵 'KKS|<KKS>'（條目照 all_entries 的欄位補一筆）。"""
+        k = 'KKS|%s' % dev
+        if k not in ents:
+            ents[k] = {'tag': dev, 'system': 'KKS', 'kks': [dev], 'forms': [dev], 'logic': [], 'linked': [], 'tsi': 0}
+        return k
+
+    def kks_keys(kind, p, unit, sysset, keyrows, via_of):
+        """v17：一個子圖 → 鍵 'KKS|<設備 KKS>' 的芯。HRSG／電氣 I&C／BOP 圖：每條芯所在訊號格的設備（wire_epc.row_signals）；
+        燃機／汽機圖：說明格認得 GE 編號、或盤端子反查得到 GE 編號的框不收（那是 GE 編號卡的路徑），其餘框裡寫的 KKS（不帶機組碼的補上這一台的）。"""
+        if kind not in ('wire', 'wiregt'):
+            for r in p['rows']:
+                if r.get('dev') and r.get('group') is not None:
+                    k = kks_ent(r['dev'])
+                    keyrows[k].append((r['group'], r))
+                    via_of.setdefault(k, 'sig' if r.get('sig') else 'kks')
+            return
+        for gi, g in enumerate(p['groups']):
+            rows = [r for r in p['rows'] if r.get('group') == gi]
+            if not rows or identify(g, sysset, names, kks_of) or io_keys(rows, unit, sysset):
+                continue
+            devs = []
+            for t, y in desc_tokens(g['desc_w']):
+                d_ = WP.dev_of(t)[0] or (unit + t[:10] if KKS_BARE.match(t) else None)
+                if d_ and d_[:3] == unit and not any(kks_core(d_) in (kks_of.get(s_) or {}) for s_ in kks_of) and (d_, y) not in devs:
+                    devs.append((d_, y))
+            if not devs:
+                continue
+            for r in rows:
+                c_ = r.get('jb_cell') or r.get('field_cell') or {}
+                ry_ = c_.get('y', r['core_w']['y0'] if r.get('core_w') else 0) + 4
+                d_ = min(devs, key=lambda dv: abs(dv[1] - ry_))[0]
+                k = kks_ent(d_)
+                keyrows[k].append((gi, r))
+                via_of.setdefault(k, 'kks')
+
     def add_path(kind, pno, pg, R, p, unit, k, grs, via):
         """一個子圖裡屬於鍵 k 的芯（grs＝[(群組序, 列)…]）→ 一條路徑（同機組、同一頁同一子圖已經有的就回那一條）。"""
         h = p['h']
-        jb_name = h.get('jb', '') if p['mode'] != 'direct' else ''
-        jbk = re.search(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', jb_name)
-        pk = re.findall(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', (h.get('panel') or '') + ' ' + (p['pdesc'] or ''))
-        e = ents[k]
         rows = [r for _gi, r in grs]
+        pdesc = p['pdesc']
+        if kks and kind in epc_kinds:             # v17：一頁好幾個接線箱／端子排／盤框時，取這條路徑第一條芯上面最近的那一組、盤端子所在的那一框
+            h = dict(h)
+            y1_ = min((r['core_w']['y0'] for r in rows if r.get('core_w')), default=None)
+            for key_, cs_ in (p.get('hdr_cands') or {}).items():
+                cs_ = [c_ for c_ in cs_ if c_[1]]
+                up_ = [c_ for c_ in cs_ if y1_ is not None and c_[0] < y1_ + 2]
+                if key_ in ('jb', 'jb_tb') and len(cs_) > 1 and up_:
+                    h[key_] = max(up_)[1]
+            pb_ = Counter(r.get('pbox') for r in rows if r.get('pbox') is not None)
+            blk_ = (p.get('panels') or {}).get(pb_.most_common(1)[0][0]) if pb_ else None
+            if blk_:
+                pdesc = blk_['desc']
+                h['panel'] = blk_['kks'] or h.get('panel', '')
+        jb_name = h.get('jb', '') if p['mode'] != 'direct' else ''
+        jbk = re.search(KP, jb_name)
+        pk = re.findall(KP, (h.get('panel') or '') + ' ' + (pdesc or ''))
+        e = ents[k]
         gis = sorted({gi for gi, _r in grs})
         g = p['groups'][gis[0]]
         tr = p['trunks'][rows[0]['trunk']] if p['trunks'] and rows[0].get('trunk') is not None else None
@@ -1656,6 +1777,8 @@ def build(a, log):
                       'jb': ctext(r.get('jb_cell'))})
             if r.get('ptypo'):
                 c['ptypo'] = r['ptypo']
+            if r.get('sig'):
+                c['sig'] = r['sig']                    # v17：這條芯所在訊號格的訊號 KKS（HRSG／BOP 圖）
             cond.append(c)
         dev_ws = [w for gi in gis for w in p['groups'][gi]['desc_w']]
         jb_ws = [w for r in rows for w in ((r.get('jb_cell') or {}).get('w') or [])]
@@ -1664,27 +1787,100 @@ def build(a, log):
         for ws_ in (jb_ws or ([w for r in rows for w in ((r.get('field_cell') or {}).get('w') or [])]), pn_ws, dev_ws):
             if ws_:
                 marks.append(mark_of(pg, R, ubox(ws_)))
+        epc_ = kks and kind in epc_kinds
+        drawn_ = ' / '.join(p['groups'][gi]['desc'] for gi in gis)
+        if epc_:                                  # v17：只收這幾條芯所在的訊號格（加它們上面的標頭行），不收同一群組裡別的設備的格子
+            hl_ = [r['hdr'][2] for r in rows if r.get('hdr') and r['hdr'][2]]
+            bx_ = [r['sbox'] for r in rows if r.get('sbox')]
+            drawn_ = ' / '.join(dict.fromkeys([h_ for h_ in hl_ if not any(h_ in b_ for b_ in bx_)] + bx_)) or drawn_
         path = {
             'unit': unit, 'tag': e['tag'], 'kks': kks_for(e, unit), 'mode': p['mode'], 'via': via, 'doc': kind,
-            'wire': {'page': pno, 'sheet': p['sheet'], 'of': p['of'], 'drawn': ' / '.join(p['groups'][gi]['desc'] for gi in gis), 'marks': marks,
+            'wire': {'page': pno, 'sheet': p['sheet'], 'of': p['of'], 'drawn': drawn_, 'marks': marks,
                      'field_cable': g['cable'], 'field_spec': g['spec'], 'field_tb': h.get('field_tb', ''),
                      'jb': jb_name, 'jb_kks': jbk.group(0) if jbk else '', 'jb_desc': h.get('jb_desc', ''), 'jb_tb': h.get('jb_tb', ''),
                      'prox': rows[0].get('prox', ''), 'trunk': tr['cable'] if tr else '', 'trunk_spec': tr['spec'] if tr else '',
-                     'panel': h.get('panel', ''), 'panel_tb': h.get('panel_tb', ''), 'panel_desc': p['pdesc']},
+                     'panel': h.get('panel', ''), 'panel_tb': h.get('panel_tb', ''), 'panel_desc': pdesc},
             'cond': cond, 'flags': list(p['flags']), 'notes': []}
+        if kks and kind in epc_kinds:             # v17：一頁的旗標（label_typo:WH-1→…、panel_nolabel:BK-11）只留這條路徑自己的芯
+            mine_ = {r['core'] for r in rows}
+            path['flags'] = [f_ for f_ in path['flags'] if ':' not in f_ or re.split(r'[:→]', f_)[1] in mine_]
+            pkk_ = re.search(r'[A-Z]?\d{2}C[A-Z]{2}\d{2}UC\d{3,4}', h.get('panel') or '')
+            if pkk_ and pkk_.group(0) != h.get('panel'):
+                path['wire']['panel'] = pkk_.group(0)   # 'BOPE1_CNTRL/ C10CCF01UC006' → 盤 KKS（盤名在盤欄說明裡）
         if p.get('sub'):
             path['wire']['sub'] = p['sub']
-        dk = sorted({kks_core(t) for gi in gis for t, _y in desc_tokens(p['groups'][gi]['desc_w']) if (KKS_ANY.match(t) or KKS_BARE.match(t)) and kks_core(t)})
+        if kks:                                   # v17：元件說明（框標頭 KKS 後面的字，沒有就用第一個訊號格的說明）給 KKS 編號卡
+            path['dsc'] = next((r['hdr'][1] for r in rows if r.get('hdr') and r['hdr'][0] == e['tag'] and r['hdr'][1]), '') if epc_ else \
+                next((p['groups'][gi].get('hdr_desc') for gi in gis if p['groups'][gi].get('hdr_desc') and p['groups'][gi].get('hdr_dev') == e['tag']), '')
+            path['dsc'] = path['dsc'] or WP.device_desc([r.get('sbox') or r.get('sdesc') or '' for r in rows])
+        hd_ = sorted(({r['hdr'][0] for r in rows if r.get('hdr')} if epc_ else {p['groups'][gi].get('hdr_dev') for gi in gis}) - {None, '', e['tag']})
+        if kks and hd_:                           # v17：元件框的標頭與訊號格寫的設備不同（D1003 p.15：標頭 C10LAF31QM004、訊號格 =G11HAC31QM506XB61）
+            fc_ = re.match(r'^([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})-W', g['cable'] or '')
+            ev_ = '；這一條的現場電纜號 %s 的前綴也是 %s' % (g['cable'], fc_.group(1)) if fc_ and fc_.group(1) in hd_ else ''
+            path['notes'].append(['接線圖這一框的標頭寫 %s，這幾條芯所在的訊號格寫 %s：兩者不一致%s。路徑先照訊號格歸（標頭可能是所屬的主設備，'
+                                  '也可能是圖面複製時沒改），請以現場標示確認' % ('、'.join(hd_), e['tag'], ev_), '接線圖 第 %d 頁（文字層）' % pno])
+        if epc_:
+            fcs_ = list(dict.fromkeys((p['groups'][gi]['cable'], p['groups'][gi]['spec']) for gi in sorted({r['group'] for r in rows if r.get('group') is not None})
+                                      if p['groups'][gi]['cable']))
+            if len(fcs_) > 1:                     # v17：一個設備的訊號分走幾條現場電纜（G12LBA10FL002 p.178：XG02、XB61、XB62 各一條 1P）
+                path['wire']['field_cables'] = [list(x) for x in fcs_]
+            trs_ = list(dict.fromkeys((p['trunks'][r['trunk']]['cable'], p['trunks'][r['trunk']]['spec']) for r in rows
+                                      if p['trunks'] and r.get('trunk') is not None))
+            if len(trs_) > 1:                     # 也分走幾條幹線（C10MAJ30QM003 p.375：XG02 在 WG-003、XB61 在 WD-004）
+                path['wire']['trunks'] = [list(x) for x in trs_]
+            ss_ = p.get('sensors') or []
+            devs_ = {r.get('dev') for r in rows} - {None}
+            s_ = next((x for x in ss_ if x['tt'] in devs_ or x['te'].split('_')[0] in devs_), None)
+            pos_ = False
+            if not s_ and len(ss_) == 1 and len({r.get('dev') for r in p['rows'] if r.get('dev')}) == 1:
+                s_, pos_ = ss_[0], True           # 同一頁只有一組：照位置配（上下段寫的 KKS 不一致，D1003 p.917）
+            if s_:
+                path['wire']['sensor'] = dict({k_: s_[k_] for k_ in ('te', 'te_desc', 'cable', 'spec', 'tt', 'tt_desc', 'cond')}, **({'by': 'pos'} if pos_ else {}))
+                path['wire']['marks'].append(mark_of(pg, R, s_['box']))
+                if pos_:
+                    path['notes'].append(['接線圖上段（熱電偶 → 傳送器）寫 %s，下段（傳送器 → 盤）的訊號格寫 %s：同一頁只有這一組，照位置接在一起；'
+                                          '兩段的 KKS 不一致（圖面筆誤或編號改過），請以現場銘牌確認' % (s_['tt'] or s_['te'], e['tag']), '接線圖 第 %d 頁（文字層）' % pno])
+                elif s_['tt'] and s_['tt'] != e['tag']:   # 上段傳送器框寫的 KKS 與熱電偶、下段不同（D1003 p.671、p.698）
+                    path['notes'].append(['接線圖上段的傳送器框寫 %s，同一組的熱電偶（%s）與下段訊號格寫 %s：兩者不一致，請以現場銘牌確認'
+                                          % (s_['tt'], s_['te'] or '—', e['tag']), '接線圖 第 %d 頁（文字層）' % pno])
+            pnk_ = [x for x in dict.fromkeys(re.findall(r'[A-Z]?\d{2}C[A-Z]{2}\d{2}UC\d{3,4}', p['pdesc'] or ''))]
+            if not p.get('panels') and p['h'].get('panel') and pnk_ and re.match(r'[A-Z]?\d{2}C[A-Z]{2}\d{2}UC\d{3,4}$', p['h']['panel']) \
+                    and p['h']['panel'] not in pnk_:     # 只有一個盤框時，標頭與框裡寫的不同：盤取框裡寫的（電纜表與控制器組態都照框），註記兩者
+                path['wire']['panel'] = pnk_[0]
+                path['notes'].append(['接線圖盤欄的標頭寫 PANEL: %s，盤框裡的說明寫 %s：兩者不一致（路徑照盤框），請以現場盤名確認' % (p['h']['panel'], p['pdesc']),
+                                      '接線圖 第 %d 頁（文字層）' % pno])
+        sd_ = sorted({r.get('sigdev') for r in rows if r.get('sigdev')})
+        if kks and sd_:
+            path['notes'].append(['這幾條芯所在的訊號格寫 %s，但這一框的標頭與現場電纜號都寫 %s：路徑照標頭與電纜號（訊號格多半是複製時沒改），請以現場標示確認'
+                                  % ('、'.join(sd_), e['tag']), '接線圖 第 %d 頁（文字層）' % pno])
+        dc_ = p.get('dup_cells') or {}
+        dd_ = sorted({k_ for r in rows for k_ in [re.sub(r'\s+', '', ctext(r.get('panel_cell')))] if k_ in dc_})
+        if kks and dd_:
+            path['notes'].append(['接線圖把同一顆盤端子畫給兩條芯：%s——圖面筆誤或其中一個接法沒畫對，請以現場核對'
+                                  % '；'.join('%s（%s）' % (k_, '、'.join(dc_[k_])) for k_ in dd_), '接線圖 第 %d 頁（文字層）' % pno])
+        if kks and kind in ('wire', 'wiregt'):   # v17：燃機／汽機圖上只有 KKS 的框：訊號格寫的是不帶機組碼的 'MAL40QM001-BG01'、'MAX31GP004_AVAIL'
+            body_ = e['tag'][3:]
+            tk_ = [(t_, y_) for gi in gis for t_, y_ in desc_tokens(p['groups'][gi]['desc_w'])
+                   if re.fullmatch(r'(?:[A-Z]\d{2})?%s[-_][A-Z0-9]{2,8}' % body_, t_)]
+            if tk_:
+                for c_, r_ in zip(cond, rows):
+                    c0_ = r_.get('jb_cell') or r_.get('field_cell') or {}
+                    ry_ = c0_.get('y', r_['core_w']['y0'] if r_.get('core_w') else 0)
+                    t_ = min(tk_, key=lambda x: abs(x[1] - ry_))[0]
+                    c_.setdefault('sig', t_ if re.match(r'[A-Z]\d{2}%s' % body_, t_) else unit + t_)
+        dk = sorted({kks_core(t) for gi in gis for t, _y in desc_tokens(p['groups'][gi]['desc_w']) if (KKS_ANY.match(t) or KKS_BARE.match(t) or (kks and WP.dev_of(t)[0])) and kks_core(t)})
         if dk:
             path['dkks'] = dk                    # 圖上寫在元件旁的 KKS（本體）：核對螺絲時當作同一設備的證據
         w = path['wire']
         # 自動註記（v13）：幹線電纜號的前綴不是這個 JB 的 KKS；JB 端子格印的名字與前置器區塊不同（圖面筆誤）
         tpre = w['trunk'].split('-WG')[0]                # 'S10BPA10-WG-001' 是系統層的電纜號（JB S10BPA10UC101 的系統碼），不算另一個 KKS
         if w['trunk'] and w['jb_kks'] and not w['trunk'].startswith(w['jb_kks']) and not any(w['trunk'].startswith(x) for x in pk) and \
-                not w['jb_kks'].startswith(tpre):
+                not w['jb_kks'].startswith(tpre) and not (kks and w['trunk'].startswith(e['tag'])):
             tp = re.match(r'^([SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})', w['trunk'])
-            path['notes'].append(['幹線電纜號 %s 的前綴是另一個 KKS（%s），不是這個接線箱（%s）也不是盤：電纜的這一端可能另經一個接線箱，'
-                                  '請以現場電纜標示確認' % (w['trunk'], tp.group(1) if tp else tpre, w['jb_kks']), '接線圖 第 %d 頁' % pno])
+            path['notes'].append([('幹線電纜號 %s 的前綴是另一個 KKS（%s），接線圖這一框的接線箱寫 %s：兩者不一致（可能另經一個接線箱，也可能是其中一個編號寫錯），'
+                                   '請以現場電纜標示確認' if kks else
+                                   '幹線電纜號 %s 的前綴是另一個 KKS（%s），不是這個接線箱（%s）也不是盤：電纜的這一端可能另經一個接線箱，'
+                                   '請以現場電纜標示確認') % (w['trunk'], tp.group(1) if tp else tpre, w['jb_kks']), '接線圖 第 %d 頁' % pno])
         prox = w['prox']
         cells = [c2 for r in rows for c2 in [r.get('jb_cell') or {}] if len(c2.get('lines') or []) > 1]
         odd = [c2['t'] for c2 in cells if prox and c2['lines'][0] != prox]
@@ -1700,7 +1896,8 @@ def build(a, log):
         # v14 自動註記：芯色標籤 JB 側與盤側不同（照順序配）；盤端子板名筆誤
         ty = ['%s（盤側印 %s）' % (c['core'], c['ptypo']) for c in cond if c.get('ptypo')]
         if ty:
-            path['notes'].append(['圖上芯色標籤兩端不一致：%s——照幹線裡的上下順序對到盤端子（圖面筆誤）' % '、'.join(ty), '接線圖 第 %d 頁' % pno])
+            path['notes'].append(['圖上芯色標籤兩端不一致：%s——照%s裡的上下順序對到盤端子（多半是圖面筆誤，沒有逐一查證）' % ('、'.join(ty), '電纜' if p['mode'] == 'direct' else '幹線')
+                                  if kks else '圖上芯色標籤兩端不一致：%s——照幹線裡的上下順序對到盤端子（圖面筆誤）' % '、'.join(ty), '接線圖 第 %d 頁' % pno])
         fx = sorted({c['fix'] for c in cond if c.get('fix') and c['fix'] not in ('hdr_tb', 'hdr_board')})
         if fx:
             path['notes'].append(['盤端子格把板名寫成 %s，就是 TDBT（圖面筆誤）' % '、'.join(fx), '接線圖 第 %d 頁' % pno])
@@ -1714,27 +1911,31 @@ def build(a, log):
         used_sheets[(kind, pno)] = 'wire'
         return path
 
-    # ---- 1. 接線圖：汽機 D1005（parse_page）與燃機 D1004（wire_gt.parse_page，一頁可有幾個子圖）
-    for kind, sysset, ufam in (('wire', ('ST', 'ST-GEN'), 'S'), ('wiregt', ('GT', 'GT-GEN'), 'G')):
+    # ---- 1. 接線圖：汽機 D1005（parse_page）與燃機 D1004（wire_gt.parse_page，一頁可有幾個子圖）；v17 KKS 版另加 HRSG／電氣 I&C／BOP（wire_epc）
+    wkinds = [('wire', ('ST', 'ST-GEN'), 'S'), ('wiregt', ('GT', 'GT-GEN'), 'G')] + ([(kd_, (), '') for kd_, _dn, _zh in WP.EPC_DOCS] if kks else [])
+    for kind, sysset, ufam in wkinds:
         if kind not in tx:
             continue
         d = docs[kind]
         frames = WG.load_frames(os.path.join(a.library, d['rel'].replace('/', os.sep)), d['rel'], d['size'], d['mtime'], a.text_cache,
-                                range(1, tx[kind]['pages'] + 1)) if kind == 'wiregt' else None
+                                range(1, tx[kind]['pages'] + 1)) if kind == 'wiregt' or kind in epc_kinds else None   # v17：HRSG／BOP 圖用框線切訊號格
         for pno, pg in enumerate(tx[kind]['pg'], 1):
             if kind == 'wire':
                 p = parse_page(pg)
                 subs = [dict(p, unit=SITE_UNIT, sub=0)] if p and p['rows'] else []
-            else:
+            elif kind == 'wiregt':
                 subs = WG.parse_page(disp_words(pg), frames[pno])
                 for s_ in subs:
                     st['gt_sub_' + (s_.get('mode') or 'none')] += 1
                     if not s_.get('mode'):
                         st['gt_flag_' + (s_['flags'] or ['?'])[0]] += 1
                 subs = [s_ for s_ in subs if s_.get('rows') and s_.get('mode') not in ('', 'link')]
+            else:                                   # v17：HRSG／電氣 I&C／BOP（wire_epc；機組看每條芯的設備 KKS）
+                p = WP.parse_page(pg, frames[pno] if frames else None)
+                subs = [dict(p, unit='', sub=0)] if p and p['rows'] else []
             for p in subs:
                 unit = p.get('unit') or ''
-                if unit not in SITE_UNITS or unit[0] != ufam:
+                if ufam and (unit not in SITE_UNITS or unit[0] != ufam):
                     st['%s_other_unit' % kind] += 1
                     continue
                 st['%s_subs' % kind] += 1
@@ -1743,8 +1944,8 @@ def build(a, log):
                 for r in p['rows']:
                     r['term'] = term_parts(r['panel_cell']['lines'] if r.get('panel_cell') else [], h.get('panel_tb', ''))
                 jb_name = h.get('jb', '') if p['mode'] != 'direct' else ''
-                jbk = re.search(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', jb_name)
-                pk = re.findall(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', (h.get('panel') or '') + ' ' + (p['pdesc'] or ''))
+                jbk = re.search(KP, jb_name)
+                pk = re.findall(KP, (h.get('panel') or '') + ' ' + (p['pdesc'] or ''))
                 # FF 段（燃機圖）：不是元件；記下段的幹線，FF 元件的路徑由 GE 的 H1 元件報告接上（ff_paths）
                 if p['mode'] == 'ff':
                     for gi, g in enumerate(p['groups']):
@@ -1755,7 +1956,9 @@ def build(a, log):
                 # 元件身分：說明格的 GE 編號（或 KKS）；都沒有就由盤端子反查控制器
                 keyrows = defaultdict(list)
                 via_of = {}
-                for gi, g in enumerate(p['groups']):
+                if kks:                              # v17：KKS 版的身分（kks_keys）；GE 編號的框不收
+                    kks_keys(kind, p, unit, sysset, keyrows, via_of)
+                for gi, g in enumerate(p['groups'] if not kks else ()):
                     rows = [r for r in p['rows'] if r.get('group') == gi]
                     if not rows:
                         st['group_without_rows'] += 1
@@ -1798,7 +2001,7 @@ def build(a, log):
                             keyrows[k] += [(gi, r) for r in mine]
                             via_of.setdefault(k, via)
                 for k, grs in keyrows.items():
-                    add_path(kind, pno, pg, R, p, unit, k, grs, via_of[k])
+                    add_path(kind, pno, pg, R, p, unit or ents[k]['tag'][:3], k, grs, via_of[k])
                 # 燃機：每一條芯的 JB 端子（GE 138T5502 以 JB／端子排／端子接上來）
                 if kind == 'wiregt' and p['mode'] in ('jbdev', 'direct'):
                     jn = WG.jb_short(h.get('jb', '')).upper()
@@ -1809,8 +2012,9 @@ def build(a, log):
                             gtidx[unit].setdefault(jn, []).append((tb_, term_, pno, pg, R, p, r['group'], r))
                 # 接線箱端子排（這個子圖的每一條芯，不論認不認得元件）：「接線箱內 TB 接法」
                 if jb_name:
-                    jk = '%s|%s' % (unit, jb_name)
-                    jb = jbs.setdefault(jk, {'unit': unit, 'jb': jb_name, 'kks': jbk.group(0) if jbk else '', 'desc': h.get('jb_desc', ''), 'pages': [], 'strip': []})
+                    ju = unit or (jbk.group(0)[:3] if jbk else '')    # v17：HRSG／BOP 圖的 JB 看箱子 KKS 的機組碼
+                    jk = '%s|%s' % (ju, jb_name)
+                    jb = jbs.setdefault(jk, {'unit': ju, 'jb': jb_name, 'kks': jbk.group(0) if jbk else '', 'desc': h.get('jb_desc', ''), 'pages': [], 'strip': []})
                     if pno not in jb['pages']:
                         jb['pages'].append(pno)
                     key_of_row = {id(r): k for k, grs in keyrows.items() for _gi, r in grs}
@@ -1827,7 +2031,7 @@ def build(a, log):
     #      說明格有寫這顆的路徑多一跳「元件端子 → JB 端子」；說明格寫的是整區（'(45FT-1A/2A/3A/4A)'）或別名的，靠端子號接上另開一條（via 'conn'）。
     #      FF 元件（JB 欄是 FBSP-GT-n 段保護器）：接上燃機圖的 FF 段幹線（'ff' 子圖）→ FFPCn Sm，控制器以 FF_IN_S(8(n−1)+m) 核對。
     conn_rows, conn_st = [], Counter()
-    if 'conn' in tx:
+    if 'conn' in tx and not kks:
         conn_rows = WG.parse_conn(os.path.join(a.library, docs['conn']['rel'].replace('/', os.sep)))
         bykey = defaultdict(list)
         for cr in conn_rows:
@@ -1931,7 +2135,7 @@ def build(a, log):
         log('GE 138T5502：%d 列、%d 個 GE 編號；%s' % (len(conn_rows), len(bykey), dict(conn_st)))
     # ---- 1c. 接線圖誤印、改掛到正確編號（v16，wire_curated.json 的 rekey）：D1004 p.257 JB-5D TBC 15／16 那一格寫「(39VE-1R)」，
     #      GE 發電機接線圖 p.9 是 39VE-13R——那一頁的路徑搬到 39VE-13R（註記跟著搬），39VE-1R 只留自己 p.256 那一條
-    for rk in cura.get('rekey') or []:
+    for rk in (cura.get('rekey') or []) if not kks else []:
         if rk['from'] not in recs or rk['to'] not in ents:
             continue
         mv_ = [r for r in recs[rk['from']] if r['wire']['page'] in rk['pages']]
@@ -1946,10 +2150,47 @@ def build(a, log):
             r['notes'].append(list(rk['note']))
             recs[rk['to']].append(r)
             st['rekeyed'] += 1
-    log('接線圖：汽機 %d 個子圖、燃機 %d 個子圖；有路徑的 GE 編號 %d（TSI %d／%d）' % (
-        st['wire_subs'], st['wiregt_subs'], len(recs), sum(1 for k in recs if ents[k]['tsi']), sum(1 for e in ents.values() if e['tsi'])))
+    log('接線圖：汽機 %d 個子圖、燃機 %d 個子圖；有路徑的%s %d（TSI %d／%d）' % (
+        st['wire_subs'], st['wiregt_subs'], ' KKS 元件' if kks else ' GE 編號', len(recs), sum(1 for k in recs if ents[k]['tsi']), sum(1 for e in ents.values() if e['tsi'])))
+    if kks:   # v17：溫度兩段頁上段（熱電偶、傳送器框）寫的 KKS 與下段訊號格不同（D1003 p.916 C00LBG40BT411 ↔ C00LBG30BT411）：兩個編號都列這條路徑
+        for k in list(recs):
+            for r in list(recs[k]):
+                sn_ = r['wire'].get('sensor') or {}
+                alt_ = sn_.get('tt') or ''
+                # 只在照位置配（上段與下段寫的不同）、而且上段的熱電偶與傳送器框寫同一個 KKS 時才另列；上段傳送器框自己寫錯的（p.698
+                # C10MAG10BT004_TE → 'C10LBH30BT402'）不列
+                if sn_.get('by') != 'pos' or not re.fullmatch(r'[A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', alt_) or alt_ == r['tag'] \
+                        or (sn_.get('te') or '').split('_')[0] != alt_:
+                    continue
+                k2 = kks_ent(alt_)
+                if any(x['doc'] == r['doc'] and x['wire']['page'] == r['wire']['page'] for x in recs.get(k2, [])):
+                    continue
+                other_ = sorted({x['wire']['page'] for x in recs[k] if x is not r})
+                r2 = copy.deepcopy(r)
+                r2.update(tag=alt_, kks=alt_, via='sensor')
+                r2['notes'] = [n_ for n_ in r2['notes'] if not n_[0].startswith('接線圖上段（熱電偶 → 傳送器）寫')]
+                if other_ and (r['wire']['field_cable'] or '').startswith(alt_ + '-W'):
+                    # 下段訊號格寫的設備另有自己的路徑（p.912），這一頁的熱電偶、傳送器框、電纜號都寫 alt_：這一頁只列在 alt_ 底下
+                    r2['notes'].insert(0, ['接線圖這一頁下段的訊號格寫 %s，但上段的熱電偶、傳送器框與這一段的電纜號 %s 都寫 %s；%s 另有自己的接線路徑'
+                                           '（接線圖 第 %s 頁）：這一頁的訊號格多半是複製時沒改，路徑列在 %s，請以現場銘牌確認'
+                                           % (r['tag'], r['wire']['field_cable'], alt_, r['tag'], '、'.join(str(x) for x in other_), alt_),
+                                           '接線圖 第 %d 頁（文字層）' % r['wire']['page']])
+                    recs[k].remove(r)
+                    st['kks_sensor_moved'] += 1
+                else:
+                    r2['notes'].insert(0, ['這條路徑在接線圖上段（熱電偶 → 傳送器）寫 %s、下段訊號格寫 %s：兩個編號都列（同一條路徑）' % (alt_, r['tag']),
+                                           '接線圖 第 %d 頁（文字層）' % r['wire']['page']])
+                    st['kks_sensor_alias'] += 1
+                recs[k2].append(r2)
+        for k in [k for k in recs if not recs[k]]:
+            del recs[k]
     # ---- 2. 控制器 I/O：盤端子（櫃-板位, 板名, TB, 螺絲）→ I/O 點；DeviceTag／變數必須是這個元件（或同位置的電源點）
     ffvars = ff_index(a.dcdas)
+    if epc_ix:                                # v17：HRSG／BOP 的盤端子 → 索引的（控制器, 櫃）；芯的板名照索引補上
+        st['epc_cab_pairs'] = len(WP.assign_cab(recs, epc_ix, epc_kinds))
+
+    def lookup(r, c):
+        return WP.io_lookup(epc_ix, r, c) if r.get('_cab') is not None else io_lookup(by_screw, r['unit'], c)
     for k, plist in recs.items():
         e = ents[k]
         for r in plist:
@@ -1970,13 +2211,13 @@ def build(a, log):
                         r['notes'].append(['接線圖把這一段接到 %s %s（＝FF_IN_S%d），控制器組態裡這顆的 FF 變數卻在 FF_IN_S%s：圖面與組態不一致，請以現場核對'
                                            % (c0['board'], c0['tb'], sn, '、S'.join(str(x) for x in elsewhere)), '接線圖 第 %d 頁；signal-atlas 控制器索引' % r['wire']['page']])
             for c in r['cond']:
-                if c['board'] not in MARKVIE_BOARDS + ('TBTC',):
+                if c['board'] not in MARKVIE_BOARDS + ('TBTC',) and not (r.get('_cab') is not None and WP.ca_parts(c)):
                     continue
                 st['io_conductors'] += 1
                 if by_screw is None:
                     c['io'] = 'none'
                     continue
-                cands, how = io_lookup(by_screw, r['unit'], c)
+                cands, how = lookup(r, c)
                 if not cands:
                     c['io'] = 'none'
                     st['io_missing'] += 1
@@ -1998,20 +2239,37 @@ def build(a, log):
                     r['io'].append(ent)
             # 同一個模組、同一個 DeviceTag 的其他點（TVBA 的 VIB2＝振動值、GAP2_VIB2＝間隙電壓；螺絲只掛在其中一個點上）
             extra = []
-            for ctrl, mod, pos, board, pt, var, dt, rel in r['io']:
+            for ctrl, mod, pos, board, pt, var, dt, rel in ([] if kks else r['io']):   # v17：KKS 的 DeviceTag 是設備層，同板其他點多半畫在別頁
                 if board in ('TDBT', 'TRLY', 'TBCI', 'SDII'):
                     continue
                 for pt2, var2 in by_dev.get((ctrl, mod, pos, dt), []) if by_dev else []:
                     if pt2 != pt and [ctrl, mod, pos, board, pt2, var2, dt, rel] not in r['io'] + extra:
                         extra.append([ctrl, mod, pos, board, pt2, var2, dt, rel])
             r['io'] = sorted(r['io'] + extra, key=lambda x: (x[0], x[1], x[4]))
+            if kks:   # v17：DeviceTag 是同一個設備，但組態變數名寫的訊號與接線圖這一格的訊號不同（S10MST10QC601：圖 XB12A、組態 XB11C）
+                sm_ = []
+                for c in r['cond']:
+                    v_ = next((x[5] for x in r['io'] if x[4] == c.get('pt') and x[2] == (c['pos'] or '').split('-')[-1]), '') or ''
+                    mv_ = re.search(r'%s([A-Z]?X[A-Z]\d{2}[A-Z]?)' % re.escape(e['tag']), v_)
+                    if c.get('sig') and mv_ and c['sig'][len(e['tag']):] and mv_.group(1) != c['sig'][len(e['tag']):]:
+                        t_ = (c['pos'], c['num'], c['sig'][len(e['tag']):], mv_.group(1))
+                        if t_ not in sm_:
+                            sm_.append(t_)
+                if sm_:
+                    r['_sigmm'] = sm_                     # 第二輪（2 結尾）才決定要不要註記：同一種對法出現在 3 個以上設備＝兩份文件的編號慣例不同
+            if kks and not r.get('ctl') and r['io']:   # v17：燃機／汽機圖上只有 KKS 的框：控制器取核對到的點（G11、S1…）
+                r['ctl'] = Counter(x[0] for x in r['io']).most_common(1)[0][0]
+            if r.get('_cab') == {} and any(WP.ca_parts(c) for c in r['cond']):   # v17：盤的控制器不在索引（一號機 checkout 沒有 BOPCM1、DWTC2）
+                r['notes'].append(['這面盤（%s）的控制器 I/O 組態不在 signal-atlas 控制器索引（一號機 checkout 沒有這台控制器），盤端子無法與組態核對'
+                                   % (r['wire']['panel'] or r['wire']['panel_desc'])[:60], 'signal-atlas 控制器索引'])
             # 圖面與控制器組態對不上的芯：列成註記（不替任何一方選邊）
             for kind_, txt in (('other', '接線圖畫的盤端子，在控制器組態裡掛的是另一個 GE 編號：%s——可能是同一顆的不同編號，也可能是圖面與組態不一致（圖面筆誤或現場改過線），請以現場核對'),
+                               ('unit', '接線圖畫的盤端子，在控制器組態裡掛的是另一台機組的同一種設備（KKS 只差機組碼）：%s——可能是圖面或組態的機組碼寫錯，也可能現場改過線，請以現場核對'),
                                ('spare', '接線圖畫的盤端子，在控制器組態裡是沒有變數、沒有 DeviceTag 的備用點：%s——組態可能把這個訊號接在別的螺絲，請以現場核對'),
                                ('alias', '接線圖畫的盤端子，在控制器組態裡的名稱與圖上的編號寫法不同：%s——可能是同一顆的別名，也可能不是，沒有逐一查證')):
                 dts = []
                 for c in [c for c in r['cond'] if c.get('io') == kind_]:
-                    hs, _how = io_lookup(by_screw, r['unit'], c)
+                    hs, _how = lookup(r, c)
                     h = next((h for h in hs if h['pt'] == c.get('pt')), hs[0] if hs else None)
                     if h:
                         t_ = '%s %s（%s %s → %s）' % (' '.join(x for x in (c['pos'], c['board'], c['tb'], c['num']) if x), c['core'], h['pt'], h['var'] or '沒有變數',
@@ -2019,15 +2277,42 @@ def build(a, log):
                         if t_ not in dts:
                             dts.append(t_)
                 if dts:
-                    r['notes'].append([txt % '；'.join(dts), '接線圖 第 %d 頁；signal-atlas 控制器索引' % r['wire']['page']])
-            if any(c.get('io') in ('other', 'spare') for c in r['cond']):
-                where = io_where(r['unit'], e, r['kks'])
+                    r['notes'].append([(txt.replace('另一個 GE 編號', '另一個設備（KKS）').replace('可能是同一顆的不同編號，也可能是圖面與組態不一致（圖面筆誤或現場改過線）',
+                                                                                         '圖面與組態不一致（圖面筆誤、組態配錯，或現場改過線）') if kks else txt) % '；'.join(dts),
+                                       '接線圖 第 %d 頁；signal-atlas 控制器索引' % r['wire']['page']])
+            if any(c.get('io') in ('other', 'spare', 'unit') for c in r['cond']):
+                where = io_where(r.get('ctl') or r['unit'], e, r['kks'])
+                want_ = sorted({c['sig'][len(e['tag']):] for c in r['cond'] if kks and c.get('io') in ('other', 'spare', 'unit') and c.get('sig')} - {''})
+                if where and want_:      # v17：只列這幾條芯的訊號（變數名帶 KKS 的控制器才分得出）；這個設備別的訊號的點不算「接在別的螺絲」
+                    vs_ = [h_['var'] for _s, _k, h_ in where_idx.get(r.get('ctl') or r['unit'], ()) if e['tag'] in (h_['var'] or '').upper()]
+                    hit_ = [x_ for x_ in vs_ if any(e['tag'] + w_ in x_.upper() for w_ in want_)]
+                    if vs_ and not hit_:
+                        r['notes'].append(['控制器組態裡沒有這幾條芯的訊號（%s）的點；這個設備在組態裡的其他點：%s' % ('、'.join(e['tag'] + w_ for w_ in want_), '；'.join(where)),
+                                           'signal-atlas 控制器索引'])
+                        where = []
                 if where:
                     r['notes'].append(['控制器組態裡這個編號的點在：%s' % '；'.join(where), 'signal-atlas 控制器索引'])
             if any(c.get('how') == 'tbtc' for c in r['cond']):
                 tt = ['%s %s → STTC 螺絲 %s' % (c['pos'], c['num'], c['pin']) for c in r['cond'] if c.get('how') == 'tbtc']
                 r['notes'].append(['圖上寫 TBTC（每通道 2 顆螺絲的編法），控制器組態在這個板位是 STTC（每通道 3 顆，含屏蔽）：換算通道後是 %s。'
                                    '通道對得上、螺絲號不同，現場實際接在哪一顆請以盤內實物為準' % '、'.join(tt), '接線圖 第 %d 頁；signal-atlas 控制器索引' % r['wire']['page']])
+    if kks:   # v17：訊號編號圖／組態不同——同一種對法（圖 XB31 ↔ 組態 XB01，每一台斷路器都這樣）出現在 3 個以上設備的是編號慣例，不註記
+        pdev_ = defaultdict(set)
+        for k, plist in recs.items():
+            for r in plist:
+                for t_ in r.get('_sigmm') or ():
+                    pdev_[(t_[2], t_[3])].add(r['tag'])
+        conv_ = {pr_ for pr_, ds_ in pdev_.items() if len(ds_) >= 3}
+        st['sig_code_convention_pairs'] = len(conv_)
+        st['sig_code_convention_devices'] = len({d_ for pr_ in conv_ for d_ in pdev_[pr_]})
+        for k, plist in recs.items():
+            for r in plist:
+                sm_ = [t_ for t_ in r.pop('_sigmm', None) or () if (t_[2], t_[3]) not in conv_]
+                if sm_:
+                    st['sig_code_mismatch_paths'] += 1
+                    r['notes'].append(['接線圖這幾條芯所在訊號格的訊號編號，與控制器組態同一顆螺絲的變數不同（設備相同）：%s——可能只是兩份文件的訊號編號寫法不同，'
+                                       '也可能接到別的訊號，沒有逐一查證，請以現場核對' % '；'.join('%s %s：圖 %s、組態 %s' % t_ for t_ in sm_),
+                                       '接線圖 第 %d 頁；signal-atlas 控制器索引' % r['wire']['page']])
     # ---- 2b. 訊號型式與迴路供電（v16，wire_sig＋wire_curated.json 的 signal）：每個 Mark VIe 點照接線判（接了 P24V＋20mA＝兩線式…），
     #      ToolboxST 的跳線、選項欄位與接線不一致的另列一則註記（一條路徑一則），不替任何一方選邊
     sg_ = cura.get('signal') or {}
@@ -2072,6 +2357,45 @@ def build(a, log):
                     used_sheets[('jbloc', pno)] = 'loc'
                     st['jb_located'] += 1
                     break
+    # ---- 3a. v17 KKS 版：一號機儀器與接線箱位置圖（IIF01-D0001～D0008）的位置標籤（KKS 下一行是廠區座標）：接線箱、元件本身
+    loc_ix, inst_ix = {}, {}
+    if kks:
+        for kd_, _dn, _zh in WP.LOC_DOCS:
+            if kd_ in tx:
+                lab_, ins_ = WP.loc_labels(os.path.join(a.library, docs[kd_]['rel'].replace('/', os.sep)), tx[kd_])
+                for k_, hs_ in lab_.items():
+                    loc_ix.setdefault(k_, []).extend((kd_, h_) for h_ in hs_)
+                for k_, v_ in ins_.items():
+                    inst_ix.setdefault(k_, (kd_, v_))
+        for jk, v in jbs.items():
+            if jk in jb_where or not v['kks'] or v['kks'] not in loc_ix:
+                continue
+            kd_, hit = loc_ix[v['kks']][0]
+            pg = tx[kd_]['pg'][hit['page'] - 1]
+            R, _m = page_R(kd_, hit['page'])
+            marks = ([mark_of(pg, R, hit['sym'])] if hit['sym'] else []) + [mark_of(pg, R, hit['label'])]
+            jb_where[jk] = {'page': hit['page'], 'marks': marks, 'coords': hit['coords'], 'sym': 1 if hit['sym'] else 0, 'drawn': v['kks'], 'kind': kd_}
+            used_sheets[(kd_, hit['page'])] = 'loc'
+            st['jb_located'] += 1
+        for plist in recs.values():                 # 別台機組的設備接在這個接線箱（G12QJE11BW001 → G11QJE10UC151）：路徑的鍵是設備的機組
+            for r in plist:
+                jk2 = '%s|%s' % (r['unit'], r['wire']['jb'])
+                jk1 = '%s|%s' % (r['wire'].get('jb_kks', '')[:3], r['wire']['jb'])
+                if jk2 not in jb_where and jk1 in jb_where:
+                    jb_where[jk2] = jb_where[jk1]
+        for plist in recs.values():                 # 元件本身：平面上有自己的標籤，或儀器清單表寫它裝在哪個儀表架（GZ）、儀表架的標籤
+            for r in plist:
+                hs_ = loc_ix.get(r['tag'])
+                iv_ = inst_ix.get(r['tag'])
+                if not hs_ and iv_ and loc_ix.get(iv_[1]['rack']):
+                    kd_, h_ = loc_ix[iv_[1]['rack']][0]
+                    hs_ = [(kd_, dict(h_, rack=iv_[1]['rack'], lst=(iv_[0], iv_[1]['page'], [iv_[1]['tag_box'], iv_[1]['rack_box']])))]
+                if hs_:
+                    r['_devloc'] = hs_[0]
+                    used_sheets[(hs_[0][0], hs_[0][1]['page'])] = 'loc'
+                    if hs_[0][1].get('lst'):
+                        used_sheets[(hs_[0][1]['lst'][0], hs_[0][1]['lst'][1])] = 'loc'
+                    st['devloc'] += 1
     # ---- 3b. 燃機撬上 JB（GE 137T6223 p.11 位置表、p.12 等角圖）；每條幹線（直拉頁是那一條電纜）在電纜表的那一列：兩端的房間
     gtjb_where = {}
     if 'gtjb' in tx:
@@ -2139,11 +2463,14 @@ def build(a, log):
                 r['shield'] = sb_cache[pk_]
                 st['shield_bar'] += 1
             ks_ = sorted({m_.group(0) for m_ in re.finditer(r'[GS]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}[A-Z]?(?![A-Z0-9])', r['wire']['drawn'] or '')})
-            dup = sorted(c_ for c_, v_ in Counter(c['core'] for c in r['cond'] if c['core']).items() if v_ > 1)
+            dup = sorted(c_ for c_, v_ in Counter(c['core'] for c in r['cond'] if c['core'] and (not kks or re.search(r'-\d', c['core']))).items()
+                         if v_ > 1) if not (kks and r['wire'].get('trunks')) else []   # v17：不帶號的 'SH' 每對都一樣、分走幾條幹線的各自從 1 編
             if dup:   # 同一條電纜兩條芯標同一個芯色號（圖面筆誤）：盤側照上下順序對接（v15，迴路圖查核時看到 86WWX 的 BK-3）
                 st['dup_core'] += 1
                 r['notes'].append(['接線圖上這一條電纜有兩條芯都標 %s（圖面筆誤或漏改）；盤側照上下順序對接，請以現場芯線標示為準' % '、'.join(dup),
                                    '接線圖 第 %d 頁（文字層）' % r['wire']['page']])
+            if kks:
+                continue                                 # v17：KKS 版的元件就是照圖上的 KKS 認的，不另比對照表
             # 緊貼這個編號寫的 KKS（'TE-201V/ S10MAA11BT863'、'S10MAB10BT005C (TE-205C)'）優先；一格寫好幾顆時只認緊貼的那個
             tg_ = re.escape(r['tag'].lstrip('-'))
             kp_ = r'[GS]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}[A-Z]?(?![A-Z0-9])'
@@ -2179,9 +2506,10 @@ def build(a, log):
             if r['mode'] in ('direct', 'ff') or jk in jb_where or jk in gtjb_where or jk in jbdoc_where:
                 continue
             m = MCC_RE.search(r['wire']['jb'] + ' ' + (r['wire']['jb_desc'] or ''))
-            if not m:
+            m2 = MCC_EPC_RE.search(r['wire']['jb']) if kks and not m else None
+            if not m and not m2:
                 continue
-            lu, cub = m.group(1), m.group(2)
+            lu, cub = (m.group(1), m.group(2)) if m else (m2.group(1), m2.group(3))
             # 比對用的 KKS：這個元件的、接線圖說明格寫的；說明格點名的 GE 編號（'(88QA-1) Lube Oil Pump 1 Motor - Available (30QA1)' 的 88QA-1）也換成它的 KKS
             nm = names.get(ents[k_]['system'], {})
             par = {k2 for t_ in TOK_SPLIT.split(r['wire']['drawn'] or '') if t_ for k2 in nm.get(ge_cmp(t_), ()) if k2 != k_}
@@ -2336,38 +2664,96 @@ def build(a, log):
                                        % (gd['zh'], WE.DESC[grp][0].split('（')[0], '；'.join(miss[:4])), '%s；接線圖 第 %d 頁' % (WE.DESC[grp][0], w['page'])])
     cs = {u: cable_schedule(tx[ck]) for u, ck in (('S10', 'csst'), ('G11', 'csgt')) if ck in tx}
     cs['G12'] = cs.get('G11', {})
+    cs_epc = [(ck_, WP.cable_schedule(tx[ck_])) for ck_, _dn in WP.CS_DOCS if ck_ in tx] if kks else []   # v17：A1001／A1002／A1003
+    cs_x = WP.cable_xlsx(a.library, log) if kks else None   # v17：A1003 的 xlsx（rev 1 比 PDF 新）——PDF 上查無的電纜號再查它
+    cs_ck = {}
     cs_hit = {}
     for k, plist in recs.items():
         for r in plist:
             w = r['wire']
             cab = w['trunk'] or w['field_cable']
-            row = cs.get(r['unit'], {}).get(cab)
+            row, ck_ = cs.get(r['unit'], {}).get(cab), ('csst' if r['unit'] == 'S10' else 'csgt')
+            if r['doc'] in epc_kinds:                  # v17：HRSG／電氣 I&C／BOP 的電纜在 A1001／A1002／A1003（照順序找）
+                row, ck_ = next(((t_[cab], k_) for k_, t_ in cs_epc if cab in t_), (None, None))
             if row and row.get('del'):
                 r['notes'].append(['接線圖的電纜號 %s 在電纜表上是刪除線的列（修訂欄寫 #，已刪除）：兩份文件不一致，請以現場電纜標示為準' % cab,
                                    '接線圖 第 %d 頁；電纜表 第 %d 頁' % (w['page'], row['page'])])
             elif row:
                 cs_hit[(r['unit'], cab)] = row
-                used_sheets[('csst' if r['unit'] == 'S10' else 'csgt', row['page'])] = 'loc'
-                r['room'] = {k2: row.get(k2, '') for k2 in ('r1', 'r1d', 'd1', 'r2', 'r2d', 'd2', 'type', 'len')}
+                used_sheets[(ck_, row['page'])] = 'loc'
+                cs_ck[(r['unit'], cab)] = ck_
+                r['room'] = {k2: row.get(k2, '') for k2 in ('r1', 'r1d', 'd1', 'r2', 'r2d', 'd2', 'type', 'len') + (('d1d', 'd2d') if r['doc'] in epc_kinds else ())}
                 r['room']['cable'] = cab
+                if r['doc'] in epc_kinds and w['trunk']:   # v17：接線圖的接線箱（MCC 格）與電纜表這條幹線那一端寫的不同（D1001 p.203 A9_A2D ↔ A2_A2D）
+                    ends_ = [row.get('d1', ''), row.get('d2', '')]
+                    pre_ = cab.split('-W')[0].upper()
+                    chk_ = []
+                    if w['jb'] and end_toks(w['jb'])[0].startswith(pre_[:8]) and len(pre_) <= 13 and \
+                            (not w['jb_kks'] or w['trunk'].startswith(w['jb_kks'])):   # 幹線電纜號是這個接線箱／這一排的（不是就有「前綴是另一個 KKS」那句）
+                        chk_.append(('接線箱／MCC 格', w['jb']))
+                    elif w['jb'] and len(pre_) <= 13 and re.fullmatch(r'[A-Z]\d{2}[A-Z]{3}\d{2}[-_].+', w['jb'].strip().lstrip('=- ')) and \
+                            re.fullmatch(r'[A-Z]\d{2}[A-Z]{3}\d{2}', pre_[:8]) and not end_toks(w['jb'])[0].startswith(pre_[:8]) and \
+                            any(x_ and re.fullmatch(r'[A-Z]\d{2}[A-Z]{3}\d{2}[-_].+', x_.strip()) and end_toks(x_)[0] == pre_[:8] for x_ in ends_):
+                        chk_.append(('接線箱／MCC 格', w['jb']))   # 接線圖寫的排與幹線電纜號的排不同（D1003 p.577 C10BAC30_15_1、幹線 C10BCA30-WG-301、電纜表 C10BCA30_6_1）
+                    if w['panel'] and not any(x_ and x_.upper() in (w['panel_desc'] or '').upper() for x_ in ends_):
+                        chk_.append(('盤', w['panel']))
+                    for nm_, v_ in chk_:
+                        if re.fullmatch(r'[-=]?[A-Z0-9_()-]{8,}', v_) and not any(same_end(v_, x_) for x_ in ends_ if x_):
+                            r['notes'].append(['接線圖寫這條幹線的%s是 %s，電纜表 %s 那一列兩端寫 %s ↔ %s：兩份文件不一致，請以現場標示為準'
+                                               % (nm_, v_, cab, row.get('d1', ''), row.get('d2', '')), '接線圖 第 %d 頁；電纜表 第 %d 頁' % (w['page'], row['page'])])
+                        elif nm_ != '盤':
+                            x_ = next((x_ for x_ in ends_ if x_ and same_end(v_, x_) and end_toks(v_) != end_toks(x_) and len(end_toks(v_)[1]) == len(end_toks(x_)[1])), '')
+                            if x_:   # 'G12BKB30_A9_A2D' ↔ 'G12BKB30_A2_A2D'：格位相同，中間那一段（盤面配置圖那一格裡寫的單元標籤）不同
+                                r['notes'].append(['接線圖寫 MCC 格 %s，電纜表 %s 那一列寫 %s：格位（%s）相同，中間那一段寫法不同（只列出，沒有查證哪一份對）'
+                                                   % (v_, cab, x_, end_toks(v_)[1][-1]), '接線圖 第 %d 頁；電纜表 第 %d 頁' % (w['page'], row['page'])])
                 spec = w['trunk_spec'] if w['trunk'] else w['field_spec']
                 sig_ = lambda t: [(int(m_.group(1)), m_.group(2), int(m_.group(3))) for m_ in re.finditer(r'(\d+)([A-Z]{1,2})-(\d+)', t or '')]   # noqa: E731  '4T-18'＝'04T-18'
                 a_, b_ = sig_(spec), sig_(row.get('type'))
-                if a_ and b_ and a_[0] != b_[0]:
+                pkk_ = re.search(r'[A-Z]?\d{2}C[A-Z]{2}\d{2}UC\d{3,4}', '%s %s' % (w['panel'], w['panel_desc']))
+                mine_ = [x_ for x_ in (w['jb'], w.get('jb_kks', ''), r['tag'], pkk_.group(0) if pkk_ else w['panel']) if x_]
+                hit_ = lambda e_: any(same_end(x_, e_) or e_.startswith(x_) or x_.startswith(e_) or end_toks(x_)[0] == end_toks(e_)[0]   # noqa: E731
+                                      for x_ in mine_)
+                if r['doc'] in epc_kinds and cab.split('-W')[0] == r['tag'] and row.get('d1') and row.get('d2') and not (hit_(row['d1']) and hit_(row['d2'])) \
+                        and not any('這條幹線的' in n_[0] for n_ in r['notes']):
+                    # v17：元件自己的電纜，電纜表上另一端不是接線圖畫的那一端（D1003 p.289 G12LCB31QN002：重複的一頁把 -WG-002 印成 -WG-001）
+                    r['notes'].append(['接線圖的電纜號 %s 在電纜表上接的是 %s ↔ %s，接線圖畫的是 %s：兩份文件不一致（可能是電纜號寫錯，也可能是其中一份的另一端），請以現場電纜標示為準'
+                                       % (cab, row['d1'], row['d2'], ' ↔ '.join(x_ for x_ in (w['jb'] or r['tag'], w['panel']) if x_)),
+                                       '接線圖 第 %d 頁；電纜表 第 %d 頁' % (w['page'], row['page'])])
+                elif a_ and b_ and a_[0] != b_[0]:
                     r['notes'].append(['接線圖寫電纜 %s 是 %s，電纜表寫 %s：兩份文件的芯數／線規不一致，請以現場電纜標示為準' % (cab, spec, row['type']),
                                        '接線圖 第 %d 頁；電纜表 第 %d 頁' % (w['page'], row['page'])])
-            elif cab and cs.get(r['unit']):
+            elif cab and (cs.get(r['unit']) if r['doc'] not in epc_kinds else cs_epc):
                 pre = cab.split('-WG-')[0]
-                sib = sorted(c_ for c_, v_ in cs[r['unit']].items() if c_.startswith(pre + '-WG-') and not v_.get('del'))
-                if sib and pre not in w['panel']:              # 前綴是盤（G11CCJ01UC201）時「同一個設備的電纜」不成立
+                pool_ = cs[r['unit']] if r['doc'] not in epc_kinds else {c_: v_ for _k, t_ in cs_epc for c_, v_ in t_.items()}
+                sib = sorted(c_ for c_, v_ in pool_.items() if c_.startswith(pre + '-WG-') and not v_.get('del'))
+                xr_ = (cs_x['rows'].get(cab) if cs_x and r['doc'] in epc_kinds else None)
+                tp_ = (WP.cs_text_page(tx[ck_], cab) if kks and r['doc'] not in epc_kinds and ck_ in tx else None)
+                if xr_:                                        # v17：PDF（rev 0）沒有、較新的 xlsx 有——版次差，不是兩份文件不一致
+                    st['cs_xlsx_only'] += 1
+                    r['notes'].append(['接線圖的電纜號 %s 不在電纜表 PDF 上，但在文件庫較新的電纜表 xlsx（%s rev %s，%s）第 %s 列：%s ↔ %s、%s、%s m——電纜表 PDF 的版次較舊，'
+                                       '這條電纜的房間與長度請看 xlsx' % (cab, WP.CS_XLSX, cs_x['rev'], cs_x['date'], xr_['sr'] or '?', xr_['d1'] or '?', xr_['d2'] or '?',
+                                                                    xr_['type'] or '?', xr_['len'] or '?'),
+                                       '接線圖 第 %d 頁；電纜表 xlsx %s' % (w['page'], cs_x['rel'].rsplit('/', 1)[-1])])
+                elif tp_:                                      # v17：電纜表的文字裡有，但那一列沒有解析出來（A1005 p.7 最後一列在頁底被裁切）
+                    st['cs_text_only'] += 1
+                    r['notes'].append(['接線圖的電纜號 %s 在電纜表第 %d 頁的文字裡有，但那一列程式讀不到（例如在頁底被裁切），卡上沒有帶出房間與長度；'
+                                       '這不是兩份文件不一致' % (cab, tp_), '接線圖 第 %d 頁；電纜表 第 %d 頁' % (w['page'], tp_)])
+                elif sib and pre not in w['panel']:            # 前綴是盤（G11CCJ01UC201）時「同一個設備的電纜」不成立
                     r['notes'].append(['接線圖的電纜號 %s 在電纜表上查無；電纜表上同一個設備的電纜是 %s：兩份文件的電纜號不一致' % (cab, '、'.join(sib[:4])),
                                        '接線圖 第 %d 頁；電纜表' % w['page']])
+    for k, plist in recs.items():                 # v17：溫度兩段頁上段的補償導線（'…_TE-WG-001'）也查電纜表
+        for r in plist:
+            sn_ = r['wire'].get('sensor')
+            if sn_ and sn_.get('cable'):
+                row, ck_ = next(((t_[sn_['cable']], k_) for k_, t_ in cs_epc if sn_['cable'] in t_), (None, None))
+                if row:
+                    sn_['cs'] = dict({k2: row.get(k2, '') for k2 in ('type', 'len', 'r1d', 'r2d')}, page=row['page'], doc=docs[ck_]['rel'].rsplit('/', 1)[-1])
     # ---- 4. 電子室盤內：Mark VIe 板位（GE 盤面配置圖：汽機 M0213、燃機 137T7182AL）、Bently 3500 盤的 1TBVIB 端子與機架槽位
     cab_where = {}
     for k, plist in recs.items():
         for r in plist:
             ck = 'cab' if r['unit'] == 'S10' else 'cabgt'
-            if ck not in tx:
+            if ck not in tx or r.get('_cab') is not None:   # v17：HRSG／BOP 盤不是 GE 的控制盤
                 continue
             for c in r['cond']:
                 if c['board'] in MARKVIE_BOARDS + ('TBTC',) and c['pos'] and (ck, c['pos']) not in cab_where:
@@ -2484,13 +2870,13 @@ def build(a, log):
         s = L.slug(d['rel'], pno)
         slug[(kind, pno)] = s
         R, method = page_R(kind, pno)
-        sheets_out[s] = sheet_rec(d, tx[kind]['pg'][pno - 1], pno, tx[kind]['pages'], R, method, 'wire' if kind in ('wire', 'wiregt') else 'loc', 0)
+        sheets_out[s] = sheet_rec(d, tx[kind]['pg'][pno - 1], pno, tx[kind]['pages'], R, method, 'wire' if kind in ('wire', 'wiregt') or kind in epc_kinds else 'loc', 0)
     if len(set(slug.values())) != len(slug):
         sys.exit('slug 撞號（不同圖紙得到同一個鍵）')
     by_ge, paths_out = {}, {}
     tags_on = Counter()
     for k in sorted(recs):
-        plist = sorted(recs[k], key=lambda r: (SITE_UNITS.index(r['unit']), r['doc'] != 'wire', r['wire']['page'], r['wire'].get('sub', 0)))
+        plist = sorted(recs[k], key=lambda r: (uord(r['unit']), r['doc'] != 'wire', r['wire']['page'], r['wire'].get('sub', 0)))
         hits, outs = [], []
         for pi, r in enumerate(plist):
             hops = []
@@ -2498,10 +2884,23 @@ def build(a, log):
                 pgc = tx['conn']['pg'][cp - 1]
                 Rc, _m = page_R('conn', cp)
                 hops.append(['conn', slug[('conn', cp)], [mark_of(pgc, Rc, b) for p_, b in r['conn'] if p_ == cp], r['tag']])
+            dl_ = r.get('_devloc')
+            if dl_:                                    # v17：元件本身在一號機儀器位置圖（IIF01）上的位置標籤
+                pg_ = tx[dl_[0]]['pg'][dl_[1]['page'] - 1]
+                R_, _m = page_R(dl_[0], dl_[1]['page'])
+                mk_ = ([mark_of(pg_, R_, dl_[1]['sym'])] if dl_[1]['sym'] else []) + [mark_of(pg_, R_, dl_[1]['label'])]
+                ls_ = dl_[1].get('lst')                  # 經儀表架：儀器清單表那一列（儀器、儀表架兩格）
+                if ls_ and (ls_[0], ls_[1]) == (dl_[0], dl_[1]['page']):
+                    mk_ += [mark_of(pg_, R_, b_) for b_ in ls_[2]]
+                elif ls_:
+                    pgl_ = tx[ls_[0]]['pg'][ls_[1] - 1]
+                    Rl_, _m = page_R(ls_[0], ls_[1])
+                    hops.append(['devlist', slug[(ls_[0], ls_[1])], [mark_of(pgl_, Rl_, b_) for b_ in ls_[2]], r['tag']])
+                hops.append(['devloc', slug[(dl_[0], dl_[1]['page'])], mk_, dl_[1].get('rack') or r['tag']])
             hops.append(['wire', slug[(r['doc'], r['wire']['page'])], r['wire']['marks'], r['wire']['drawn']])
             jw = jb_where.get('%s|%s' % (r['unit'], r['wire']['jb']))
             if jw:
-                hops.append(['jbloc', slug[('jbloc', jw['page'])], jw['marks'], jw['drawn']])
+                hops.append(['jbloc', slug[(jw.get('kind', 'jbloc'), jw['page'])], jw['marks'], jw['drawn']])
             gw = gtjb_where.get('%s|%s' % (r['unit'], r['wire']['jb']))
             if gw:
                 for kk, kind_ in (('iso', 'gtjb'), ('table', 'gtjbt')):
@@ -2520,12 +2919,13 @@ def build(a, log):
                 hops.append(['epnl', slug[(dk, pp)], mk, drawn])
             csr = cs_hit.get((r['unit'], r['wire']['trunk'] or r['wire']['field_cable']))
             if csr:
-                ck = 'csst' if r['unit'] == 'S10' else 'csgt'
+                ck = cs_ck.get((r['unit'], r['wire']['trunk'] or r['wire']['field_cable']), 'csst' if r['unit'] == 'S10' else 'csgt')
                 pg_ = tx[ck]['pg'][csr['page'] - 1]
                 R_, _m = page_R(ck, csr['page'])
                 hops.append(['cs', slug[(ck, csr['page'])], [mark_of(pg_, R_, csr['box'])], r['wire']['trunk'] or r['wire']['field_cable']])
             ck = 'cab' if r['unit'] == 'S10' else 'cabgt'
-            pos = next((c['pos'] for c in r['cond'] if c['board'] in MARKVIE_BOARDS + ('TBTC',) and cab_where.get((ck, c['pos']))), None)
+            pos = next((c['pos'] for c in r['cond'] if c['board'] in MARKVIE_BOARDS + ('TBTC',) and cab_where.get((ck, c['pos']))), None) \
+                if r.get('_cab') is None else None
             if pos:
                 cw = cab_where[(ck, pos)]
                 hops.append(['cab', slug[(ck, cw['page'])], cw['marks'], cw['drawn']])
@@ -2541,11 +2941,17 @@ def build(a, log):
                 for m in marks:
                     hits.append({'sheet': s, 'x': m[0], 'y': m[1], 'w': m[2], 'h': m[3], 'label': drawn, 'rel': 'neutral', 'drawn_as': '', 'how': 'text',
                                  'form': 'text', 'note': 0, 'via': 'ge', 'units': [r['unit']], 'listed': 0, 'hop': kind, 'pi': pi})
-            out = {k2: v for k2, v in r.items() if k2 not in ('flags', '_terms')}
+            out = {k2: v for k2, v in r.items() if k2 != 'flags' and not k2.startswith('_')}
             out['flags'] = sorted(set(r['flags']))
             out['hops'] = [[kind, s] for kind, s, _m, _d in hops]
             if jw:
                 out['jbloc'] = {'coords': jw['coords'], 'sym': jw['sym']}
+                if jw.get('kind'):
+                    out['jbloc']['kind'] = jw['kind']
+            if dl_:
+                out['devloc'] = {'kind': dl_[0], 'coords': dl_[1]['coords'], 'sym': 1 if dl_[1]['sym'] else 0}
+                if dl_[1].get('rack'):
+                    out['devloc']['rack'] = dl_[1]['rack']
             if gw:
                 out['gtjb'] = {'name': jb_short_base(r['wire']['jb']), 'coords': gw['table'][2] if gw['table'] else '', 'iso': 1 if gw['iso'] else 0}
             if jd:
@@ -2588,7 +2994,7 @@ def build(a, log):
     docs_out = {k: ({k2: d[k2] for k2 in ('doc', 'rel', 'rev', 'title', 'alts') if k2 in d and d[k2] not in (None, '')} if d.get('rel') else {'why': d['why']})
                 for k, d in docs.items()}
     allp = [r for v in paths_out.values() for r in v]
-    stats = {'entries': len(ents), 'located': len(recs), 'paths': len(allp),
+    stats = {'entries': len(ents) if not kks else sum(1 for k_ in ents if k_.startswith('KKS|')), 'located': len(recs), 'paths': len(allp),
              'by_system': dict(sorted(Counter(ents[k]['system'] for k in recs).items())),
              'by_unit': dict(sorted(Counter(r['unit'] for r in allp).items())),
              'tsi_entries': sum(1 for e in ents.values() if e['tsi']), 'tsi_located': sum(1 for k in recs if ents[k]['tsi']),
@@ -2606,7 +3012,11 @@ def build(a, log):
              'flags': dict(sorted(Counter(f.split(':')[0] for r in allp for f in r['flags']).items())),
              'by_mode': dict(sorted(Counter(r['mode'] for r in allp).items())),
              'notes': sum(len(r['notes']) for r in allp)}
-    out = {'kind': 'wire_ge', 'generated_by': GENERATED_BY, 'version': VERSION, 'units': list(SITE_UNITS), 'docs': docs_out, 'sheets': sheets_out,
+    if kks:                                       # v17
+        stats.update({'by_doc': dict(sorted(Counter(r['doc'] for r in allp).items())), 'by_ctl': dict(sorted(Counter(r.get('ctl') or '' for r in allp).items())),
+                      'devloc_paths': sum(1 for r in allp if r.get('devloc')), 'room_paths': sum(1 for r in allp if r.get('room'))})
+    out = {'kind': 'wire_kks' if kks else 'wire_ge', 'generated_by': GENERATED_BY, 'version': VERSION,
+           'units': list(SITE_UNITS) if not kks else sorted({r['unit'] for r in allp}, key=uord), 'docs': docs_out, 'sheets': sheets_out,
            'by_ge': by_ge, 'paths': paths_out, 'jbs': jbs_out, 'ff': ff_out, 'stats': stats}
     log('耗時 %.1f 秒' % (time.time() - t0))
     return out

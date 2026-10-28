@@ -324,6 +324,9 @@
             if (G && !G.ready()) { vx = true; G.load(); } // 下載中、慢、失敗：還不知道 GE 有沒有這個編號，不把模糊對應寫進網址
             else if (G && G.G && G.hit(t)) vx = true;
             else if (G && G.G && rs.how === 'suggest' && G.suggest(t, 12).some((x) => x.m === 'pre' && !IX.compactMap.has(IX.compact(x.key)))) vx = true;
+            const KK = AMS.kkstag;   // v17：接線圖上只有 KKS 的元件（KKS 編號卡）也優先於模糊對應
+            if (!vx && KK && !KK.ready()) { vx = true; KK.load(); }
+            else if (!vx && KK && KK.K && (KK.hit(t) || ((rs.how === 'suggest' || rs.how === 'contain') && KK.suggest(t, 12).some((x) => !IX.compactMap.has(IX.compact(x.key)))))) vx = true;
             if (!vx && !numc) {
               // 清單有命中、或有「開頭相符」的候選：保留原字串，由查詢卡 lookup() 決定（開 AMS 設備、閥卡，或列兩邊候選）
               try { const V = await AMS.valves.load(); vx = !!AMS.valves.hit(V, t, AMS.valves.amsLen(rs)) || AMS.valves.suggest(V, t, 12).some((x) => x.m === 'pre'); } catch (e) { /* 規格載入失敗 → 照舊 */ }

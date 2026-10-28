@@ -353,6 +353,17 @@ def extract_tags(s, tagset, unit_prefixes):
 
 
 # ---------------------------------------------------------------- AMS 位號集合
+def tags_from_file(path):
+    """v17：--tags-file 的位號清單 → {位號: ''}（協定欄留空）。接受 JSON 清單，或 wire_kks.json（paths 的鍵 'KKS|<KKS>'；AMS 現行位號另有自己的索引，
+    這裡由呼叫端決定要不要排除——rebuild 給的是「KKS 編號卡」那一批，AMS 沒有的 KKS）。"""
+    import json as _json
+    with open(path, encoding='utf-8') as f:
+        j = _json.load(f)
+    if isinstance(j, dict):
+        j = j.get('tags') or [k.split('|', 1)[1] for k in (j.get('paths') or {}) if k.startswith('KKS|')]
+    return {str(t).strip().upper(): '' for t in j if str(t).strip()}
+
+
 def load_ams(sqlite_path):
     """現行 AMS 位號 → 協定（HART／FF）。BlockAsgms.EventIdDayOut=49710、Blocks.BlockIndex=0。"""
     con = sqlite3.connect('file:%s?mode=ro' % sqlite_path.replace('\\', '/'), uri=True)
@@ -612,6 +623,7 @@ def main():
                     help='不掃子目錄的元件面板／函式庫 .cim（省約 20 秒，但 stats.excluded_scan 會是 null，'
                          '卡片與 CONTRACT 的「另 N 個子目錄檔也掃過、命中者皆已由根目錄涵蓋」就沒有證據）')
     ap.add_argument('--out', default=paths.HMI_JSON, help='輸出 hmi.json（預設 paths.HMI_JSON）')
+    ap.add_argument('--tags-file', default=None, help='v17：改用這份位號清單（JSON 清單或 wire_kks.json）代替 AMS 現行位號——KKS 編號卡的圖控位置；配 --out 寫到別的檔')
     ap.add_argument('--verify', metavar='FILE.cim', help='另印該畫面的物件／位號／座標明細')
     a = ap.parse_args()
 
@@ -621,7 +633,7 @@ def main():
     files = sorted(f for f in os.listdir(screens_dir) if f.lower().endswith('.cim'))
     sub = sum(len([f for f in fs if f.lower().endswith('.cim')]) for _, _, fs in os.walk(screens_dir)) - len(files)
 
-    tags_all = load_ams(a.sqlite)
+    tags_all = tags_from_file(a.tags_file) if a.tags_file else load_ams(a.sqlite)   # v17：KKS 編號卡另跑一份（--tags-file）
     tagset = set(tags_all)
     non_jk = {t for t in tagset if not t.startswith('JK')}
     print('AMS 現行位號 %d（JK* %d，母數 %d；HART %d／FF %d）' % (

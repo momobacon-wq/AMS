@@ -100,6 +100,9 @@ PID_DEFAULT = paths.PID_JSON          # <CARDWORK>\pid.json（tools/db/pid_index
 PID_SHOTS_DEFAULT = paths.PID_SHOTS   # <CARDWORK>\pid_shots（tools/db/pid_shots.py：<slug>.webp＋index.json）
 PID_GE_DEFAULT = os.path.join(os.path.dirname(paths.PID_JSON), 'pid_ge.json')   # tools/db/pid_ge.py：GE 原廠編號 → 圖紙與圖上座標（v10）
 LOC_GE_DEFAULT = os.path.join(os.path.dirname(paths.PID_JSON), 'loc_ge.json')   # tools/db/loc_ge.py：GE 原廠編號 → 位置圖（配置／電纜槽／外型圖）與圖上座標（v12）
+PID_KKS_DEFAULT = os.path.join(paths.CARDWORK, 'pid_kks.json')   # pid_index.py --tags-file：KKS 編號卡的 P&ID 圖面位置（v17）
+HMI_KKS_DEFAULT = os.path.join(paths.CARDWORK, 'hmi_kks.json')   # hmi_index.py --tags-file：KKS 編號卡的圖控畫面位置（v17）
+WIRE_KKS_DEFAULT = os.path.join(paths.CARDWORK, 'wire_kks.json')   # tools/db/wire_kks.py：只有 KKS 的元件的接線路徑（HRSG／電氣 I&C／BOP 接線圖，v17）
 WIRE_GE_DEFAULT = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py：汽機 TSI 的接線路徑（接線圖端子、接線箱位置、盤內板位、3500 盤，v13）
 HMI_GE_DEFAULT = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py：GE 原廠編號 → 圖控畫面與座標
 DOC_CAT_ORDER = ['P&ID', 'Hook-up', '規格表', '就地錶規格', '接線圖', '電纜表', '保護箱', '位置圖', '邏輯圖', 'GT I/O 清單']
@@ -927,7 +930,7 @@ HMI_MULTI_RE = re.compile(r'([A-Za-z0-9_\-]*[A-Za-z0-9])((?:\\\d+)+)')   # 多�
 HMI_CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫'   # 同一張畫面上多個標記的編號（card.js 的 .hmi-mk 用同一組字）
 
 
-def load_hmi(path, shots_dir, nav_path, ge_path=None):
+def load_hmi(path, shots_dir, nav_path, ge_path=None, kks_path=None):
     """tools/db/hmi_index.py 的輸出（位號→畫面與座標）＋ tools/db/hmi_shots.py 的縮圖目錄＋ hmi_nav.py 的逐列選單路徑。
     沒有 hmi.json 就回 None（此來源整段略過）。縮圖目錄缺席時只有畫面名稱與路徑、沒有影像。
     ge_path＝tools/db/hmi_ge.py 的輸出（GE 原廠編號的圖控位置，v10）：有就放進 `_ge`（{條目鍵: [命中…]}），給 GE 編號卡用；
@@ -954,6 +957,13 @@ def load_hmi(path, shots_dir, nav_path, ge_path=None):
         if bad:
             raise SystemExit('hmi_ge.json 引用了 hmi.json 沒有的畫面 %s——兩支產生器讀的不是同一批畫面檔，先重跑 hmi_index.py 與 hmi_ge.py' % bad[:5])
         j['_ge'], j['_ge_stats'] = g['by_ge'], g.get('stats') or {}
+    j['_hk'] = None
+    if kks_path and os.path.exists(kks_path):   # v17：KKS 編號卡的圖控位置（hmi_index.py --tags-file；hmi.json 的格式）
+        g = load(kks_path)
+        bad = sorted({h.get('screen') for v in (g.get('by_tag') or {}).values() for h in v if h.get('screen') not in j['screens']})
+        if bad:
+            raise SystemExit('hmi_kks.json 引用了 hmi.json 沒有的畫面 %s——兩次 hmi_index 讀的不是同一批畫面檔，兩份都重跑' % bad[:5])
+        j['_hk'] = g.get('by_tag') or {}
     return j
 
 
@@ -1118,7 +1128,7 @@ def hmi_apply(sec, hm, tag):
         sec['hmi'] = {'rows': rows}
 
 
-def hmi_write_images(outdir, out, hm, stats, ge_used=None):
+def hmi_write_images(outdir, out, hm, stats, ge_used=None, kk_used=None):
     """收集 out 裡 sec.hmi 真的用到的畫面 → 寫 card/hmi/<slug>[__<選單機組>].json（{w,h,mime,b64}，走既有 *.json 加密路徑），
     回傳 index.hmi（畫面中繼資料＋檔案清單）。先整個清掉 card/hmi/ 才寫，避免掉出覆蓋範圍的畫面留下孤兒密文。
 
@@ -1152,6 +1162,10 @@ def hmi_write_images(outdir, out, hm, stats, ge_used=None):
         u = used.setdefault(key, {'rows': 0, 'units': set()})
         u['ge'] = g['rows']
         u['units'] |= set(g['units'])
+    for key, g in sorted((kk_used or {}).items()):   # v17：KKS 編號卡用到的畫面
+        u = used.setdefault(key, {'rows': 0, 'units': set()})
+        u['kk'] = g['rows']
+        u['units'] |= set(g['units'])
     screens, files, total, nrt = {}, [], 0, 0
     if used:
         os.makedirs(hdir, exist_ok=True)
@@ -1172,6 +1186,8 @@ def hmi_write_images(outdir, out, hm, stats, ge_used=None):
         meta = {'title': name, 'en': en, 'nav': nv.get('nav') or sc.get('nav') or [], 'img': False, 'rows': used[key]['rows']}
         if used[key].get('ge'):
             meta['ge'] = used[key]['ge']   # GE 編號卡用到這張畫面的列數（v10）
+        if used[key].get('kk'):
+            meta['kk'] = used[key]['kk']   # KKS 編號卡用到這張畫面的列數（v17）
         if zh:
             meta['zh'] = zh
         if cap:
@@ -1503,7 +1519,7 @@ def pid_src_key(src):
         return None
 
 
-def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None):
+def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None, kks_path=None, pkks_path=None):
     """tools/db/pid_index.py 的輸出（位號→圖紙與圖上座標）＋ tools/db/pid_shots.py 的圖紙影像目錄。
     沒有 pid.json 回 None；pid_shots/index.json 缺席時 `_shots` 是 None——兩者都由 main 的缺檔清單擋下來（非 0 結束、資料目錄沒被動過）。
     **不照抄 hmi 的靜默降級**（hmi_shots 目錄不見時會發布 0 張圖，而每一列還寫著 img:true）。其餘不一致在 pid_check 一次查完。
@@ -1512,7 +1528,8 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None):
     AMS 設備的 sec.pid 不受影響（pid_rows 只讀 by_tag）。
     loc_path＝tools/db/loc_ge.py 的輸出（GE 編號在位置圖上的位置，v12）：同樣的併法，by_ge 放進 `_lg`、它的圖紙記進 `_loc`（pid_doc_keys 的說明文字不同），
     docs＝位置圖文件號 → 文件庫裡的那一份檔（或找不到的原因）放進 `_lg_docs`。
-    wire_path＝tools/db/wire_ge.py 的輸出（GE 編號的接線路徑，v13 汽機 TSI、v14 一號機全部）：by_ge（框）放進 `_wg`、圖紙記進 `_wire`、paths／jbs 放進 `_wg_paths`／`_wg_jbs`。"""
+    wire_path＝tools/db/wire_ge.py 的輸出（GE 編號的接線路徑，v13 汽機 TSI、v14 一號機全部）：by_ge（框）放進 `_wg`、圖紙記進 `_wire`、paths／jbs 放進 `_wg_paths`／`_wg_jbs`。
+    kks_path＝tools/db/wire_kks.py 的輸出（只有 KKS 的元件的接線路徑，v17；格式同 wire_ge.json）：`_wk`、`_wk_paths`、`_wk_jbs`，圖紙一樣記進 `_wire`。"""
     if not path or not os.path.exists(path):
         return None
     j = load(path)
@@ -1524,7 +1541,23 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None):
     j['_applied'] = set()   # pid_apply 用過的 by_tag 鍵（沒用到的＝pid.json 有、現行設備總表沒有的位號）
     j['_ge'], j['_ge_only'], j['_lg'], j['_loc'], j['_lg_docs'] = None, set(), None, set(), {}
     j['_wg'], j['_wire'], j['_wg_paths'], j['_wg_jbs'] = None, set(), {}, {}
-    for kind, gp, fn in (('pid_ge', ge_path, 'pid_ge.json'), ('loc_ge', loc_path, 'loc_ge.json'), ('wire_ge', wire_path, 'wire_ge.json')):
+    j['_wk'], j['_wk_paths'], j['_wk_jbs'], j['_pk'] = None, {}, {}, None
+    if pkks_path and os.path.exists(pkks_path):   # v17：KKS 編號卡的 P&ID 位置（pid_index.py --tags-file；pid.json 的格式）
+        g = load(pkks_path)
+        if not isinstance(g.get('by_tag'), dict) or not isinstance(g.get('sheets'), dict):
+            raise SystemExit('pid_kks.json 格式不對（缺 by_tag／sheets）：' + pkks_path)
+        for s in sorted({e.get('sheet') for v in g['by_tag'].values() for e in v}):
+            gs = g['sheets'].get(s)
+            if gs is None:
+                raise SystemExit('pid_kks.json 的 by_tag 引用了 sheets 裡沒有的圖紙 %s' % s)
+            if s in j['sheets'] and [k for k in ('rel', 'page', 'rot', 'src') if j['sheets'][s].get(k) != gs.get(k)]:
+                raise SystemExit('pid_kks.json 與 pid.json 的同一張圖紙 %s 記錄不同：先重跑 pid_index.py（兩份）與 pid_shots.py' % s)
+            if s not in j['sheets']:
+                j['sheets'][s] = gs
+                j['_ge_only'].add(s)
+        j['_pk'] = g['by_tag']
+    for kind, gp, fn in (('pid_ge', ge_path, 'pid_ge.json'), ('loc_ge', loc_path, 'loc_ge.json'), ('wire_ge', wire_path, 'wire_ge.json'),
+                         ('wire_kks', kks_path, 'wire_kks.json')):
         if not gp or not os.path.exists(gp):
             continue
         g = load(gp)
@@ -1544,14 +1577,16 @@ def load_pid(path, shots_dir, ge_path=None, loc_path=None, wire_path=None):
                 j['_ge_only'].add(s)
             if kind == 'loc_ge':
                 j['_loc'].add(s)
-            elif kind == 'wire_ge':
+            elif kind in ('wire_ge', 'wire_kks'):
                 j['_wire'].add(s)
         if kind == 'pid_ge':
             j['_ge'], j['_ge_stats'] = g['by_ge'], g.get('stats') or {}
         elif kind == 'loc_ge':
             j['_lg'], j['_lg_stats'], j['_lg_docs'] = g['by_ge'], g.get('stats') or {}, g.get('docs') or {}
-        else:
+        elif kind == 'wire_ge':
             j['_wg'], j['_wg_stats'], j['_wg_paths'], j['_wg_jbs'] = g['by_ge'], g.get('stats') or {}, g.get('paths') or {}, g.get('jbs') or {}
+        else:
+            j['_wk'], j['_wk_stats'], j['_wk_paths'], j['_wk_jbs'] = g['by_ge'], g.get('stats') or {}, g.get('paths') or {}, g.get('jbs') or {}
     if j['_shots'] is not None:
         pid_check(j, path)
         pid_odd_labels(j)
@@ -1637,7 +1672,15 @@ def pid_check(pm, path):
                 bad.append('位號 %s @ %s：座標不是圖內的 0~1 比例（x／y／w／h＝%s／%s／%s／%s）' % (tag, s, e.get('x'), e.get('y'), e.get('w'), e.get('h')))
     bad += pid_shared_boxes(pm['by_tag'])
     # GE 原廠編號（v10：P&ID；v12：位置圖）：同樣的檢查，但共用框是常態（閥本體／定位器／電磁閥共用 KKS），不查 pid_shared_boxes
-    for key, ents in [kv for src in ('_ge', '_lg', '_wg') for kv in (pm.get(src) or {}).items()]:
+    for tag, ents in (pm.get('_pk') or {}).items():   # v17：KKS 編號卡的 P&ID 位置（pid.json 格式；共用框照 GE 的規矩不查）
+        for e in ents:
+            s = e.get('sheet')
+            if s not in sheets:
+                bad.append('KKS %s 引用了 sheets 裡沒有的圖紙 %s' % (tag, s)); continue
+            used.setdefault(s, tag)
+            if e.get('rel') not in PID_RELS or e.get('how') not in ('text', 'ocr'):
+                bad.append('KKS %s @ %s：rel／how 不認得（%s／%s）' % (tag, s, e.get('rel'), e.get('how')))
+    for key, ents in [kv for src in ('_ge', '_lg', '_wg', '_wk') for kv in (pm.get(src) or {}).items()]:
         for e in ents if isinstance(ents, list) else [{}]:
             s = e.get('sheet')
             if s not in sheets:
@@ -2053,14 +2096,15 @@ def pid_blob(path, w, h):
     return dumps({'w': w, 'h': h, 'mime': 'image/webp', 'b64': base64.b64encode(open(path, 'rb').read()).decode('ascii')}).encode('utf-8')
 
 
-def pid_collect(out, pm, stats, ge_used=None):
+def pid_collect(out, pm, stats, ge_used=None, kk_used=None):
     """收集 out 裡 sec.pid 真的用到的圖紙 → (index.pid, {card/pid/<slug>.json: 內容位元組})。**這裡不寫任何檔**：影像內容先留在記憶體
     （全部約十幾 MB），等 write_output 把分塊與 index 都序列化、自檢過了，才由 pid_write_images 一次清掉舊的 card/pid/ 寫新的
     （2026-10-10 稽核：原本在自檢之前就清空重寫 card/pid/，中途失敗會留下「新影像＋舊 index／舊分塊」）。
     每張圖紙一檔，畫在上面的所有位號共用（標記不燒進影像）。load_pid 已確認每張被引用的圖紙都有影像，所以這裡沒有「沒有影像」的分支。
     no_url 要等 add_drive_urls 之後才知道，由 pid_link_stats 補。
     ge_used＝GE 編號卡（card/getag.json 的 pd 列）用到的 {圖紙鍵: 條目數}（ge_loc_build）：影像一起發布、與 AMS 設備共用同一個檔；
-    sheets[].rows 仍只算 AMS 設備（GE 另記 ge），stats 的 images／docs 只算 AMS 設備用到的，GE 另記 ge_*（pid_doc 那句話的數字不變）。"""
+    sheets[].rows 仍只算 AMS 設備（GE 另記 ge），stats 的 images／docs 只算 AMS 設備用到的，GE 另記 ge_*（pid_doc 那句話的數字不變）。
+    kk_used＝只有 KKS 的元件的接線路徑（v17，AMS 設備卡的接線路徑塊與 KKS 編號卡）用到的 {圖紙鍵: 路徑數}：一樣發布，記 sheets[].kk、stats.kk_*。"""
     used, ndev, nref = {}, 0, 0
     for al, o in out.items():
         firsts = [r[4] for r in ((o.get('sec') or {}).get('pid') or {}).get('rows') or [] if len(r) > 4 and isinstance(r[4], dict) and r[4].get('s') and 'marks' in r[4]]
@@ -2069,9 +2113,9 @@ def pid_collect(out, pm, stats, ge_used=None):
             nref += 1 if all(f.get('note') for f in firsts) else 0   # 每張圖上都只有引用（註記／旗標／用氣點／迴路詳圖），沒有任何儀器符號
         for s in {f['s'] for f in firsts}:
             used[s] = used.get(s, 0) + 1
-    ge_used = ge_used or {}
+    ge_used, kk_used = ge_used or {}, kk_used or {}
     sheets, blobs, total = {}, {}, 0
-    for s in sorted(set(used) | set(ge_used)):
+    for s in sorted(set(used) | set(ge_used) | set(kk_used)):
         sh, shot = pm['sheets'][s], pm['_shots'][s]
         rel = 'card/pid/%s.json' % s
         blobs[rel] = pid_blob(os.path.join(pm['_shots_dir'], shot['file']), shot['w'], shot['h'])
@@ -2081,6 +2125,8 @@ def pid_collect(out, pm, stats, ge_used=None):
                      'bytes': n, 'rows': used.get(s, 0), 'ocr': bool(sh.get('ocr'))}
         if ge_used.get(s):
             sheets[s]['ge'] = ge_used[s]   # GE 編號卡有幾個條目畫在這張圖紙上（v10）
+        if kk_used.get(s):
+            sheets[s]['kk'] = kk_used[s]   # 只有 KKS 的元件的接線路徑有幾條用到這張圖紙（v17）
         if s in (pm.get('_loc') or ()):
             sheets[s]['loc'] = 1           # 位置圖（v12，loc_ge.py）：不是 P&ID
         if s in (pm.get('_wire') or ()):
@@ -2100,6 +2146,8 @@ def pid_collect(out, pm, stats, ge_used=None):
             st.update(ld_sheets=len(loc), ld_docs=len({sheets[s]['d'] for s in loc}))
         if wire:
             st.update(wp_sheets=len(wire), wp_docs=len({sheets[s]['d'] for s in wire}))
+    if kk_used:
+        st.update(kk_sheets=len(kk_used), kk_only_sheets=len(set(kk_used) - set(used) - set(ge_used)), kk_docs=len({sheets[s]['d'] for s in kk_used}))
     ix = {'sheets': sheets, 'files': sorted(blobs), 'bytes': total,
           'note': ('圖紙影像＝文件庫裡這份 P&ID 現行最高版次 PDF 的那一頁，轉正後的整張圖（灰階 WebP；每張圖紙一檔，畫在上面的位號共用）。'
                    '影像只供定位，不是正本：內容以雲端硬碟的 PDF 為準（sheets[].d → docs 的 url；drive_map 沒有那一份檔時沒有 url，stats.no_url 計數）。'
@@ -2426,11 +2474,11 @@ def ge_ld_rows(pm, ents, scope, kks=()):
     return rows
 
 
-GE_WIRE_HOP = {'conn': 'GE 接線表（元件 → 撬上接線箱）', 'wire': '接線圖', 'jbloc': '接線箱位置', 'gtjb': '撬上接線箱位置（GE 外形等角圖）',
+GE_WIRE_HOP = {'conn': 'GE 接線表（元件 → 撬上接線箱）', 'wire': '接線圖', 'jbloc': '接線箱位置', 'devloc': '元件位置（一號機儀器位置圖）', 'devlist': '儀器清單（位置圖上的表）', 'gtjb': '撬上接線箱位置（GE 外形等角圖）',
                'gtjbt': '撬上接線箱座標（GE 外形圖的 JB 表）', 'jbdoc': '接線箱所在的設備圖', 'mcc': '電氣盤格位（GE EP24 盤面配置圖）', 'cs': '電纜表',
                'cab': '盤內板位', 'vms': '3500 盤端子', 'rack': '3500 機架槽位', 'bnw': '3500 接線表（Bently 盤圖）',
                'epnl': '電氣盤端子排（設備配置圖）'}
-GE_WIRE_REL = {'conn': 'neutral', 'wire': 'exact', 'jbloc': 'exact', 'gtjb': 'neutral', 'gtjbt': 'neutral', 'jbdoc': 'neutral', 'mcc': 'exact', 'cs': 'exact',
+GE_WIRE_REL = {'conn': 'neutral', 'wire': 'exact', 'jbloc': 'exact', 'devloc': 'exact', 'devlist': 'exact', 'gtjb': 'neutral', 'gtjbt': 'neutral', 'jbdoc': 'neutral', 'mcc': 'exact', 'cs': 'exact',
                'cab': 'neutral', 'vms': 'neutral', 'rack': 'neutral', 'bnw': 'neutral', 'epnl': 'neutral'}   # 一號機專屬的圖（接線圖、JB 位置圖、電纜表、各機組一份的 MCC／PC 盤面配置）＝就是本台；
 #                                                                           GE 的表與控制盤盤面配置、Bently 盤圖各機組共用一份
 GE_WIRE_MCC_RE = re.compile(r'[GS]\d{2}B[FGK][AB]\d0[_-](NP\d-\d|A\d{1,2}[A-H]|\d{1,2}[A-F])\b')   # 480 V MCC／PC 的格位（同 wire_ge.MCC_RE；'S10BGB10-A2A' 用連字號）
@@ -2454,7 +2502,8 @@ GE_WIRE_MODE = {'coax': '近接探頭：同軸延長線接到接線箱裡的前�
                 'direct': '電纜從現場直拉到盤，中間沒有接線箱',
                 'ff': 'Foundation Fieldbus：元件 → 段保護器的埠 → 段幹線（好幾顆元件共用）→ 電子室盤的 FF 電源調節器 → 控制器的 FF 變數'}
 GE_WIRE_OK = ('same', 'logic', 'equip', 'loc', 'suffix')
-GE_WIRE_MV = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TBTC', 'TCDM', 'SPID')   # Mark VIe 端子板（wire_ge.MARKVIE_BOARDS＋圖上的 TBTC）
+GE_WIRE_MV = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TBTC', 'TCDM', 'SPID',
+              'STCI', 'SRLY')   # Mark VIe 端子板（wire_ge.MARKVIE_BOARDS＋圖上的 TBTC）
 
 
 def ge_wire_join(xs):
@@ -2466,11 +2515,16 @@ def ge_wire_join(xs):
     return '／'.join(out)
 
 
-def ge_wire_room(desc, panel_kks):
-    """接線圖盤欄的說明 'S10CCM01UC201 ST TCP ST ELECTRONIC EQUIPMENT BUILDING EER ( E-402)'、'G11CCJ01UC201 GT TCP GT ELECTRICAL BUILDING(E-305)' → (盤名, 房間)。"""
+def ge_wire_room(desc, panel_kks, kks=False):
+    """接線圖盤欄的說明 'S10CCM01UC201 ST TCP ST ELECTRONIC EQUIPMENT BUILDING EER ( E-402)'、'G11CCJ01UC201 GT TCP GT ELECTRICAL BUILDING(E-305)' → (盤名, 房間)。
+    kks（v17，HRSG／BOP 接線圖）：'G11CCH01UC201 H11_CONTRL Unit 1 ELECTRICAL ANNEX BUILDING EER'、'C10CCF01UC006 BOPE1_CNTRL U1 GT Elec Bldg EER.'、
+    'C00CCG01UC004 DWTC2_RIO DEMIN BLDG EER'——房間從 'Unit 1'／'U1'／'UNIT1'／'ST Elec'／'DEMIN BLDG'／'MCB BLDG' 起。"""
     d = re.sub(r'\s+', ' ', desc or '').strip()
     if panel_kks and d.startswith(panel_kks):
         d = d[len(panel_kks):].strip()
+    if kks:
+        m = re.search(r'\b((?:Unit\s*1|UNIT\s*1|U1)\b.*|(?:ST|GT)\s+Ele[a-z]*\b.*|(?:DEMIN|MCB)\s+BLDG.*|Main Control Building.*)$', d, re.I)
+        return (d[:m.start()].strip() if m else d), (m.group(1).strip() if m else '')
     m = re.search(r'\b((?:GT|ST)\s+(?:ELECTRONIC|ELECTRICAL)\b.*|MAIN\s+CONTROL\s+BUILD.*|(?:GT|ST)\s+(?:HALL|OUTDOOR)\b.*)$', d)
     room = re.sub(r'\(\s*', '(', re.sub(r'\s*\)', ')', m.group(1))).strip() if m else ''
     room = re.sub(r'\(E-\s*(\d+)\)+', r'(E-\1)', room).replace('BUILDIG', 'BUILDIG〔原文〕')
@@ -2478,6 +2532,7 @@ def ge_wire_room(desc, panel_kks):
     return name, room
 
 
+KK_PANEL_RE = re.compile(r'\b[CGSQ]\d{2}B[A-Z]{2}\d{2}(?![A-Z]{2}\d)|\b[CGS]\d{2}MS[A-Z]\d{2}\b|SWITCHGEAR|SWGR|\bMCC\b|POWER CENTER|\bMV-|STARTER|CUBICLE')   # v17：KKS 版的「接線箱」欄是電氣設備（MCC、中壓開關盤、變壓器）；廠商撬上的 UC 箱、就地盤照接線箱寫
 GE_WIRE_PANEL_RE = re.compile(r'\b[GSC]\d{2}(?:B[FGHJK][AB]\d{2}|MKY|CCS|CCD|CBJ|MSC|MBJ10UC|MKC10QA)|C\d0B[BC]T10|MCC|POWER CENTER|STARTER|CUBICLE|CONSOLE|PANEL|\bGPP\b|\bMSP\b|\bGCB\b|\bUAT\b')   # 電氣盤／設備（名稱 JB 開頭的不算）
 
 
@@ -2558,7 +2613,7 @@ def ge_wire_jb_room(r, w):
     return ge_wire_rooms(r, w)[0]
 
 
-def ge_wire_loop(r, w, pk, pname, room, where, jls):
+def ge_wire_loop(r, w, pk, pname, room, where, jls, kks=False):
     """迴路圖（v15，card.js fillLoop 畫成 ISA-5.4 式單線圖）要的分開欄位：sum 是給人讀的句子，迴路圖要一格一格的值（空的不輸出）——
     kk＝本台 KKS；ds＝接線圖上的說明；fc／fs＝現場電纜與規格；jb／jd／jt／px＝接線箱、說明、端子排、前置器；jl＝接線箱位置（短句）；
     tc／ts／tl＝幹線、規格、長度 m（電纜表）；rf／rp＝電纜表上接線箱（或現場）那一端、盤那一端的房間；pk／pn／pr＝盤 KKS、盤名、盤所在房間；
@@ -2569,7 +2624,7 @@ def ge_wire_loop(r, w, pk, pname, room, where, jls):
     bx＝3500 並聯分支 [種類, 機架, 槽, 通道, 模組, 接頭, 另一種讀法, 等級]；sg＝訊號型式與供電 [[點, 訊號, 供電, 等級]…]。"""
     rf, rp = ge_wire_rooms(r, w)
     rm = r.get('room') or {}
-    d = {'kk': r.get('kks') or '', 'ds': ' / '.join(dict.fromkeys((w.get('drawn') or '').split(' / ')))[:160], 'fc': w['field_cable'], 'fs': w['field_spec'],
+    d = {'kk': '' if kks else (r.get('kks') or ''), 'ds': ' / '.join(dict.fromkeys((w.get('drawn') or '').split(' / ')))[:160], 'fc': w['field_cable'], 'fs': w['field_spec'],
          'jb': w['jb'], 'jd': w['jb_desc'], 'jt': '' if w['jb_tb'] == '*' or r['mode'] == 'direct' or ge_wire_own_tb(r['cond']) else w['jb_tb'], 'px': w['prox'], 'jl': jls, 'tc': w['trunk'], 'ts': w['trunk_spec'], 'tl': rm.get('len') or '',
          'rf': rf, 'rp': rp, 'pk': pk, 'pn': pname, 'pr': room, 'cp': where,
          'io': [list(x[:6]) + [x[7] if len(x) > 7 else ''] for x in r.get('io') or []], 'pg': [w['page'], w['sheet'], w['of']],
@@ -2600,14 +2655,15 @@ def ge_wire_loop(r, w, pk, pname, room, where, jls):
     return {k: v for k, v in d.items() if v not in ('', [], None)}
 
 
-def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
+def ge_wire_card(pm, key, r, pi=0, multi=False, lno='', kks=False):
     """wire_ge.json 的 paths[key][pi] → GE 卡「接線路徑」的一條路徑（v13 起；v14 一個編號可以有好幾條：兩台燃機、多組接點）：
     u＝機組；sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯一列 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對, 盤端子號, 組態的點]；
     d＝迴路圖（v15）的分開欄位（ge_wire_loop）；lno＝迴路圖編號（v16，ge_wire_cards 依機組編）；
     f＝現場那一跳（燃機：GE 138T5502 一芯一列）[[元件端子, 芯色, 電纜, 中間元件, 接線箱, 端子, 接線箱所在, 版次]…]；
     rows＝各跳的圖（與 ge_pid_rows 同格式：每張圖紙 5 列，第一列 extra 帶 s／d／p／n／img／marks／drawn／rel／how／via／hop）；
     n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：wire_ge 自動找的＋wire_notes.json 人工查證的）；
-    jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子, 是不是 GE 編號]…]]（同一個接線箱的整排端子，照圖上的順序）；mode＝畫法（GE_WIRE_MODE）。"""
+    jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子, 是不是 GE 編號]…]]（同一個接線箱的整排端子，照圖上的順序）；mode＝畫法（GE_WIRE_MODE）。
+    kks（v17）：wire_kks.json 的路徑（元件只有 KKS；HRSG／電氣 I&C／BOP 接線圖、HRSG 與 BOP 的控制器、一號機儀器與接線箱位置圖、A1001～A1003 電纜表）。"""
     w, sheets = r['wire'], pm['sheets']
     hits = [h for h in (pm.get('_wg') or {}).get(key) or [] if h.get('pi', 0) == pi]
     s_wire = next((s for k, s in r['hops'] if k == 'wire'), None)
@@ -2615,13 +2671,32 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
     wsrc = 'PDF 文字層 · %s 第 %s 頁（Sheet %s OF %s）' % (sw.get('rel', '').rpartition('/')[2], w['page'], w['sheet'], w['of'])
     cond = r['cond']
     live = [c for c in cond if c['num']]
-    pk = re.findall(r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', w['panel'] + ' ' + w['panel_desc'])
-    pname, room = ge_wire_room(w['panel_desc'], pk[0] if pk else '')
+    pk = re.findall(r'[A-Z]?\d{2}C[A-Z]{2}\d{2}UC\d{3,4}' if kks else r'[SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}', w['panel'] + ' ' + w['panel_desc'])
+    pname, room = ge_wire_room(w['panel_desc'], pk[0] if pk else '', kks)
     s_rows = []
-    pan_jb = r['mode'] not in ('direct', 'ff') and not re.match(r'\s*JB', w['jb']) and bool(GE_WIRE_PANEL_RE.search(w['jb'] + ' ' + (w['jb_desc'] or '')))
+    pan_jb = r['mode'] not in ('direct', 'ff') and not re.match(r'\s*JB', w['jb']) and bool((KK_PANEL_RE if kks else GE_WIRE_PANEL_RE).search(w['jb'] + ' ' + (w['jb_desc'] or '')))
     recv = ge_wire_recv(r) if pan_jb else ''
     own_tb = ge_wire_own_tb(cond)
     fld = r.get('field') or []
+    dl_ = r.get('devloc')
+    if dl_:   # v17：元件本身在一號機儀器位置圖（IIF01）上：自己的標籤，或儀器清單表寫它裝在哪個儀表架（GZ）、儀表架的標籤
+        s_dl = next((s for k, s in r['hops'] if k == 'devloc'), None)
+        sh_ = sheets.get(s_dl) or {}
+        s_rows.append(['元件位置', ('儀器清單表寫它裝在儀表架 %s；' % dl_['rack'] if dl_.get('rack') else '') + '一號機儀器位置圖 %s 第 %s 頁%s，%s座標 %s' % (
+            sh_.get('doc') or '', sh_.get('page', '?'), '有畫（框出%s）' % ('儀表架標籤與符號' if dl_.get('sym') else '儀表架標籤') if dl_.get('rack') else
+            ('有畫（框出標籤與符號）' if dl_.get('sym') else '有標籤'), '儀表架' if dl_.get('rack') else '', dl_.get('coords') or '—'),
+            'doc', 'PDF 文字層 · %s 第 %s 頁' % ((sh_.get('rel') or '').rpartition('/')[2], sh_.get('page', '?'))])
+    sn = w.get('sensor')
+    if sn:   # v17：溫度兩段頁的上段（熱電偶 → 補償導線 → 溫度傳送器的輸入端子）
+        cs_ = sn.get('cs') or {}
+        s_rows.append(['熱電偶 → 傳送器', '%s%s 端子 %s → 補償導線 %s（%s）芯 %s → 溫度傳送器 %s%s 輸入端子 %s%s' % (
+            sn['te'] or '熱電偶', ('（%s）' % sn['te_desc']) if sn.get('te_desc') else '', ge_wire_join(c[1] for c in sn['cond']), sn['cable'],
+            (cs_.get('type') or sn['spec']) + ('，%s m' % cs_['len'] if cs_.get('len') else ''), ge_wire_join(c[0] for c in sn['cond']),
+            sn['tt'] or '', ('（%s）' % sn['tt_desc']) if sn.get('tt_desc') else '', ge_wire_join(c[2] for c in sn['cond']),
+            ('；電纜表 %s 第 %s 頁有這一列' % (cs_['doc'], cs_['page'])) if cs_.get('page') else ''), 'doc', wsrc])
+    fcab = ('、'.join('%s（%s）' % (c_, s_) if s_ else c_ for c_, s_ in w['field_cables']) if w.get('field_cables')   # v17：一個設備的訊號分走幾條現場電纜
+            else '%s（%s）' % (w['field_cable'], w['field_spec']))
+    fcab = fcab if fcab.endswith('）') else fcab + ' '      # GE 原句「（規格）→」「（規格）直拉到盤」不留空格
     if fld:
         s_conn = next((s for k, s in r['hops'] if k == 'conn'), None)
         csrc = 'PDF 文字層 · %s 第 %s 頁' % ((sheets.get(s_conn) or {}).get('rel', '').rpartition('/')[2], (sheets.get(s_conn) or {}).get('page', '?'))
@@ -2643,7 +2718,8 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
     elif r['mode'] == 'coax':
         s_rows.append(['現場 → 接線箱', '探頭 → 同軸延長線 %s（%s）→ 接線箱裡的前置器 %s' % (w['field_cable'], w['field_spec'].replace(' COAX', '').strip() or '同軸電纜', w['prox'] or '?'), 'doc', wsrc])
     elif r['mode'] == 'tb':
-        s_rows.append(['現場 → 接線箱', '現場端子 %s → 電纜 %s（%s）→ 接線箱端子排 %s' % (ge_wire_join(c['field'] for c in cond), w['field_cable'], w['field_spec'], w['jb_tb'] or '?'), 'doc', wsrc])
+        s_rows.append(['傳送器 → 接線箱' if sn else '現場 → 接線箱', '%s %s → 電纜 %s→ 接線箱端子排 %s' % (
+            '傳送器輸出端子' if sn else '現場端子', ge_wire_join(c['field'] for c in cond), fcab, w['jb_tb'] or '?'), 'doc', wsrc])
     elif r['mode'] == 'jbdev':
         nm_ = w['jb'] + (('（%s）' % w['jb_desc']) if w['jb_desc'] else '')
         if pan_jb and recv:
@@ -2653,7 +2729,8 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
         elif r.get('unit', 'S10') == 'S10' or not fld:
             s_rows.append(['現場 → 接線箱', '接線圖只把元件畫在 %s 的端子排旁，沒有標元件到箱子的電纜號（這一段請看現場；元件可能在箱內，也可能在箱外就近）' % nm_, 'doc', wsrc])
     else:
-        s_rows.append(['現場 → 盤', '現場端子 %s → 電纜 %s（%s）直拉到盤，中間沒有接線箱' % (ge_wire_join(c['field'] for c in cond), w['field_cable'], w['field_spec']), 'doc', wsrc])
+        s_rows.append(['傳送器 → 盤' if sn else '現場 → 盤', '%s %s → 電纜 %s直拉到盤，中間沒有接線箱' % (
+            '傳送器輸出端子' if sn else '現場端子', ge_wire_join(c['field'] for c in cond), fcab), 'doc', wsrc])
     if r['mode'] not in ('direct', 'ff'):
         jl = r.get('jbloc')
         sj = next((s for k, s in r['hops'] if k == 'jbloc'), None)
@@ -2663,7 +2740,7 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
         jd_txt = ('%s %s 第 %s 頁有畫（圖上寫 %s；這張圖只標出箱子在設備上的位置，沒有廠區座標）' % (jd['zh'], sheets[sd].get('doc') or jd['doc'], sheets[sd]['page'], jd['drawn'])
                   if jd and sd else '')
         if jl and sj:
-            jb_txt = w['jb'] + '：汽機房儀器與 JB 位置圖 %s 第 %s 頁有畫，圖上座標 %s' % (sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords'])
+            jb_txt = w['jb'] + '：%s %s 第 %s 頁有畫，圖上座標 %s' % ('一號機儀器與接線箱位置圖' if kks else '汽機房儀器與 JB 位置圖', sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords'])
         elif gj:
             jb_txt = w['jb'] + '：GE 燃機外形圖 137T6223 有 %s%s' % (gj['name'], ('（JB 表：%s，燃機座標）' % gj['coords']) if gj.get('coords') else '') + \
                 ('；%s' % jd_txt if jd_txt else '')
@@ -2673,7 +2750,7 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
             jr = ge_wire_jb_room(r, w)
             nm = w['jb'] + ('（%s）' % w['jb_desc'] if w['jb_desc'] else '')
             cub = GE_WIRE_MCC_RE.search(w['jb']) or re.search(r'_([A-Z]+\d+[A-Z]?(?:-\d+)?)\b', w['jb'])
-            if not re.match(r'\s*JB', w['jb']) and GE_WIRE_PANEL_RE.search(w['jb'] + ' ' + (w['jb_desc'] or '')):
+            if not re.match(r'\s*JB', w['jb']) and (KK_PANEL_RE if kks else GE_WIRE_PANEL_RE).search(w['jb'] + ' ' + (w['jb_desc'] or '')):
                 mc = r.get('mcc')
                 smc = next((s for k, s in r['hops'] if k == 'mcc'), None)
                 mtx = ''
@@ -2689,7 +2766,8 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
                     mtx = '；' + ge_wire_ep_txt(ej)
                 jb_txt = nm + '：電氣盤（不是接線箱），接線箱位置圖上不畫' + ('；第 %s 格' % cub.group(1) if cub else '') + mtx + ('；電纜表上在 %s' % jr if jr else '')
             else:
-                jb_txt = nm + ('（汽機房儀器與 JB 位置圖上沒有這個接線箱' if r.get('unit', 'S10') == 'S10' else '（GE 燃機外形圖的 JB 表上沒有這個箱子') + \
+                jb_txt = nm + ('（一號機儀器與接線箱位置圖（IIF01）上沒有這個接線箱' if kks and r.get('doc') not in ('wire', 'wiregt')
+                               else '（汽機房儀器與 JB 位置圖上沒有這個接線箱' if r.get('unit', 'S10') == 'S10' else '（GE 燃機外形圖的 JB 表上沒有這個箱子') + \
                     ('；電纜表上在 %s）' % jr if jr else '）')
         s_rows.append(['電氣盤' if pan_jb else '接線箱', jb_txt, 'doc', wsrc])
         inside = ('前置器 %s 的端子 %s' % (w['prox'], ge_wire_join(c['jb'].replace(w['prox'], '').strip() for c in cond)) if r['mode'] == 'coax' and w['prox']
@@ -2698,21 +2776,22 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
                                              for c in cond if c['jb']):   # 表頭 '-TBTCD/TBBUSP/TBBAK' 列了幾排：格子的排在其中就不加這句
             inside += '（接線圖表頭寫 %s，格子自己寫的端子排不同，照格子）' % w['jb_tb']
         s_rows.append(['盤內端子' if pan_jb else '接線箱內端子', inside, 'doc', wsrc])
-        s_rows.append(['幹線', '%s（%s），芯 %s' % (w['trunk'], w['trunk_spec'], ge_wire_join(c['core'] for c in live)), 'doc', wsrc])
+        s_rows.append(['幹線', ('、'.join('%s（%s）' % (c_, s_) for c_, s_ in w['trunks']) if w.get('trunks') else '%s（%s）' % (w['trunk'], w['trunk_spec']))
+                       + '，芯 %s' % ge_wire_join(c['core'] for c in live), 'doc', wsrc])
     jls = ''   # 迴路圖（v15）的接線箱位置短句（FF 的段保護器也要）
     if r['mode'] != 'direct':
         jl, gj, jd = r.get('jbloc'), r.get('gtjb'), r.get('jbdoc')
         sj = next((s for k, s in r['hops'] if k == 'jbloc'), None)
         sd = next((s for k, s in r['hops'] if k == 'jbdoc'), None)
         if jl and sj:
-            jls = '汽機 JB 位置圖 %s p.%s：%s' % (sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords'])
+            jls = '%s %s p.%s：%s' % ('儀器與 JB 位置圖' if kks else '汽機 JB 位置圖', sheets[sj].get('doc') or '', sheets[sj]['page'], jl['coords'])
         elif gj:
             jls = 'GE 137T6223 %s%s' % (gj['name'], ('：' + gj['coords']) if gj.get('coords') else '（等角圖標籤，沒有座標）')
         elif jd and sd:
             jls = '%s %s p.%s（設備上的位置，沒有廠區座標）' % (jd['zh'], sheets[sd].get('doc') or jd['doc'], sheets[sd]['page'])
         else:
             jr = ge_wire_jb_room(r, w)
-            pan = not re.match(r'\s*JB', w['jb']) and GE_WIRE_PANEL_RE.search(w['jb'] + ' ' + (w['jb_desc'] or ''))
+            pan = not re.match(r'\s*JB', w['jb']) and (KK_PANEL_RE if kks else GE_WIRE_PANEL_RE).search(w['jb'] + ' ' + (w['jb_desc'] or ''))
             cub = GE_WIRE_MCC_RE.search(w['jb']) or re.search(r'_([A-Z]+\d+[A-Z]?(?:-\d+)?)\b', w['jb'])
             smc = next((s for k, s in r['hops'] if k == 'mcc'), None)
             ej = next((x for x in r.get('ep') or [] if x['end'] == 'jb'), None)
@@ -2767,6 +2846,9 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
         s_rows.append(['Mark VIe', '盤端子落在 SPID（CANopen 通訊板）：組態裡這類板沒有螺絲點，訊號是 CANopen 輸入／輸出變數，沒有逐螺絲核對', 'inferred', 'signal-atlas 控制器索引'])
     elif any(c['board'] in GE_WIRE_MV for c in live):
         s_rows.append(['Mark VIe', '盤端子落在 Mark VIe 端子板，但控制器索引沒有對到這些螺絲', 'inferred', 'signal-atlas 控制器索引'])
+    elif kks and any(re.match(r'CA\d{3}-', c['pos']) for c in live):   # v17：盤是控制盤，但這台控制器的 I/O 組態不在索引（一號機 checkout 沒有 BOPCM1、DWTC2…）
+        s_rows.append(['Mark VIe', '盤端子 %s 是控制盤的 I/O 端子，但這台控制器的 I/O 組態不在 signal-atlas 控制器索引（一號機的 checkout 沒有它），螺絲沒有核對'
+                       % ge_wire_join(c['pos'] for c in live), 'inferred', 'signal-atlas 控制器索引'])
     elif any(c['board'] == '1TBVIB' for c in live):
         s_rows.append(['Mark VIe', '不進 Mark VIe：接到 Bently 3500 監測盤（VMS 盤）', 'doc', wsrc])
     elif r['mode'] == 'ff':
@@ -2823,17 +2905,28 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
         lab = (hs[0].get('label') if hs else '') or ''
         src = 'PDF 文字層 · %s 第 %s 頁' % (sh['rel'].rpartition('/')[2], sh['page'])
         base = {'s': s, 'g': gi}
-        first = dict(base, d=pm['_dkey'][s], p=sh['page'], img=True, marks=marks, drawn=lab, unit='', rel=GE_WIRE_REL[kind], how='text', via='ge', hop=kind)
+        first = dict(base, d=pm['_dkey'][s], p=sh['page'], img=True, marks=marks, drawn=lab, unit='', rel=GE_WIRE_REL.get(kind, 'neutral'), how='text', via='ge', hop=kind)
         if isinstance(sh.get('pages'), int):
             first['n'] = sh['pages']
         if kind == 'wire':
             pos_t = '① 接線箱端子（%s）、② 盤端子（%s）、③ 元件框' % (ge_wire_join(c['jb'] for c in cond), ge_wire_join(' '.join(x for x in (c['board'], c['num']) if x) for c in live)) \
                 if r['mode'] != 'direct' else '① 現場端子、② 盤端子、③ 元件框'
             how = 'PDF 文字層；接線圖由試算表範本產生、欄位固定，芯色標籤配端子格保持上下順序，盤側以芯色標籤對接（不照列對齊）' if r.get('doc', 'wire') == 'wire' \
-                else 'PDF 文字層＋向量框線（欄位由框線定位；每條芯以接線短線定位），盤側以芯色標籤序列對接'
+                else 'PDF 文字層＋向量框線（欄位由框線定位；每條芯以接線短線定位），盤側以芯色標籤序列對接' if r.get('doc') == 'wiregt' \
+                else ('PDF 文字層；與汽機接線圖同一個試算表範本家族，欄位依這一頁芯色標籤的欄位置推出，端子號在格子中間（先校正上下偏移再配），'
+                      '盤側以芯色標籤對接；元件以每一格的訊號 KKS 認（去掉訊號尾碼＝設備 KKS）')
         elif kind == 'jbloc':
             pos_t = '① 接線箱符號、② 標籤（KKS 與座標）' if len(marks) > 1 else '① 標籤（KKS 與座標；圖上的符號在引線另一端）'
             how = 'PDF 文字層找到標籤，再沿藍色引線找到紅色接線箱符號'
+        elif kind == 'devloc':
+            dl2 = r.get('devloc') or {}
+            pos_t = ('① 儀表架符號、② 標籤（KKS 與座標）' if dl2.get('sym') else '① 標籤（KKS 與座標）') + ('（儀器清單表寫這個元件裝在儀表架 %s）' % dl2['rack'] if dl2.get('rack') else '')
+            if dl2.get('rack') and len(marks) > (2 if dl2.get('sym') else 1):
+                pos_t += '；另框同一張圖上儀器清單表那一列（元件、儀表架兩格）'
+            how = 'PDF 文字層找到標籤（下一行是廠區座標），再沿藍色引線找紅色符號；儀器多半只列在圖上的儀器清單表，位置是它所在儀表架的標籤'
+        elif kind == 'devlist':
+            pos_t = '① 儀器清單表上這個元件那一格、② 它所在的儀表架那一格'
+            how = 'PDF 文字層（儀器清單表的 INSTRUMENT RACK／INSTRUMENT TAG NO 兩欄；儀表架是合併格，取 y 最近的那一個）'
         elif kind == 'gtjb':
             pos_t = '① 等角圖上的 %s 標籤（引線指向箱子）' % lab
             how = 'PDF 文字層（GE 137T6223 O/L MECHANICAL GT & GENERATOR；各台燃機共用一份）'
@@ -2881,13 +2974,13 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
         if kind in ('bnw', 'rack'):
             src = ge_wire_bsrc(sh)
         ep_h = (next((x for x in r.get('ep') or [] if sh['page'] in (x.get('pages') or [])), None) or {}) if kind == 'epnl' else {}
-        hop_n = '電氣盤配置圖（只到隔間）' if ep_h.get('lv') == 'cmp' else GE_WIRE_HOP[kind]
+        hop_n = '電氣盤配置圖（只到隔間）' if ep_h.get('lv') == 'cmp' else GE_WIRE_HOP.get(kind, kind)
         rows.append([hop_n, pid_sheet_name(sh), 'inferred' if ep_h.get('analog') else 'doc', src, first])   # 框在別台的圖上（類比）＝推論
         rows.append(['圖面頁次', 'PDF 第 %s 頁%s' % (sh['page'], ('（共 %s 頁）' % sh['pages']) if isinstance(sh.get('pages'), int) else ''), 'doc', src, dict(base)])
         rows.append(['所在位置', pos_t, 'doc', src, dict(base)])
         rows.append(['圖上標示', lab, 'doc', src, dict(base)])
         rows.append(['對應方式', how, 'doc', src, dict(base)])
-    dl = ge_wire_loop(r, w, pk[0] if pk else '', pname, room, where, jls)
+    dl = ge_wire_loop(r, w, pk[0] if pk else '', pname, room, where, jls, kks)
     if lno:
         dl['no'] = lno
     if po:
@@ -2897,18 +2990,20 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno=''):
     if sw.get('doc'):
         dl['wd'] = sw['doc'] + (' Rev.%s' % sw['rev'] if sw.get('rev') else '')
     out = {'mode': r['mode'], 'sum': s_rows, 't': t, 'rows': rows, 'u': r.get('unit', 'S10'), 'd': dl}
+    if kks and r.get('ctl'):
+        out['ct'] = r['ctl']                # v17：盤端子所屬的控制器（H11、BOPE1…）
     if fld:
         out['f'] = fld
     if r.get('notes'):
         out['n'] = r['notes']
     jbs = pm.get('_wg_jbs') or {}
-    jb = (jbs.get('%s|%s' % (r.get('unit', 'S10'), w['jb'])) or jbs.get(w['jb'])) if w['jb'] else None
+    jb = (jbs.get('%s|%s' % (r.get('unit', 'S10'), w['jb'])) or jbs.get('%s|%s' % ((w.get('jb_kks') or '')[:3], w['jb'])) or jbs.get(w['jb'])) if w['jb'] else None
     if jb and jb.get('strip'):
         out['jb'] = [w['jb'], [x[:4] + [1 if (len(x) > 7 and x[7]) or (len(x) <= 7) else 0] for x in jb['strip']]]
     return out
 
 
-def ge_wire_cards(pm, key, units):
+def ge_wire_cards(pm, key, units, kks=False):
     """這個編號在本站機組（units）的每一條接線路徑 → [卡片資料…]（wire_ge.json v2 的 paths[key] 是清單；v1 是單一條）。"""
     plist = (pm.get('_wg_paths') or {}).get(key) or []
     if isinstance(plist, dict):
@@ -2920,8 +3015,9 @@ def ge_wire_cards(pm, key, units):
     for pi, r in sel:   # 迴路圖編號（v16）：LP-機組-GE 編號（照寫，不改標點：'52ET/CLOSED' 與 '52ET_CLOSED' 是對照表上兩筆）；同一台有好幾條才加 -P 序號
         u = r.get('unit', 'S10')
         seen[u] = seen.get(u, 0) + 1
-        lno = 'LP-%s-%s%s' % (u, key.split('|', 1)[-1], ('-P%d' % seen[u]) if per[u] > 1 else '')
-        c = ge_wire_card(pm, key, r, pi, len(plist) > 1, lno)
+        tg = key.split('|', 1)[-1]
+        lno = ('LP-%s' % tg if kks else 'LP-%s-%s' % (u, tg)) + (('-P%d' % seen[u]) if per[u] > 1 else '')   # v17 KKS 已帶機組：LP-G11LAE12QM004
+        c = ge_wire_card(pm, key, r, pi, len(plist) > 1, lno, kks)
         if per[u] > 1:
             c['d']['nn'] = per[u]          # 這一台這個編號共幾條（標題欄「-P2（共 4 條）」）
         out.append(c)
@@ -2967,6 +3063,86 @@ def ge_wire_xref(pm, e, key, units):
         if per[v[0]] <= 4:
             keep.append(v)
     return keep
+
+
+KK_CARD_FILE = 'card/kkstag.json'        # v17：只有 KKS、不在 AMS 的元件（KKS 編號卡；查詢時才載）
+KK_LOC_FMT = 'card/kkstag-loc-%02d.json'   # KKS 編號卡的接線路徑（開卡才載，每 KK_LOC_PER 個條目一檔）
+KK_LOC_PER = 300
+WIRE_FILE_FMT = 'card/wire-%s.json'      # AMS 設備卡的接線路徑塊：與 card/aux-NN.json 同一個分塊編號（index.alias 給分塊號，不另建對照）
+KK_RULE = ('接線路徑（v17，KKS 版）：一號機 HRSG（HT1-1-ICE01-D1001）、電氣 I&C（D1002）、BOP-WSC（D1003）儀控電纜接線圖，加上燃機 D1004、汽機 D1005 上'
+           '沒有 GE 編號的那幾框；元件以接線圖每一格的訊號 KKS 認（去掉訊號尾碼＝設備 KKS）。盤端子以 signal-atlas 控制器索引（H11、H12、BOPE1、BOPM1A、BOPM1B、'
+           'WSC1、SAMP1、AGC1）的螺絲號核對（盤 KKS＋圖上的 CA 號 → 索引的櫃，由 DeviceTag 投票定）；電纜兩端的房間取自 HT1-1-ILE01-A1001～A1003 電纜表；'
+           '接線箱與元件位置取自一號機儀器與接線箱位置圖（HT1-1-IIF01-D0001～D0008，儀器多半列在圖上的儀器清單表、位置是它所在儀表架的標籤）；'
+           '文件互相矛盾的地方列在註記，不替任何一方選邊')
+KK_TAG_RE = re.compile(r'^([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})')
+
+
+def kks_tag_of(tag):
+    """AMS 現行位號 → 設備 KKS 13 碼（'C10LAF71QN001_' → 'C10LAF71QN001'；'G11LAB65BF001' 照舊）；不是 KKS 形狀回 ''。"""
+    m = KK_TAG_RE.match(re.sub(r'[^A-Z0-9]', '', (tag or '').upper()))
+    return m.group(1) if m else ''
+
+
+def kks_wire_build(pm, tag_of, aliases, hm=None):
+    """wire_kks.json（v17）→ (AMS 設備的接線路徑 {alias: {wp, wpx}}, KKS 編號卡的條目 [...], KKS 編號卡的接線路徑 {條目序號: {wp, wpx}},
+    用到的圖紙 {圖紙鍵: 路徑數}, 統計)。AMS 設備：現行位號的設備 KKS 與路徑的 KKS 相同（同一個 KKS 有幾台 AMS 設備就各給一份）；
+    其餘的開 KKS 編號卡（條目 t＝KKS、u＝機組、ds＝接線圖上的說明、ct＝控制器、pn＝盤）。ge_wire_card 讀 `_wg*`：換成 `_wk*` 的淺拷貝。"""
+    if pm is None or pm.get('_wk') is None:
+        return None
+    pmk = dict(pm, _wg=pm['_wk'], _wg_paths=pm['_wk_paths'], _wg_jbs=pm['_wk_jbs'], _wg_rev=None)
+    al_of = {}
+    for al in aliases:
+        k = kks_tag_of(tag_of.get(al, ''))
+        if k:
+            al_of.setdefault(k, []).append(al)
+    ams_w, ents, loc, used, hused = {}, [], {}, {}, {}
+    pmp = dict(pm, by_tag=pm['_pk'], _applied=set()) if pm.get('_pk') is not None else None   # KKS 編號卡的 P&ID 位置（pid_rows 讀 by_tag）
+    hmk = dict(hm, by_tag=hm['_hk']) if hm is not None and hm.get('_hk') is not None else None
+    for key in sorted(pm['_wk_paths']):
+        tag = key.split('|', 1)[-1]
+        cards = ge_wire_cards(pmk, key, (), kks=True)
+        if not cards:
+            continue
+        for c in cards:
+            for r in c['rows']:
+                if len(r) > 4 and 'marks' in r[4]:
+                    used[r[4]['s']] = used.get(r[4]['s'], 0) + 1
+        o = {'wp': cards[0]}
+        if len(cards) > 1:
+            o['wpx'] = cards[1:]
+        if tag in al_of:
+            for al in al_of[tag]:
+                ams_w[al] = o
+            continue
+        p0 = (pm['_wk_paths'][key] or [{}])[0]
+        w0 = p0.get('wire') or {}
+        ds = p0.get('dsc') or next((x for x in dict.fromkeys(re.sub(r'\s+', ' ', w0.get('drawn') or '').split(' / ')) if x), '')
+        e = {'t': tag, 'u': p0.get('unit') or tag[:3], 'ds': ds[:160], 'lc': 1}
+        if p0.get('ctl'):
+            e['ct'] = p0['ctl']
+        o = dict(o)
+        pd = pid_rows(pmp, tag) if pmp else []
+        if pd:
+            o['pd'] = pd
+            for r in pd:
+                if len(r) > 4 and 'marks' in r[4]:
+                    used[r[4]['s']] = used.get(r[4]['s'], 0) + 1
+        hrows = hmi_rows(hmk, tag) if hmk else []
+        if hrows:
+            o['hm'] = hrows
+            for r in hrows:
+                ex = r[4] if len(r) > 4 else None
+                if isinstance(ex, dict) and 'marks' in ex:
+                    u = hused.setdefault(ex['s'], {'rows': 0, 'units': set()})
+                    u['rows'] += 1
+                    if ex.get('unit'):
+                        u['units'].add(ex['unit'])
+        loc[str(len(ents))] = o
+        ents.append(e)
+    st = {'paths': sum(len(v) for v in pm['_wk_paths'].values()), 'keys': len(pm['_wk_paths']), 'ams_aliases': len(ams_w),
+          'ams_kks': len({kks_tag_of(tag_of.get(al, '')) for al in ams_w}), 'kks_cards': len(ents), 'sheets': len(used),
+          'pid_cards': sum(1 for v in loc.values() if v.get('pd')), 'hmi_cards': sum(1 for v in loc.values() if v.get('hm')), 'hmi_screens': len(hused)}
+    return ams_w, ents, loc, used, st, hused
 
 
 GE_LD_NO_RE = re.compile(r'(?:HT\d-\d-)?([A-Z]{3}\d\d-[A-Z]\d{4})|(?<![0-9A-Z])(\d{3}T\d{4})(?![0-9])')
@@ -3469,6 +3645,10 @@ def main():
     ap.add_argument('--hmi-ge', default=HMI_GE_DEFAULT, help='hmi_ge.py 的輸出（GE 原廠編號的圖控畫面位置；預設 <CARDWORK>\\hmi_ge.json）')
     ap.add_argument('--loc-ge', default=LOC_GE_DEFAULT, help='loc_ge.py 的輸出（GE 原廠編號的位置圖位置，v12；預設 <CARDWORK>\\loc_ge.json）')
     ap.add_argument('--wire-ge', default=WIRE_GE_DEFAULT, help='wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13；預設 <CARDWORK>\\wire_ge.json）')
+    ap.add_argument('--wire-kks', default=WIRE_KKS_DEFAULT, help='wire_kks.py 的輸出（只有 KKS 的元件的接線路徑，v17；預設 <CARDWORK>\\wire_kks.json）')
+    ap.add_argument('--pid-kks', default=PID_KKS_DEFAULT, help='pid_index.py --tags-file 的輸出（KKS 編號卡的 P&ID 位置，v17；不存在就不放）')
+    ap.add_argument('--hmi-kks', default=HMI_KKS_DEFAULT, help='hmi_index.py --tags-file 的輸出（KKS 編號卡的圖控位置，v17；不存在就不放）')
+    ap.add_argument('--no-kks', action='store_true', help='不放只有 KKS 的元件的接線路徑（AMS 設備卡的接線路徑塊、KKS 編號卡）')
     ap.add_argument('--no-ge-loc', action='store_true', help='GE 編號卡不放 P&ID／圖控／位置圖位置與接線路徑（不讀 pid_ge.json、hmi_ge.json、loc_ge.json、wire_ge.json）')
     ap.add_argument('--ge-tags', default=GE_DEFAULT, help='GE 原廠設備編號對照表 ge_tags.json（預設 paths.GE_TAGS＝hst-docsearch config.json 的 ge_tags_dir）')
     ap.add_argument('--no-ge', action='store_true', help='不收 GE 原廠編號（--recompare 時保留舊的 sec.getag 與 04 位號索引的 GE 列）')
@@ -3478,7 +3658,7 @@ def main():
                          '%s，%d 筆 GE 編號（對照表建於 %s）' % (a.ge_tags, len(ge['entries']), ge['built_at'])))
     dc = None if a.no_dcdas else load_dcdas(a.dcdas)
     ge_loc_on = ge is not None and not a.no_ge_loc
-    hm = None if a.no_hmi else load_hmi(a.hmi, a.hmi_shots, a.hmi_nav, a.hmi_ge if ge_loc_on else None)
+    hm = None if a.no_hmi else load_hmi(a.hmi, a.hmi_shots, a.hmi_nav, a.hmi_ge if ge_loc_on else None, None if a.no_kks else a.hmi_kks)
     if a.no_hmi:
         print('hmi: 略過')
     elif hm is None:
@@ -3487,7 +3667,8 @@ def main():
         print('hmi: %s，%d 個畫面、%d 支位號有對應；縮圖 %s'
               % (a.hmi, hm['stats'].get('screens_total', 0), len(hm['by_tag']), hm['_shots_dir'] or '（無，只顯示畫面名稱）'))
     pm = None if a.no_pid else load_pid(a.pid, a.pid_shots, a.pid_ge if ge_loc_on else None, a.loc_ge if ge_loc_on else None,
-                                        a.wire_ge if ge_loc_on else None)   # 不一致（圖紙鍵／缺影像／影像與 pid.json 不同步）在這裡就以非 0 結束
+                                        a.wire_ge if ge_loc_on else None, None if a.no_kks else a.wire_kks,
+                                        None if a.no_kks else a.pid_kks)   # 不一致（圖紙鍵／缺影像／影像與 pid.json 不同步）在這裡就以非 0 結束
     if a.no_pid:
         print('pid: 略過')
     elif pm is None:
@@ -3535,6 +3716,8 @@ def main():
         missing.append(('wire_ge', a.wire_ge, '--no-ge-loc'))
     if ge_loc_on and hm is not None and hm.get('_ge') is None:
         missing.append(('hmi_ge', a.hmi_ge, '--no-ge-loc'))
+    if pm is not None and not a.no_kks and pm.get('_wk') is None:   # v17：AMS 設備卡的接線路徑塊與 KKS 編號卡不可默默消失
+        missing.append(('wire_kks', a.wire_kks, '--no-kks'))
     if missing:
         for name, path, _flag in missing:
             print('!! 缺 %s（%s）' % (name, path))
@@ -3727,7 +3910,7 @@ def main():
     src_stats = {k: {kk: vv for kk, vv in (j.get('stats') or {}).items() if kk in ('aliases_matched', 'rows', 'notes', 'per_category_aliases')} for k, j in kinds.items()}
     src_stats['ams'] = {'notes': (ams.get('stats') or {}).get('notes', []), 'backup_date': ams.get('backup_date')}
     searched, docs, src_stats = docsearch_index(ds, searched, docs, src_stats)
-    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, a.chunk_kb, a.no_stamp, pm=pm, ge=ge, ge_by_tag=ge_by_tag)
+    write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, a.chunk_kb, a.no_stamp, pm=pm, ge=ge, ge_by_tag=ge_by_tag, tag_of=tag_of)
 
 
 def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no_pid=False, ge=None, no_ge=False):
@@ -3869,7 +4052,7 @@ def recompare(outdir, dc, ds, drive, hm, no_hmi, chunk_kb, no_stamp, pm=None, no
                 v.pop('url_note', None)
     write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=old_hmi, pm=pm, keep_pid=old_pid,
                  ge=ge, ge_by_tag=ge_by_tag, keep_ge=(ge is None and no_ge), keep_ge_stats=(index.get('stats') or {}).get('getag'),
-                 keep_ge_ix=index.get('getag'))
+                 keep_ge_ix=index.get('getag'), tag_of=tag_of, keep_kk_ix=index.get('kkstag'))
 
 
 def doc_keys_used(o, acc):
@@ -3900,12 +4083,14 @@ def chunk_docs(p, docs, doc_no):
 
 
 def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, drive, hm, chunk_kb, no_stamp, keep_hmi=None, pm=None, keep_pid=None,
-                 ge=None, ge_by_tag=None, keep_ge=False, keep_ge_stats=None, keep_ge_ix=None):
+                 ge=None, ge_by_tag=None, keep_ge=False, keep_ge_stats=None, keep_ge_ix=None, tag_of=None, keep_kk_ix=None):
     """分塊寫 card/aux-NN.json 與 index.json → manifest.build → 加密 → stamp。
     index.json 只留全廠 alias map 與 searched／stats 等小東西；docs（title／folder／why／Drive url）與 doc_no 隨各分塊攜帶該塊用到的子集
     （P3：docs 每筆含 33 字元 Drive ID 不可壓縮，原本全放 index 佔第一張卡下載量近半；前端 D.loadAux 把分塊的 docs／doc_no 併回 ix）。
     GE 編號卡的資料（card/getag.json，index.getag）：有對照表就重寫；--no-ge 的 --recompare（keep_ge）原檔與 index.getag 都留著；
-    兩者皆非就刪掉，不留沒人引用的密文。"""
+    兩者皆非就刪掉，不留沒人引用的密文。
+    v17 只有 KKS 的元件的接線路徑（wire_kks.json）：AMS 設備卡的接線路徑塊 card/wire-NN.json（與 aux-NN 同一個分塊編號，aux 分塊本身一個位元組都不動）、
+    KKS 編號卡 card/kkstag.json＋kkstag-loc-NN.json（index.wire／index.kkstag）；pm 是 None（--no-pid）時沿用上次發布的（wire-NN 照這次的分塊重切）。"""
     import extract_db, encrypt_data
     card_dir = os.path.join(outdir, 'card')
     os.makedirs(card_dir, exist_ok=True)
@@ -3920,6 +4105,11 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
             for i, x in enumerate(old_card.get('entries') or []):
                 x.update(bi.get(str(i)) or {})
     ge_loc, ge_pid_used, ge_hmi_used = ge_loc_build(ge, pm, hm, old_card)
+    kw = kks_wire_build(pm, tag_of or {}, aliases, hm)   # v17：(AMS 設備的接線路徑, KKS 編號卡條目, 它們的位置與接線路徑, 用到的圖紙, 統計, 用到的畫面)；None＝這次沒有 wire_kks.json
+    if kw:
+        stats['kks_wire'] = kw[4]
+        print('kks: 只有 KKS 的元件 %(keys)d 個有接線路徑（%(paths)d 條）：AMS 設備卡 %(ams_aliases)d 台（%(ams_kks)d 個 KKS）、KKS 編號卡 %(kks_cards)d 個'
+              '（P&ID 位置 %(pid_cards)d、圖控位置 %(hmi_cards)d，%(hmi_screens)d 個畫面）；圖紙 %(sheets)d 張' % kw[4])
     if ge is not None:
         ld_sheets = {r[4]['s'] for v in ge_loc.values() for r in v.get('ld') or [] if len(r) > 4 and 'marks' in r[4]}
         wp_all = [c for v in ge_loc.values() for c in ([v['wp']] if v.get('wp') else []) + (v.get('wpx') or [])]
@@ -3937,7 +4127,7 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
               '%(wp_entries)d 個有接線路徑（%(wp_paths)d 條、%(wp_sheets)d 張圖紙、%(wp_notes)d 則註記；有 Mark VIe 訊號但沒有路徑 %(wp_none)d 個，其中 %(wp_xref)d 個的組態螺絲畫在別的編號底下）' % stats['getag_loc'])
     # ---- 圖控畫面影像（card/hmi/<slug>.json，走既有 *.json 加密路徑）；--no-hmi 的 --recompare 保留上次發布的
     if hm is not None:
-        hmi_ix = hmi_write_images(outdir, out, hm, stats, ge_hmi_used)
+        hmi_ix = hmi_write_images(outdir, out, hm, stats, ge_hmi_used, kw[5] if kw else None)
         hs = hmi_doc(hm)
         searched = dict(searched, hmi=[hs])
         src_stats = dict(src_stats, hmi=dict(stats.get('hmi') or {}, notes=hs['why']))
@@ -3952,7 +4142,7 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
     #      影像這時只收集在記憶體（pid_blobs）；card/pid/ 要等下面分塊與 index 都通過自檢才動（None＝保留上次發布的，不動 card/pid/）
     pid_blobs = None
     if pm is not None:
-        pid_ix, pid_blobs = pid_collect(out, pm, stats, ge_pid_used)
+        pid_ix, pid_blobs = pid_collect(out, pm, stats, ge_pid_used, kw[3] if kw else None)
         docs = dict({k: v for k, v in docs.items() if not k.startswith('pid|')}, **pid_docs(pm, pid_ix))   # 先清掉上次的 pid|…（圖面換版後舊鍵不可留）
     else:
         pid_ix = keep_pid
@@ -4079,6 +4269,73 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         for al in p:
             alias_map[al] = k
     stats['docs_unreferenced'] = len(set(docs) - used_keys)  # searched 有列但沒有任何欄位引用的文件（只在 index.searched 出現）
+    # ---- v17：AMS 設備卡的接線路徑塊（card/wire-NN.json，NN＝那台設備在 aux 的分塊號）與 KKS 編號卡（card/kkstag.json＋kkstag-loc-NN.json）。
+    #      圖紙的 PDF（pid|…）已在上面的 docs（pid_collect 有算它們）；每個檔帶自己用到的子集，前端併回 ix（同 aux 分塊）。這裡只序列化與自檢
+    wire_blobs, kk_blobs, wire_ix, kk_ix = None, None, None, None
+    if kw is None and pm is None:   # --no-pid：沿用上次發布的；wire-NN 照這次的分塊重切（分塊邊界可能變了）
+        old_w, old_wd = {}, {}
+        for p_ in sorted(glob.glob(os.path.join(card_dir, 'wire-*.json'))):
+            j_ = load(p_)
+            old_w.update(j_.get('by_alias') or {})
+            old_wd.update(j_.get('docs') or {})
+        kw_ams = {al: v for al, v in old_w.items() if al in alias_map}
+        wire_docs = old_wd
+    else:
+        kw_ams = dict(kw[0]) if kw else {}
+        wire_docs = docs
+        if ge is not None and kw is not None:   # 本身是 GE 元件的 AMS 設備：GE 編號卡的接線路徑也放進它的接線路徑塊（照 AMS 位號的機組篩；ge＝那個 GE 編號）
+            for e in ge['entries']:
+                lo_ = ge_loc.get(e['_i']) or {}
+                wps_ = ([lo_['wp']] if lo_.get('wp') else []) + (lo_.get('wpx') or [])
+                for al, tag, _why in ((ge.get('ams_of') or {}).get(e['_i']) or []) if wps_ else []:
+                    if al in kw_ams or al not in alias_map:
+                        continue
+                    um_ = re.match(r'^([GS]\d{2})', re.sub(r'[^A-Z0-9]', '', (tag or '').upper()))
+                    mine = [c for c in wps_ if not um_ or c.get('u') == um_.group(1)]
+                    if mine:
+                        kw_ams[al] = dict({'wp': mine[0], 'ge': e['tag']}, **({'wpx': mine[1:]} if len(mine) > 1 else {}))
+    if kw_ams:
+        wire_blobs, files_, n_b = [], [], 0
+        for k, p in enumerate(parts):
+            sub = {al: kw_ams[al] for al in p if al in kw_ams}
+            if not sub:
+                files_.append(None)
+                continue
+            fn = WIRE_FILE_FMT % ('%0*d' % (width, k))
+            acc = set()
+            doc_keys_used(sub, acc)
+            data = dumps({'part': k, 'by_alias': sub, 'docs': {d: wire_docs[d] for d in sorted(acc) if d in wire_docs}}).encode('utf-8')
+            if ABS_PATH_RE.search(data.decode('utf-8')):
+                raise SystemExit('absolute local path found in ' + fn)
+            wire_blobs.append((fn, data))
+            files_.append(fn)
+            n_b += len(data)
+        wire_ix = {'version': 1, 'files': files_, 'rule': KK_RULE, 'aliases': len(kw_ams), 'bytes': n_b,
+                   'paths': sum(1 + len(v.get('wpx') or []) for v in kw_ams.values())}
+        print('kks: AMS 設備卡的接線路徑塊 %d 台、%d 個檔、%d KB' % (len(kw_ams), len(wire_blobs), n_b // 1024))
+    if kw and kw[1]:
+        kk_blobs, files_, n_b = [], [], 0
+        ents, loc = kw[1], kw[2]
+        n_loc = (len(ents) + KK_LOC_PER - 1) // KK_LOC_PER
+        for c_ in range(n_loc):
+            fn = KK_LOC_FMT % c_
+            sub = {i: loc[i] for i in map(str, range(c_ * KK_LOC_PER, min(len(ents), (c_ + 1) * KK_LOC_PER))) if i in loc}
+            acc = set()
+            doc_keys_used(sub, acc)
+            data = dumps({'version': 1, 'chunk': c_, 'by_i': sub, 'docs': {d: docs[d] for d in sorted(acc) if d in docs}}).encode('utf-8')
+            if ABS_PATH_RE.search(data.decode('utf-8')):
+                raise SystemExit('absolute local path found in ' + fn)
+            kk_blobs.append((fn, data))
+            files_.append(fn)
+            n_b += len(data)
+        kdata = dumps({'version': 1, 'n': len(ents), 'rule': KK_RULE, 'per': KK_LOC_PER, 'entries': ents}).encode('utf-8')
+        if ABS_PATH_RE.search(kdata.decode('utf-8')):
+            raise SystemExit('absolute local path found in ' + KK_CARD_FILE)
+        kk_blobs.append((KK_CARD_FILE, kdata))
+        kk_ix = {'version': 1, 'files': [KK_CARD_FILE] + files_, 'n': len(ents), 'per': KK_LOC_PER, 'bytes': len(kdata), 'loc_bytes': n_b}
+        print('kks: KKS 編號卡 %d 個條目（%d KB）、接線路徑 %d 個檔（%d KB）' % (len(ents), len(kdata) // 1024, len(files_), n_b // 1024))
+    elif kw is None and pm is None and keep_kk_ix and os.path.exists(os.path.join(outdir, *KK_CARD_FILE.split('/'))):
+        kk_ix = keep_kk_ix   # --no-pid：KKS 編號卡原檔留著
     # ---- 04 位號索引的 GE 編號列：這裡只算（含 stats.getag，要進 index），等分塊與 index 自檢過、card/ 寫完才寫 04／00／manifest。
     #      --no-ge 保留時不動；沒有對照表又不保留時清掉上次加的列
     ge_plan = None
@@ -4104,6 +4361,10 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         index['getag'] = ge_card[1]
     elif keep_ge and keep_ge_ix and os.path.exists(ge_card_path):
         index['getag'] = keep_ge_ix
+    if wire_ix is not None:
+        index['wire'] = wire_ix
+    if kk_ix is not None:
+        index['kkstag'] = kk_ix
     idata = dumps(index)
     if ABS_PATH_RE.search(idata):
         raise SystemExit('absolute local path found in index.json')
@@ -4126,6 +4387,23 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
         for gp in (ge_card_path, ge_loc_path):
             if os.path.exists(gp):
                 os.remove(gp)
+    # v17：接線路徑塊與 KKS 編號卡——這次沒有的舊檔清掉（不留沒人引用的密文）
+    keep_w = {fn for fn, _d in wire_blobs or []}
+    for p_ in glob.glob(os.path.join(card_dir, 'wire-*.json')):
+        if 'card/' + os.path.basename(p_) not in keep_w:
+            os.remove(p_)
+    for fn, data in wire_blobs or []:
+        open(os.path.join(outdir, *fn.split('/')), 'wb').write(data)
+    if kk_blobs is not None:
+        keep_k = {fn for fn, _d in kk_blobs}
+        for p_ in glob.glob(os.path.join(card_dir, 'kkstag*.json')):
+            if 'card/' + os.path.basename(p_) not in keep_k:
+                os.remove(p_)
+        for fn, data in kk_blobs:
+            open(os.path.join(outdir, *fn.split('/')), 'wb').write(data)
+    elif kk_ix is None:
+        for p_ in glob.glob(os.path.join(card_dir, 'kkstag*.json')):
+            os.remove(p_)
     open(os.path.join(card_dir, 'index.json'), 'wb').write(idata.encode('utf-8'))
     if ge_plan is not None:
         for path, data in ge_plan[0]:

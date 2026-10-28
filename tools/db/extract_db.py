@@ -346,6 +346,9 @@ def summary_spec(ci3, ci13):
             # ——完整欄位與來源都在下方「完整資料 › 圖控 HMI 畫面位置」，而「圖控畫面／導覽路徑」兩列本來就與畫面標頭重複。
             # 擷取日期與「非即時值」改由 card.js 掛在畫面標頭（hmiCapText）：那兩件事不能跟著說明一起消失（見 CONTRACT「已知限制」）。
             {'key': 'hmi', 'label': '圖控 HMI 畫面（這台儀器畫在哪一頁）', 'kind': 'hmi'},
+            # 接線路徑（v17，card/wire-NN.json）：現場 → 接線箱 → 控制盤的每一條芯、迴路圖、盤端子與 Mark VIe 腳位核對——與 GE 編號卡的「接線路徑」同一套。
+            # 排在備品庫存之後、全文檢索之前（after_stock；tools/tests 釘住「圖控 HMI 緊接在備品庫存之前、全文檢索最後」）；沒有路徑的設備不出這一組
+            {'key': 'wire', 'label': '接線路徑（現場 → 接線箱 → 控制盤；迴路圖）', 'kind': 'wire', 'after_stock': True},
             {'key': 'search', 'label': '文件全文檢索（hst-docsearch：位號／序號命中的文件與頁碼）', 'kind': 'docsearch', 'collapsed': True, 'after_stock': True,
              'note': '搜整個工程文件庫的全文索引（文字層＋OCR）；「文件-版次 p.N｜命中行」，數值可點開 Google 雲端硬碟的那份檔案。位號不採 OCR 命中；'
                      '「序號命中」「型號／廠牌／量程（文件）」是由命中行以規則抽出的推定值，僅供對照，不列入 DCS 比對。'},

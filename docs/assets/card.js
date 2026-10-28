@@ -91,9 +91,9 @@
   const GE_WIRE_IO = { same: '✓ 控制器組態的這顆螺絲就是這個元件', logic: '✓ 這顆螺絲的變數就是這個元件的 Mark VIe 訊號',
     equip: '✓ 這顆螺絲的 DeviceTag 是同一個設備（同一個 KKS 本體，或對照表連在一起的量測鏈）', loc: '✓ 同位置的另一個點（例：LVDT 的電源點）',
     suffix: '✓ 同一顆，編號後綴寫法不同（4WW ↔ 4WW-1）', alias: '≈ 組態的名稱與圖上的編號寫法不同，多半是同一顆的另一種寫法（見註記）',
-    other: '✗ 控制器組態的這顆螺絲掛的是另一個 GE 編號（見註記）', spare: '✗ 控制器組態的這顆螺絲是備用點（沒有變數）', diff: '✗ 控制器組態的這顆螺絲是別的元件',
+    other: '✗ 控制器組態的這顆螺絲掛的是另一個 GE 編號（見註記）', unit: '✗ 控制器組態的這顆螺絲掛的是另一台機組的同一種設備（KKS 只差機組碼，見註記）', spare: '✗ 控制器組態的這顆螺絲是備用點（沒有變數）', diff: '✗ 控制器組態的這顆螺絲是別的元件',
     none: '控制器組態沒有這顆螺絲' };
-  const GE_WIRE_MARK = { same: ' ✓', logic: ' ✓', equip: ' ✓', loc: ' ✓', suffix: ' ✓', alias: ' ≈', other: ' ✗', spare: ' ✗', diff: ' ✗' };
+  const GE_WIRE_MARK = { same: ' ✓', logic: ' ✓', equip: ' ✓', loc: ' ✓', suffix: ' ✓', alias: ' ≈', other: ' ✗', unit: ' ✗', spare: ' ✗', diff: ' ✗' };
   const PID_REF_OTHER = ['這一處只是圖上提到這支位號的地方，不是儀器符號', '圖上提到的地方'];
   // JK 開頭的位號（HART 多工器模組）沒有列入 P&ID 比對：[摘要組的短句, 完整資料區的整句]。不可以寫「查無」。
   const PID_JK = ['不在 P&ID 比對範圍（JK 開頭的位號是 HART 多工器模組，圖面沒有比對這一類）',
@@ -172,6 +172,7 @@
         this.srcDefs = this.hasSrc ? spec.src_defs : {};
         this.renderShell();
         if (AMS.getag) AMS.getag.load(); // GE 原廠編號對照表（db 站）：先開始抓，查 CT-DA-1 這類 AMS 沒有的元件時才不必等
+        if (AMS.kkstag) AMS.kkstag.load(); // v17：KKS 編號卡（接線圖上只有 KKS、AMS 沒有的元件）
         this.run(this.queryFromRoute(this.route));
       } catch (e) {
         console.error(e);
@@ -265,7 +266,8 @@
         const rs = AMS.index.resolve(q);
         const loose = rs.key && ((rs.how !== 'exact' && rs.how !== 'compact') || this.numCompact(q, rs));
         const geUnknown = AMS.getag && D.manifest && !AMS.getag.ready(); // 下載中、慢、失敗：還不知道 GE 有沒有這個編號
-        if (rs.key && (!loose || (!geUnknown && !this.valveBlocksFuzzy(q, rs) && !this.geBlocksFuzzy(q, rs)))) k = rs.key;
+        const kkUnknown = AMS.kkstag && D.manifest && !AMS.kkstag.ready(); // v17：KKS 編號卡同上
+        if (rs.key && (!loose || (!geUnknown && !kkUnknown && !this.valveBlocksFuzzy(q, rs) && !this.geBlocksFuzzy(q, rs) && !this.kksBlocksFuzzy(q, rs)))) k = rs.key;
       } catch (e) { /* 索引未載 → 照原字串 */ }
       const h = '#/card/' + encodeURIComponent(k);
       if (location.hash === h) this.run(k); else AMS.router.go(h);
@@ -307,7 +309,11 @@
           const vr = this.valveLookup(q, res, rs, hu); if (vr) { if (gh && vr.valve) vr.ge = gh; return vr; }
           // 清單讓給 AMS 的模糊對應（那顆閥自己的設備）時，GE 的命中帶著機組（G12.a_90va21 → G12 那台），比模糊對應（只會開 G11）準
           if (gh) return this.geLookup(q, res, gh);
-          fuzzyBlocked = !!rs.key && ((!vh && this.valveBlocksFuzzy(q, rs)) || (!gh && this.geBlocksFuzzy(q, rs)));
+          // v17：接線圖上只有 KKS、AMS 沒有的元件 → KKS 編號卡（設備 KKS 或訊號 KKS 整串相等；對照表還沒載完先等，同 GE）
+          if (AMS.kkstag && AMS.kkstag.pending()) { res.kkPending = true; res.notfound = true; res.key = IX.norm(q); res.status = '查詢中：KKS 編號（接線圖）下載中…'; return res; }
+          const kh = this.kksHit(q);
+          if (kh) return this.kksLookup(q, res, kh);
+          fuzzyBlocked = !!rs.key && ((!vh && this.valveBlocksFuzzy(q, rs)) || (!gh && this.geBlocksFuzzy(q, rs)) || this.kksBlocksFuzzy(q, rs));
           // 對照表慢或失敗而這次走 AMS 的模糊對應：狀態列講明，載到後再查一次（可能其實是 GE 編號）
           if (rs.key && !fuzzyBlocked && AMS.getag && D.manifest && !AMS.getag.ready()) res.geLate = true;
         }
@@ -371,16 +377,19 @@
       };
       if (res.gePending) { // GE 對照表還在下載：最多等 4 秒再查一次；等不到（slow）就照沒有 GE 的方式顯示，載完再補
         GEm.wait(4000).then(() => { if (!this.destroyed && this.lastQuery === q) this.run(q, true); });
+      } else if (res.kkPending) { // v17：KKS 編號卡的對照表還在下載：同上
+        AMS.kkstag.wait(4000).then(() => { if (!this.destroyed && this.lastQuery === q) this.run(q, true); });
       } else if (res.geLate) {
         res.status += '（GE 原廠編號對照表還沒載到，這是 AMS 的模糊對應；載到後會自動再查一次）';
         rerunWhenLoaded();
       } else if (res.geKey && GEm && !GEm.G && D.manifest && GEm.state !== 'none') { // 冷開 04 的 GE 鍵：載到後補「另一個範圍也有同編號」那一句
         GEm.load().then(() => { if (!this.destroyed && this.res === res) { const n = this.geOtherNote(res.geKey); if (n) { res.status += n; this.root.querySelector('.cq-status').textContent = res.status; } } });
-      } else if (res.notfound && !res.valve && !res.ge) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
+      } else if (res.notfound && !res.valve && !res.ge && !res.kks) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
         if (GEm && (GEm.slow || GEm.state === 'error') && !GEm.G && D.manifest) rerunWhenLoaded();
         if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
         try { res.vsg = AMS.valves.suggest(this.spec.valve, res.q, 12); } catch (e) { res.vsg = []; }
         try { const have = new Set(res.sg.concat(res.vsg).map((x) => AMS.index.compact(x.key))); res.gsg = GEm ? GEm.suggest(res.q, 12).filter((x) => !have.has(AMS.index.compact(x.key))) : []; } catch (e) { res.gsg = []; }
+        try { res.ksg = AMS.kkstag ? AMS.kkstag.suggest(res.q, 12) : []; } catch (e) { res.ksg = []; }
         res.fz = [];
         if (!res.sg.length && !res.vsg.length && !res.gsg.length && AMS.fuzzy) { try { res.fz = AMS.fuzzy(this.spec.valve || null, res.q, 8); } catch (e) { res.fz = []; } }
         if ((res.sg.length || res.vsg.length || res.gsg.length) && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
@@ -395,7 +404,7 @@
       const L = this.spec.lookup;
       if (this.scrollEl) this.scrollEl.classList.toggle('landing', !!res.empty);
       root.querySelector('.cq-status').textContent = res.status;
-      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve && !res.ge && !res.gePending ? ' bad' : '');
+      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve && !res.ge && !res.gePending && !res.kks && !res.kkPending ? ' bad' : '');
       const row = res.i3 != null ? AMS.devices.sheet.rows[res.i3] : null;
       // alias / count
       const countStyle = this.ruleStyleFor('count', row, res);
@@ -445,7 +454,8 @@
         document.title = String(q) + '（氣動閥清單） · 設備查詢卡 · AMS'; return;
       }
       if (res.ge) { body.appendChild(this.renderGeOnly(res)); document.title = String(q) + '（GE 原廠編號） · 設備查詢卡 · AMS'; return; }
-      if (res.gePending) { body.appendChild(U.h('p', { class: 'muted cl-empty' }, '載入中…')); return; }
+      if (res.kks) { body.appendChild(this.renderKksOnly(res)); document.title = String(q) + '（KKS 接線圖） · 設備查詢卡 · AMS'; return; }
+      if (res.gePending || res.kkPending) { body.appendChild(U.h('p', { class: 'muted cl-empty' }, '載入中…')); return; }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) {
         body.appendChild(this.renderLanding());
@@ -687,6 +697,59 @@
         if (V.list_url) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, '正本（可編輯）：', U.h('a', { class: 'lk', href: V.list_url, target: '_blank', rel: 'noopener noreferrer' }, (V.list_name || 'Google 試算表') + ' ↗')));
         this.applyMode();
       } catch (err) { console.error(err); grid.innerHTML = `<p class="muted cl-empty">無法載入氣動閥清單：${U.esc(err.message)}</p>`; }
+    }
+
+    /* ---------- KKS 編號卡（v17，card/kkstag.json；core.js AMS.kkstag） ---------- */
+    kksHit(q) { return AMS.kkstag && AMS.kkstag.K ? AMS.kkstag.hit(q) : null; }
+    /** 位號索引的模糊對應（包含／唯一建議）要不要採用：KKS 編號卡整串命中，或有「開頭相符、不是 AMS 鍵」的 KKS 候選（打一半的 G11LAE12QM0
+     *  不該悄悄開舊位號 G11LAE12 那一台）→ 不採用，改列兩邊的候選 */
+    kksBlocksFuzzy(q, rs) {
+      const K = AMS.kkstag; if (!K || !K.K) return false;
+      if (K.hit(q)) return true;
+      const IX = AMS.index;
+      return !!rs && (rs.how === 'suggest' || rs.how === 'contain') && K.suggest(q, 12).some((x) => !IX.compactMap.has(IX.compact(x.key)));
+    }
+    /** AMS 位號索引、GE 對照表、氣動閥清單都沒有，接線圖上有這個 KKS（設備或訊號）→ KKS 編號卡（res.kks） */
+    kksLookup(q, res, kh) {
+      const e = AMS.kkstag.K.j.entries[kh.i];
+      res.kks = kh; res.notfound = true; res.key = AMS.index.norm(q);
+      res.status = `「${AMS.index.norm(q)}」是接線圖上的${kh.via === 'signal' ? '訊號 KKS，設備是 ' + e.t : ' KKS'}${e.ds ? '（' + e.ds + '）' : ''}`
+        + '；AMS 資料庫沒有這個設備、也沒有 GE 編號，以下是接線圖的接線路徑。';
+      return res;
+    }
+    /** KKS 編號卡：KKS、機組、接線圖上的說明、盤端子所屬的控制器，接著是接線路徑（card/kkstag-loc-NN.json；畫法同 GE 編號卡） */
+    renderKksOnly(res) {
+      const K = AMS.kkstag.K; const kh = res.kks; const e = K.j.entries[kh.i]; const mode = this.currentMode();
+      const wrap = U.h('section', { class: 'csec sum kks-only' });
+      const hero = U.h('div', { class: 'sum-hero' });
+      hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, e.t)));
+      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, 'KKS（接線圖）'), e.u ? U.h('span', { class: 'sum-subi', title: '機組（KKS 前三碼）' }, e.u) : null,
+        e.ct ? U.h('span', { class: 'sum-subi', title: '盤端子所屬的控制器（signal-atlas 控制器索引）' }, '控制器 ' + e.ct) : null,
+        kh.via === 'signal' ? U.h('span', { class: 'sum-subi', title: '輸入的是訊號 KKS' }, '訊號 ' + kh.sig) : null, U.h('span', { class: 'sum-subi' }, '不在 AMS 資料庫')));
+      if (e.ds) hero.appendChild(U.h('div', { class: 'sum-svc' }, e.ds));
+      wrap.appendChild(hero);
+      const groups = U.h('div', { class: 'sum-groups' });
+      const grp = (cls, title) => { const s = U.h('section', { class: 'sum-g ' + cls }, U.h('h3', { class: 'sum-gh' }, title)); const g = U.h('div', { class: 'sum-body' }, U.h('p', { class: 'muted cl-empty' }, '載入中…')); s.appendChild(g); groups.appendChild(s); return g; };
+      const gp = grp('sum-pid', 'P&ID 圖面位置（這個元件畫在哪一張圖、圖上哪裡）');
+      const gh = grp('sum-hmi', '圖控 HMI 畫面（這個元件畫在哪一頁）');
+      const grid = grp('sum-wire', '接線路徑（現場 → 接線箱 → 控制盤；迴路圖）');
+      wrap.appendChild(groups);
+      if (K.j.rule) wrap.appendChild(U.h('p', { class: 'muted small aux-note' }, K.j.rule));
+      AMS.kkstag.loadLoc(kh.i, this.spec.aux && this.spec.aux.index).then(({ ix, lo }) => {
+        if (this.destroyed || this.res !== res) return;
+        const wps = lo ? [lo.wp].concat(lo.wpx || []).filter(Boolean) : [];
+        this.wireKeep = { res, rows: wps.flatMap((w) => w.rows || []).concat((lo && lo.pd) || []) };
+        this.pidRelease(null, ix);
+        const none = (el, t) => { el.innerHTML = ''; el.appendChild(U.h('p', { class: 'muted cl-empty' }, t)); };
+        if (lo && (lo.pd || []).length) { gp.innerHTML = ''; this.fillPid({ rows: lo.pd }, ix, gp, mode, true); }
+        else none(gp, '查無（現行 P&ID 圖面的文字層與 OCR 都沒有讀到這個 KKS；不代表圖上沒有畫——馬達、電氣狀態點多半不畫在 P&ID 上）');
+        if (lo && (lo.hm || []).length) { gh.innerHTML = ''; this.fillHmi({ rows: lo.hm }, ix, gh, mode, true); }
+        else none(gh, '查無（操作員畫面上沒有引用這個 KKS 的物件或訊號）');
+        if (!wps.length) { grid.innerHTML = ''; grid.appendChild(U.h('p', { class: 'muted cl-empty' }, '查無接線路徑')); return; }
+        this.fillWirePaths(grid, wps, ix, mode, (t) => '#/card/' + encodeURIComponent(t), e.t);
+        this.applyMode();
+      }).catch((err) => { if (!this.destroyed && this.res === res) { const m = `<p class="muted cl-empty">無法載入：${U.esc((err && err.message) || err)}</p>`; grid.innerHTML = m; gp.innerHTML = ''; gh.innerHTML = ''; } });
+      return wrap;
     }
 
     /* ---------- GE 原廠編號卡（card/getag.json；core.js AMS.getag） ---------- */
@@ -981,19 +1044,8 @@
         const wps = [lo.wp].concat(lo.wpx || []).filter((w) => w && (!site || !w.u || w.u === site));
         if (wps.length) {
           const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
-          gw.innerHTML = '';
           const href = (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : '');
-          wps.forEach((w, i) => {
-            const box = U.h('div', { class: 'wire-path' });
-            const body = U.h('div', { class: 'wire-path-b' });   // fillWire 會先清空它的容器：標題放在外面
-            if (wps.length > 1) {
-              const pan = ((w.sum || []).find((x) => x[0] === '電子室盤') || [])[1] || '';
-              box.appendChild(U.h('h4', { class: 'wire-path-h' }, (w.u ? w.u + ' ' : '') + '第 ' + (i + 1) + ' 條' + (pan ? '：' + pan : '')));
-            }
-            box.appendChild(body);
-            gw.appendChild(box);
-            this.fillWire(w, ix, body, mode, href, { tag: e.t, open: i === 0 });
-          });
+          this.fillWirePaths(gw, wps, ix, mode, href, e.t);
         } else if (lo.wpn) {
           const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
           none(gw, '查無：一號機兩份儀控電纜接線圖（汽機 D1005、燃機 D1004）與 GE 燃機接線表 138T5502 都沒有讀到這個編號。它有 Mark VIe 訊號，可能是 FF 段上 GE 表沒有列的元件、'
@@ -1023,6 +1075,39 @@
       return box;
     }
 
+    /** 一個元件的每一條接線路徑（GE 編號卡、v17 的 AMS 設備卡接線路徑塊與 KKS 編號卡共用）：多條時每條一個標題「G11 第 n 條：電子室盤」，
+     *  第一條的迴路圖先展開。href＝接線箱端子排裡認得的元件連到哪裡、tag＝迴路圖的編號用的元件名。 */
+    fillWirePaths(gw, wps, ix, mode, href, tag) {
+      gw.innerHTML = '';
+      wps.forEach((w, i) => {
+        const box = U.h('div', { class: 'wire-path' });
+        const body = U.h('div', { class: 'wire-path-b' });   // fillWire 會先清空它的容器：標題放在外面
+        if (wps.length > 1) {
+          const pan = ((w.sum || []).find((x) => x[0] === '電子室盤') || [])[1] || '';
+          box.appendChild(U.h('h4', { class: 'wire-path-h' }, (w.u ? w.u + ' ' : '') + '第 ' + (i + 1) + ' 條' + (pan ? '：' + pan : '')));
+        }
+        box.appendChild(body);
+        gw.appendChild(box);
+        this.fillWire(w, ix, body, mode, href, { tag, open: i === 0 });
+      });
+    }
+    /** v17：AMS 設備卡摘要的「接線路徑」組（card/wire-NN.json，CONTRACT.md「v17」）——現行位號的設備 KKS 在 HRSG／電氣 I&C／BOP 接線圖
+     *  （或燃機／汽機圖上沒有 GE 編號的框）上的路徑，畫法同 GE 編號卡。沒有路徑的設備整組拿掉（不留「查無」）。 */
+    fillWireGroup(grid, mode) {
+      const res = this.res; const sec = grid.closest('.sum-g');
+      grid.classList.remove('cfields', 'sumgrid'); grid.classList.add('sum-body');
+      D.loadWire(res.alias, this.spec.aux && this.spec.aux.index).then(({ ix, w }) => {
+        if (this.destroyed || this.res !== res) return;
+        const wps = w ? [w.wp].concat(w.wpx || []).filter(Boolean) : [];
+        if (!wps.length) { if (sec) sec.remove(); return; }
+        this.wireKeep = { res, rows: wps.flatMap((x) => x.rows || []) };   // pidRelease 不可收掉這幾張圖（另一條非同步路徑可能晚一點才呼叫它）
+        this.pidRelease(this.aux, ix);
+        this.fillWirePaths(grid, wps, ix, mode, (t) => '#/card/' + encodeURIComponent(t), (U.text((AMS.devices.sheet.rows[res.i3] || [])[this.spec.lookup.target_tag_col]) || res.key || ''));
+        if (w.ge) grid.insertBefore(U.h('p', { class: 'muted small aux-note' }, '這台是 GE 元件 ', U.h('a', { class: 'lk', href: '#/card/' + encodeURIComponent(w.ge) }, w.ge),
+          '：下面是 GE 編號卡上同一份接線路徑（燃機／汽機儀控電纜接線圖）。'), grid.firstChild);
+        this.applyMode();
+      }).catch((err) => { if (!this.destroyed && this.res === res) grid.innerHTML = `<p class="muted cl-empty">無法載入接線路徑：${U.esc((err && err.message) || err)}</p>`; });
+    }
     /** GE 編號卡「接線路徑」（v13，CONTRACT.md「v13」）：card/getag-loc.json 的 wp（build_card_aux.ge_wire_card）——
      *  sum＝每一跳一列 [跳, 內容, lvl, 出處]；t＝每條芯 [芯（幹線芯色）, 現場端子, 接線箱端子, 盤端子, Mark VIe 腳位, 核對（GE_WIRE_IO）]；
      *  n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：不替任何一方選邊，原樣列出）；rows＝各跳的圖，與 P&ID 同格式，直接交給 fillPid
@@ -1483,6 +1568,14 @@
         const blk = U.h('div', { class: 'nf-ge' }, U.h('p', {}, 'GE 原廠編號中相近的編號：'));
         const ch = U.h('div', { class: 'nf-chips' });
         for (const it of gs) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + (it.alias || ''))));
+        blk.appendChild(ch); inner.appendChild(blk);
+      }
+      // v17：接線圖上只有 KKS 的元件（KKS 編號卡）開頭相符的
+      const ks = Array.isArray(res.ksg) ? res.ksg : [];
+      if (ks.length) {
+        const blk = U.h('div', { class: 'nf-kks' }, U.h('p', {}, '接線圖上的 KKS（AMS 沒有的元件）：'));
+        const ch = U.h('div', { class: 'nf-chips' });
+        for (const it of ks) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + (it.alias || ''))));
         blk.appendChild(ch); inner.appendChild(blk);
       }
       // 兩邊都沒有包含這個字串的鍵：列打錯字的相近鍵（S/5、O/0 這類易混字元、差一兩個字）。只列出，不自動開
@@ -2185,6 +2278,7 @@
       const used = ix ? this.searchedList(ix, g.kind) : [];
       if (g.kind === 'hmi') { this.fillHmi(sec, ix, grid, mode, true); return; }   // true＝摘要組（不收合、只有畫面標頭＋影像；四個欄位與逐格來源在完整資料區）
       if (g.kind === 'pid') { this.fillPid(sec, ix, grid, mode, true); return; }   // true＝摘要組（圖紙標頭＋PDF 連結＋影像；五個欄位與逐格來源在完整資料區）
+      if (g.kind === 'wire') { grid.innerHTML = '<p class="muted cl-empty">載入中…</p>'; this.fillWireGroup(grid, mode); return; }   // v17：card/wire-NN.json（不在 aux 分塊裡）
       if (g.kind === 'docindex' || g.kind === 'docsearch') {
         if (!sec || !(sec.rows || []).length) {
           grid.appendChild(U.h('p', { class: 'muted cl-empty' }, g.kind === 'docsearch' ? `查無（${used.map((x) => x.id).join('、') || '全文索引'}：位號／序號都沒有命中）` : `查無（已比對 ${used.length} 份文件的 PDF 文字層）`));
@@ -2828,7 +2922,8 @@
     pidRelease(aux, ix) {
       if (!D.revokeImages) return;
       const keep = [];
-      for (const r of (aux && aux.sec && aux.sec.pid && aux.sec.pid.rows) || []) {
+      const wk = this.wireKeep && this.wireKeep.res === this.res ? this.wireKeep.rows : [];   // v17：接線路徑塊／KKS 編號卡用到的圖紙
+      for (const r of ((aux && aux.sec && aux.sec.pid && aux.sec.pid.rows) || []).concat(ix ? wk : [])) {
         const ex = r.length > 4 && r[4];
         if (ex && ex.marks) { const f = this.pidMeta(ix, ex).file; if (f) keep.push(f); }
       }

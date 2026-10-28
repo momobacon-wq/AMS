@@ -583,6 +583,17 @@
     const ixm = Object.assign({}, ix, { docs: Object.assign({}, ix.docs || {}, j.docs || {}), doc_no: Object.assign({}, ix.doc_no || {}, j.doc_no || {}) });
     return { ix: ixm, aux: (j.by_alias && j.by_alias[alias]) || null };
   };
+  /** v17：AMS 設備卡的接線路徑塊（card/wire-NN.json，NN＝那台設備在 aux 的分塊號；CONTRACT.md「v17」）→ {ix（併上那一檔的 docs）, w: {wp, wpx}|null}。
+   *  那個分塊沒有任何設備有接線路徑時 index.wire.files[k] 是 null，不下載。 */
+  D.loadWire = async function (alias, path) {
+    const ix = await D.loadAuxIndex(path);
+    const k = ix && ix.alias ? ix.alias[alias] : undefined;
+    const f = k != null && ix.wire && ix.wire.files ? ix.wire.files[k] : null;
+    if (!f) return { ix, w: null };
+    const j = await D.fetchJSON(f);
+    const ixm = Object.assign({}, ix, { docs: Object.assign({}, ix.docs || {}, j.docs || {}) });
+    return { ix: ixm, w: (j.by_alias && j.by_alias[alias]) || null };
+  };
 
   /* 查詢卡的影像檔：圖控 HMI 畫面縮圖（card/hmi/<畫面>.json）與 P&ID 圖紙（card/pid/<圖紙鍵>.json），都是 {w,h,mime,b64}
    * （CONTRACT.md「圖控 HMI 畫面位置」「P&ID 圖面位置」）：走與其他資料檔同一條解密路徑（D.fetchJSON → AES-GCM → gunzip），
@@ -1404,6 +1415,74 @@
       if (out.length < limit) out.push(it);
     }
     return out;
+  };
+  /* ---------- KKS 編號卡（card/kkstag.json；tools/db/build_card_aux.py kks_wire_build，CONTRACT.md「v17」）----------
+   * 接線圖上只有 KKS、AMS 沒有的元件（HRSG／BOP 的開關、閥、馬達、電氣狀態點…）：打設備 KKS 或訊號 KKS（G11LAE12QM004XB61、=G11LBA30QM502XG01）
+   * 就開 KKS 編號卡（接線路徑、迴路圖）。只在 db 站（card/index.json 有 kkstag）；查詢卡開啟時開始抓（與 getag 同一套狀態）。
+   * 比對一律整串相等（去分隔符、不分大小寫）：訊號 KKS 先去掉訊號尾碼（XB61、AXG52）再比，不做「包含」。 */
+  const KK = (AMS.kkstag = { state: 'idle', K: null, slow: false, errAt: 0 });
+  KK.settled = () => KK.state === 'ready' || KK.state === 'none' || KK.state === 'error';
+  KK.pending = () => !!D.manifest && !KK.slow && (KK.state === 'idle' || KK.state === 'loading');
+  KK.ready = () => KK.state === 'ready' || KK.state === 'none';
+  KK.load = function () {
+    if (KK._p) return KK._p;
+    if (!D.manifest) return Promise.resolve(null);
+    if (KK.state === 'error' && Date.now() - KK.errAt < 15000) return Promise.resolve(null);
+    const aux = D.manifest.aux && D.manifest.aux.card;
+    if (!aux || !aux.index) { KK.state = 'none'; KK._p = Promise.resolve(null); return KK._p; }
+    KK.state = 'loading';
+    KK._p = (async () => {
+      const ix = await D.loadAuxIndex(aux.index);
+      const f = ix && ix.kkstag && ix.kkstag.files && ix.kkstag.files[0];
+      if (!f) { KK.state = 'none'; return null; }
+      KK.build(await D.fetchJSON(f));
+      KK.state = 'ready';
+      return KK.K;
+    })().catch(() => { KK._p = null; KK.state = 'error'; KK.errAt = Date.now(); return null; });
+    return KK._p;
+  };
+  KK.wait = function (ms) {
+    if (KK.settled()) return Promise.resolve(KK.K);
+    return Promise.race([KK.load(), new Promise((r) => setTimeout(() => r(undefined), ms))]).then((k) => {
+      if (k === undefined) { KK.slow = true; return null; }
+      return k;
+    });
+  };
+  KK.build = function (j) {
+    const keys = new Map();
+    (j.entries || []).forEach((e, i) => { e._c = IX.compact(e.t); keys.set(e._c, i); });
+    KK.K = { j, keys };
+    return KK.K;
+  };
+  const KK_SIG = /^([A-Z]\d\d[A-Z]{3}\d\d[A-Z]{2}\d{3})([A-Z]?X[A-Z]\d\d)?$/;   // 設備 KKS 13 碼＋訊號尾碼（同 wire_epc.DEV_RE）
+  /** 輸入字串 → { i:條目序號, via:'key'|'signal', sig:訊號 KKS, raw } | null */
+  KK.hit = function (q) {
+    const K = KK.K; if (!K) return null;
+    const c = IX.compact(q); const m = KK_SIG.exec(c);
+    if (!m) return null;
+    const i = K.keys.get(m[1]);
+    return i == null ? null : { i, via: m[2] ? 'signal' : 'key', sig: m[2] ? c : '', raw: String(q).trim() };
+  };
+  /** 打一半的 KKS → 開頭相符的 KKS 編號卡條目（至少 6 個字元；項目形狀同 IX.suggest） */
+  KK.suggest = function (q, limit) {
+    limit = limit || 8;
+    const K = KK.K; const out = [];
+    const c = IX.compact(q);
+    if (!K || c.length < 6) return out;
+    for (const e of K.j.entries) {
+      if (e._c.startsWith(c) || c.startsWith(e._c)) out.push({ key: e.t, src: 'KKS（接線圖）', alias: [e.u, e.ds].filter(Boolean).join(' · '), tag: '', m: 'pre' });
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+  /** KKS 編號卡的接線路徑（card/kkstag-loc-NN.json，每 per 個條目一檔）：條目序號 → {ix（併上那一檔的 docs）, lo: {wp, wpx}|null} */
+  KK.loadLoc = async function (i, ixPath) {
+    const ix = await D.loadAuxIndex(ixPath);
+    const kx = ix && ix.kkstag;
+    const f = kx && kx.files ? kx.files[1 + Math.floor(i / (kx.per || 300))] : null;
+    if (!f) return { ix, lo: null };
+    const j = await D.fetchJSON(f);
+    return { ix: Object.assign({}, ix, { docs: Object.assign({}, ix.docs || {}, j.docs || {}) }), lo: (j.by_i || {})[String(i)] || null };
   };
   /** 打錯字的相近鍵（AMS 位號索引＋氣動閥清單）。只當建議：呼叫端只在「完全相符／開頭／包含」都沒有結果時才用，永遠不自動開。
    *  先把易混字元視為相同（S/5、O/Q/0、I/L/1、B/8、Z/2），再算編輯距離（含相鄰對調）：≤1；比的那一段長度 ≥9 可到 2；只回傳最接近的那一層，清單每列只出一筆。

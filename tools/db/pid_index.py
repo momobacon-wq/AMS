@@ -521,8 +521,19 @@ def sheet_grid(sh):
     return None
 
 
+def tags_from_file(path):
+    """v17：--tags-file 的位號清單 → {位號: ''}（協定欄留空）。接受 JSON 清單，或 wire_kks.json（paths 的鍵 'KKS|<KKS>'；AMS 現行位號另有自己的索引，
+    這裡由呼叫端決定要不要排除——rebuild 給的是「KKS 編號卡」那一批，AMS 沒有的 KKS）。"""
+    import json as _json
+    with open(path, encoding='utf-8') as f:
+        j = _json.load(f)
+    if isinstance(j, dict):
+        j = j.get('tags') or [k.split('|', 1)[1] for k in (j.get('paths') or {}) if k.startswith('KKS|')]
+    return {str(t).strip().upper(): '' for t in j if str(t).strip()}
+
+
 def build(a, log):
-    tags_all = L.load_ams(a.sqlite)
+    tags_all = tags_from_file(a.tags_file) if getattr(a, 'tags_file', None) else L.load_ams(a.sqlite)   # v17：KKS 編號卡另跑一份（--tags-file）
     base = sorted(t for t in tags_all if not t.startswith('JK'))
     log('AMS 現行位號 %d（JK* %d，母數 %d；HART %d／FF %d）' % (
         len(tags_all), len(tags_all) - len(base), len(base),
@@ -808,6 +819,7 @@ def main():
     ap.add_argument('--no-superseded', action='store_true', help='不掃舊版次／副本（省約 2 秒；stats.superseded_only 會是 null）')
     ap.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1), help='抽文字層用幾個行程（只有快取要補時才用到）')
     ap.add_argument('--out', default=paths.PID_JSON, help='輸出 pid.json（預設 paths.PID_JSON）')
+    ap.add_argument('--tags-file', default=None, help='v17：改用這份位號清單（JSON 清單或 wire_kks.json）代替 AMS 現行位號——KKS 編號卡的 P&ID 位置；配 --out 寫到別的檔')
     ap.add_argument('--worklist', metavar='FILE', help='另寫 OCR 工作清單 JSON（給 tools/db/pid_ocr.py）')
     ap.add_argument('--verify', metavar='TAG', nargs='+', help='另印這些位號的命中並畫疊框圖')
     ap.add_argument('--verify-dir', default=VERIFY_DIR, help='疊框圖輸出目錄（預設 %%LOCALAPPDATA%%\\AMS\\pidverify）')
