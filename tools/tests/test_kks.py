@@ -240,7 +240,7 @@ def run(ctx):
         page.goto(ctx['base'] + '/db/#/card/G11MSA30GH001')
         page.wait_for_selector('.wire-cov', timeout=30000)
         la = page.evaluate(LOOP_ALL)
-        ck('G11MSA30GH001：端子表帶字母尾碼的訊號（…001A、B、C）併回設備計數', la['cov'].startswith('端子表 7 個訊號') or la['cov'].startswith('端子表 8 個訊號'), la['cov'])
+        ck('G11MSA30GH001：端子表帶字母尾碼的訊號（…001A、B、C）併回設備計數', la['cov'].startswith('端子表 7 個訊號，迴路圖畫出 7 個'), la['cov'])
         fix = page.evaluate("""async () => { const K = await AMS.kkstag.load(); const E = K ? K.j.entries : []; const of = async (t) => { const i = E.findIndex((e) => e.t === t); return i >= 0 ? (await AMS.kkstag.loadLoc(i)).lo : null; };
           const a = await of('G11HBK11UC102'); const b = await of('G11LAE12QM402'); const c = await of('C10LCC10BS004'); const d = await of('G11HBK11UC101');
           return { a: a ? a.wp.t.map((r) => r[3]) : null, b: b ? [b.wp].concat(b.wpx || []).flatMap((w) => w.d.sl || []) : null, c: !!(c && c.wp), d: !!(d && d.wp) }; }""")

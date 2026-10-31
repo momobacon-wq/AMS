@@ -677,7 +677,7 @@ def identify_bare(g, unit, sysset, kks_of):
         if mp:
             for s in sysset:
                 for k in (kks_of.get(s) or {}).get(kks_core(mp.group(1)), ()):
-                    if k.endswith(mp.group(2)):
+                    if re.search(mp.group(2) + r'(?:/|$)', k):     # 鍵可能是 'ST-GEN|39VE-1R/T'（一個編號涵蓋 R、T）
                         hits.setdefault(k, ('kks', y))
             continue
         if KKS_BARE.match(t):
