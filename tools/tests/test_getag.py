@@ -407,7 +407,8 @@ WP_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'
     loop: w.querySelectorAll('details.wire-loop').length, loopOpen: w.querySelectorAll('details.wire-loop[open]').length, loopSvg: w.querySelectorAll('.wire-loop svg.loop-svg').length,
     loopTxt: [...w.querySelectorAll('.wire-loop svg.loop-svg')].map((x) => [...x.querySelectorAll('text')].map((t) => t.textContent).join(' ')).join('｜').slice(0, 8000),
     loopW: (() => { const x = w.querySelector('details.wire-loop[open] svg.loop-svg'); return x ? Math.round(x.getBoundingClientRect().width) : 0; })(),
-    printBtn: w.querySelectorAll('.loop-print-btn').length, svgBtn: w.querySelectorAll('.loop-svg-btn').length }; }"""
+    printBtn: w.querySelectorAll('.loop-print-btn').length, svgBtn: w.querySelectorAll('.loop-svg-btn').length,
+    zoomBtn: w.querySelectorAll('.loop-zoom-btn').length, desc: [...w.querySelectorAll('.wire-loop svg.loop-svg text.lp-d')].map((t) => t.textContent).slice(0, 6) }; }"""
 # 「列印這張迴路圖」：把 window.print 換成記錄器——按下時 #loop-print 裡要有這張 SVG、body 要有 print-loop；afterprint 後兩者都要收掉
 LOOP_PRINT = """() => { const b = document.querySelector('.ge-only .ge-loc .ge-wire .loop-print-btn'); if (!b) return null; const out = {};
   const orig = window.print; window.print = () => { const p = document.getElementById('loop-print');
@@ -484,6 +485,8 @@ def ge_wp(page, ctx, ck):
        bool(st) and st['loop'] == 1 and st['loopOpen'] == 1 and st['loopSvg'] == 1 and st['loopW'] >= 300 and all(x in st['loopTxt'] for x in ('VP-1X', '-VDC', 'TVBA', 'N24V02', '✓'))
        and all(x in st['loopTxt'] for x in ('LP-S10-VP-1X', 'Bently 3500 RACK 1 SLOT 8 CH2', '供電：', '迴路圖編號'))
        and st['printBtn'] == 1 and st['svgBtn'] == 1, st and {k: st[k] for k in ('loop', 'loopOpen', 'loopSvg', 'loopW', 'printBtn', 'svgBtn')})
+    ck('%s: v18 loop diagram has the 「⤢ 放大檢視」 button and blue Mark VIe variable descriptions from the controller config' % WP_TAG,
+       bool(st) and st['zoomBtn'] == 1 and len(st['desc']) >= 1, st and (st['zoomBtn'], st['desc']))
     pr = page.evaluate(LOOP_PRINT)
     ck('%s: 「列印這張迴路圖」 puts only this SVG into #loop-print with body.print-loop, and cleans both up after printing' % WP_TAG,
        bool(pr) and pr.get('svg') == 1 and pr.get('cls') and 'VP-1X' in pr.get('txt', '') and pr.get('after'), pr)

@@ -2339,6 +2339,30 @@ def build(a, log):
                                        '跳線實際插在哪裡請以現場為準：' + '；'.join(cfs[:4]) + (('（另 %d 則）' % (len(cfs) - 4)) if len(cfs) > 4 else ''),
                                        'signal-atlas 控制器索引（I/O 組態的跳線與選項欄位）；Mark VIe 端子板手冊（迴路圖訊號欄附頁碼）'])
         con.close()
+    # ---- 2c. 變數說明（v18）：迴路圖 Mark VIe 每個點底下印控制器組態的變數說明與訊號 KKS（ToolboxST 的 Description、Alias），看得出是什麼訊號；
+    #      vd＝{變數: [Alias, Description]}，收這條路徑 io 裡的變數與 FF 段變數（ff.vars／dev_vars：沒有 io_point，照機組的控制器查）；組態的寫法照抄，不翻譯、不補字
+    if a.dcdas and os.path.exists(a.dcdas):
+        import sqlite3
+        con = sqlite3.connect('file:%s?mode=ro' % a.dcdas.replace('\\', '/'), uri=True)
+        vdesc, fdesc = {}, {}
+        for ctrl, name, desc_, alias_ in con.execute('select v.ctrl, v.name, v.description, v.alias from io_point p join variable v on v.id = p.var_id'):
+            vdesc.setdefault((ctrl, name), [alias_ or '', ' '.join((desc_ or '').split())])
+        ffn = {v for plist in recs.values() for r in plist for v in ((r.get('ff') or {}).get('vars') or []) + ((r.get('ff') or {}).get('dev_vars') or [])}
+        if ffn:
+            unit_of = {c: u for u, v in UNIT_CTRLS.items() for c in v}
+            for ctrl, name, desc_, alias_ in con.execute('select ctrl, name, description, alias from variable where ctrl in (%s)' % ','.join('?' * len(unit_of)), list(unit_of)):
+                if name in ffn:
+                    fdesc.setdefault((unit_of[ctrl], name), [alias_ or '', ' '.join((desc_ or '').split())])
+        con.close()
+        for plist in recs.values():
+            for r in plist:
+                vd_ = {x[5]: vdesc[(x[0], x[5])] for x in r.get('io') or [] if x[5] and any(vdesc.get((x[0], x[5])) or ())}
+                for v in ((r.get('ff') or {}).get('vars') or []) + ((r.get('ff') or {}).get('dev_vars') or []):
+                    if v not in vd_ and any(fdesc.get((r['unit'], v)) or ()):
+                        vd_[v] = fdesc[(r['unit'], v)]
+                if vd_:
+                    r['vd'] = vd_
+                    st['io_var_desc'] += len(vd_)
     # ---- 3. 接線箱平面位置（汽機：一號機汽機房儀器與 JB 位置圖）
     jb_where = {}
     if 'jbloc' in tx:

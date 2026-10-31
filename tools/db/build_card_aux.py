@@ -2621,10 +2621,12 @@ def ge_wire_loop(r, w, pk, pname, room, where, jls, kks=False):
     fm＝[元件…]（這一條是 FF 段保護器本身：接在這一段的元件）；pg＝[接線圖 PDF 頁, Sheet, 共幾張]；
     sb＝[IS 屏蔽排, OS 屏蔽排]（接線圖盤欄底部的說明：各芯屏蔽接 IS 排、電纜總屏蔽接 OS 排再接地）；kw＝接線圖說明格寫的 KKS（與 kk 不同時）；
     v16：md＝中間設備 [[在哪（jb 箱內／field 另一個箱子／self 這個編號本身在箱內／pre 上游）, 名稱, 說明, 進線端, 出線端, 等級]…]、mg＝沒有圖的那一段、m1＝只有一條光纖進線；
-    bx＝3500 並聯分支 [種類, 機架, 槽, 通道, 模組, 接頭, 另一種讀法, 等級]；sg＝訊號型式與供電 [[點, 訊號, 供電, 等級]…]。"""
+    bx＝3500 並聯分支 [種類, 機架, 槽, 通道, 模組, 接頭, 另一種讀法, 等級]；sg＝訊號型式與供電 [[點, 訊號, 供電, 等級]…]；
+    v18：vd＝{變數: [訊號 KKS（組態的 Alias）, 組態的變數說明]}（迴路圖 Mark VIe 每個點底下印；FF 段變數也有）；ds 不再截在 160 字（迴路圖照字寬換行）；
+    sg 收全部的點（原本前 4 個）。"""
     rf, rp = ge_wire_rooms(r, w)
     rm = r.get('room') or {}
-    d = {'kk': '' if kks else (r.get('kks') or ''), 'ds': ' / '.join(dict.fromkeys((w.get('drawn') or '').split(' / ')))[:160], 'fc': w['field_cable'], 'fs': w['field_spec'],
+    d = {'kk': '' if kks else (r.get('kks') or ''), 'ds': ' / '.join(dict.fromkeys((w.get('drawn') or '').split(' / '))), 'fc': w['field_cable'], 'fs': w['field_spec'],
          'jb': w['jb'], 'jd': w['jb_desc'], 'jt': '' if w['jb_tb'] == '*' or r['mode'] == 'direct' or ge_wire_own_tb(r['cond']) else w['jb_tb'], 'px': w['prox'], 'jl': jls, 'tc': w['trunk'], 'ts': w['trunk_spec'], 'tl': rm.get('len') or '',
          'rf': rf, 'rp': rp, 'pk': pk, 'pn': pname, 'pr': room, 'cp': where,
          'io': [list(x[:6]) + [x[7] if len(x) > 7 else ''] for x in r.get('io') or []], 'pg': [w['page'], w['sheet'], w['of']],
@@ -2643,7 +2645,9 @@ def ge_wire_loop(r, w, pk, pname, room, where, jls, kks=False):
                    ('RACK %s SLOT %s CH%s' % (alt.get('rack', '?'), alt.get('slot', '?'), alt.get('ch', '?'))) if alt else '', bx.get('g') or '',
                    bx.get('via') or '', re.sub(r'（[^）]*）$', '', bx.get('panel') or ''), bx.get('aw') or '']
     if r.get('sig'):
-        d['sg'] = [x[:4] for x in r['sig'][:4]]
+        d['sg'] = [x[:4] for x in r['sig']]                               # v18：迴路圖收全部的點（摘要表那一列仍最多 4 個）
+    if r.get('vd'):
+        d['vd'] = r['vd']
     ff = r.get('ff') or {}
     if r['mode'] == 'ff' and ff.get('seg'):
         d['ff'] = [ff['seg'], ff.get('port') or '', ff.get('s') or '', ff.get('vars') or ff.get('dev_vars') or []]

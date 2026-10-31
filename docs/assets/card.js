@@ -71,6 +71,9 @@
   const PID_NO = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫';
   // 燈箱縮放上限（每個影像像素幾個 CSS 像素）：圖紙上的位號字高約 12 個影像像素，放到 3 倍已經比紙本大
   const PID_ZMAX = 3;
+  // 迴路圖燈箱（openLoopLightbox）的縮放上限：圖上的字 8.6–9.5 個單位高，放到 4 倍約 35–38 個 CSS 像素
+  const LOOP_ZMAX = 4;
+  let loopCtx = null;   // loopSvg 量字寬用的 canvas（共用一個）
   // OCR 辨識信心低於這個值就用紅字（pid_index 的採用門檻是 0.75；看的是這張圖上各處標記的最低值 extra.conf_min，不是只看 ①）
   const PID_LOW = 0.8;
   // 引用（build_card_aux 的 note／notes 代碼 1～4）：圖上「提到」這支位號的地方，不是儀器符號的位置。標頭短籤用 PID_REF（整句在
@@ -1164,7 +1167,8 @@
     /** 迴路圖（v15，CONTRACT.md「v15」）：一條接線路徑畫成一張 ISA-5.4 式單線圖——元件 → 現場端子 → 現場電纜 → 接線箱端子 → 幹線（芯色、電纜號、規格、長度）
      *  → 電子室盤端子 → Mark VIe 腳位（✓≈✗ 與表格同一套）。資料全取自卡上這條路徑（wp.d 分開欄位、wp.t 每條芯、wp.f 燃機 GE 接線表、wp.n 註記、
      *  wp.rows 出處圖紙），不另載檔。SVG 用字串組（U.h 建的是 HTML 元素，畫不出 SVG）；「列印這張迴路圖」把它放進 body 底下的 #loop-print 再 window.print
-     *  （app.css 的 @media print 只留它、A4 橫向），「下載 SVG」存成獨立檔（樣式寫在 SVG 自己的 <style>，選擇器都掛在 .loop-svg 底下，不影響頁面）。 */
+     *  （app.css 的 @media print 只留它、A4 橫向），「下載 SVG」存成獨立檔（樣式寫在 SVG 自己的 <style>，選擇器都掛在 .loop-svg 底下，不影響頁面）。
+     *  v18：「⤢ 放大檢視」或直接點圖，開可縮放、拖曳的燈箱（openLoopLightbox；手機、平板雙指縮放）。 */
     fillLoop(wp, el, tag, open) {
       if (!(wp.t || []).length) return;
       const svg = this.loopSvg(wp, tag);
@@ -1187,39 +1191,259 @@
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       } }, '下載 SVG');
+      const zb = U.h('button', { type: 'button', class: 'btn xs loop-zoom-btn' }, '⤢ 放大檢視');
+      const fig = U.h('div', { class: 'loop-fig', html: svg });
+      zb.addEventListener('click', () => this.openLoopLightbox(svg, tag, zb));
+      fig.addEventListener('click', (e) => {   // 點卡上的圖：燈箱以點的地方為中心開
+        const r = (fig.querySelector('svg') || fig).getBoundingClientRect();
+        this.openLoopLightbox(svg, tag, zb, r.width > 0 && r.height > 0 ? [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height] : null);
+      });
       el.appendChild(U.h('details', Object.assign({ class: 'wire-loop' }, open ? { open: true } : {}),
         U.h('summary', {}, '迴路圖（ISA-5.4 式單線圖：元件 → 接線箱端子 → 幹線 → 盤端子 → Mark VIe 腳位）'),
-        U.h('div', { class: 'loop-tools' }, pr, dl, U.h('span', { class: 'muted small' }, '依接線圖、電纜表與控制器組態由程式整理，本圖未經簽核；文件互相矛盾的地方在圖下方 ⚠ 註記')),
-        U.h('div', { class: 'loop-fig', html: svg })));
+        U.h('div', { class: 'loop-tools' }, zb, pr, dl, U.h('span', { class: 'muted small' }, '依接線圖、電纜表與控制器組態由程式整理，本圖未經簽核；文件互相矛盾的地方在圖下方 ⚠ 註記')),
+        fig));
     }
 
-    /** fillLoop 的 SVG 字串。版面（寬 1120）：標題列 → 五區（現場｜接線箱｜幹線｜電子室盤｜Mark VIe，虛線分隔）→ 一條芯一列（芯色寫在幹線上；屏蔽線畫虛線，
+    /** 迴路圖放大（v18；手機、平板）：外殼與操作同 P&ID 燈箱（openPidLightbox）——雙指或滾輪縮放、一指拖曳、＋／−／全圖／原尺寸、
+     *  鍵盤 ＋ − 0 與方向鍵。舞台就是這張 SVG：縮放改它的寬高（向量圖放大仍清楚，不用 transform 放大點陣）。
+     *  開啟倍率（zHome）：寬度塞滿；手機直拿塞滿寬度字只剩 3px 的，改成高度塞滿（最多原尺寸）、從左上（現場那一端）看起；點卡上的圖開的，以點的地方為中心。
+     *  連點兩下在開啟倍率與「放大到字夠大」之間切換（iOS 的 dblclick 不可靠，自己用 Pointer Events 判斷）。點一下圖上的字：說明列顯示那一段的全文
+     *  （loopSvg 換行的每一行都帶 data-full；Mark VIe 同一列的變數與藍字說明共用一段），同一段的每一行標橘色；說明列高度固定（提示與全文共用一格），點字時圖不會跳。
+     *  只有點到燈箱外框（click，不是 pointerdown）才關，手指從螢幕邊緣起手不會誤關；其餘關閉流程同 openPidLightbox。 */
+    openLoopLightbox(svg, tag, opener, at) {
+      const ov = U.h('div', { class: 'modal hmi-lb pid-lb loop-lb', role: 'dialog', 'aria-modal': 'true', 'aria-label': '迴路圖放大：' + tag });
+      const panel = U.h('div', { class: 'hmi-lb-panel' });
+      const B = (act, text, label) => U.h('button', { type: 'button', class: 'pid-tb', 'data-z': act, 'aria-label': label, title: label }, text);
+      const zoomv = U.h('span', { class: 'pid-zoomv', 'aria-hidden': 'true' });
+      const close = U.h('button', { class: 'icon-btn modal-x', type: 'button', 'aria-label': '關閉放大檢視' }, '✕');
+      const tools = U.h('div', { class: 'pid-tools', role: 'toolbar', 'aria-label': '迴路圖縮放' },
+        B('out', '−', '縮小'), B('in', '＋', '放大'), B('fit', '全圖', '縮到看得見整張圖'), B('one', '原尺寸', '原尺寸（圖上一個單位＝一個 CSS 像素）'), zoomv, close);
+      const stage = U.h('div', { class: 'pid-stage loop-stage', html: svg });
+      const view = U.h('div', { class: 'pid-view big loop-view', tabindex: '0', role: 'group',
+        'aria-label': '迴路圖：拖曳平移，滾輪或雙指縮放，點字看全文；鍵盤 ＋ − 縮放、0 看全圖、方向鍵平移' }, stage);
+      const vb = stage.querySelector('svg').viewBox.baseVal; const SW = vb.width || 1120; const SH = vb.height || 600;
+      const HINT = U.isTouch() ? '雙指縮放、拖曳移動；點兩下放大／還原；點一下圖上的字，這裡顯示全文'
+        : '滾輪或雙指縮放、拖曳移動；連點兩下放大／還原；點一下圖上的字，這裡顯示全文';
+      const pick = U.h('div', { class: 'loop-pick hint', 'aria-live': 'polite' }, HINT);
+      const setPick = (s) => { pick.textContent = s || HINT; pick.classList.toggle('hint', !s); pick.scrollTop = 0; };
+      const cap = U.h('div', { class: 'hmi-lb-cap loop-cap' }, U.h('span', { class: 'hmi-t' }, '迴路圖 ' + tag), pick);
+      panel.append(tools, view, cap);
+      ov.appendChild(panel);
+      document.body.appendChild(ov);
+      document.body.classList.add('modal-open');
+
+      // 狀態同 openPidLightbox：z＝圖上一個單位幾個 CSS 像素；cx／cy＝視窗正中央對到圖的哪一點（0~1）
+      const st = { z: 1, cx: 0.5, cy: 0.5 };
+      let raf = 0; let closed = false; let tok = null;
+      const cw = () => view.clientWidth; const ch = () => view.clientHeight;
+      const zFit = () => Math.min(cw() / SW, ch() / SH) || 1;
+      const zMax = () => Math.max(LOOP_ZMAX, zFit());
+      const zHome = () => { const zw = cw() / SW; return zw >= 0.6 || cw() >= ch() ? Math.max(zFit(), Math.min(1, zw)) : Math.max(zw, Math.min(1, ch() / SH)); };
+      const apply = () => {
+        raf = 0;
+        const w = cw(); const h = ch();
+        if (!(w > 0 && h > 0)) return;
+        st.z = Math.min(zMax(), Math.max(zFit(), st.z));                    // 轉向後視窗變了：倍率夾回這個視窗的範圍
+        const W = SW * st.z; const H = SH * st.z;
+        let left = w / 2 - st.cx * W; let top = h / 2 - st.cy * H;
+        left = W <= w ? (w - W) / 2 : Math.min(0, Math.max(w - W, left));   // 圖比視窗小就置中；比視窗大就不讓圖邊縮進視窗
+        top = H <= h ? (h - H) / 2 : Math.min(0, Math.max(h - H, top));
+        st.cx = (w / 2 - left) / W; st.cy = (h / 2 - top) / H;
+        Object.assign(stage.style, { width: W.toFixed(2) + 'px', height: H.toFixed(2) + 'px', left: left.toFixed(2) + 'px', top: top.toFixed(2) + 'px' });
+        zoomv.textContent = Math.round(st.z * 100) + '%';
+      };
+      const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
+      /** 以視窗內的 (px, py) 為定點縮放 f 倍：那一點底下的圖不動。位置由目前的中心與倍率算（apply 之後 st.cx／cy 就是實際位置）；
+       *  不讀上一次 apply 畫出來的位置——兩指開合時同一個影格會先後來兩根手指的 pointermove，第二次呼叫時那還是上一個倍率的位置，放大會一路偏到左上 */
+      const zoomAt = (f, px, py) => {
+        const z1 = Math.min(zMax(), Math.max(zFit(), st.z * f));
+        const fx = st.cx + (px - cw() / 2) / (SW * st.z); const fy = st.cy + (py - ch() / 2) / (SH * st.z);
+        st.z = z1; st.cx = fx + (cw() / 2 - px) / (SW * z1); st.cy = fy + (ch() / 2 - py) / (SH * z1);
+        schedule();
+      };
+      const goFit = () => { st.z = zFit(); st.cx = 0.5; st.cy = 0.5; schedule(); };
+      st.z = zHome();
+      if (at) { st.cx = at[0]; st.cy = at[1]; } else { st.cx = cw() / 2 / (SW * st.z); st.cy = ch() / 2 / (SH * st.z); }   // 從左上看起（apply 夾邊、比視窗小的置中）
+      apply();
+
+      const centre = () => [cw() / 2, ch() / 2];
+      tools.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-z]'); if (!b) return;
+        const a = b.dataset.z; const c = centre();
+        if (a === 'in') zoomAt(1.5, c[0], c[1]); else if (a === 'out') zoomAt(1 / 1.5, c[0], c[1]);
+        else if (a === 'fit') goFit(); else if (a === 'one') zoomAt(1 / st.z, c[0], c[1]);
+      });
+      const local = (e) => { const r = view.getBoundingClientRect(); return [e.clientX - r.left - view.clientLeft, e.clientY - r.top - view.clientTop]; };
+      view.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const p = local(e);
+        zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), p[0], p[1]);
+      }, { passive: false });
+      // 點一下圖上的字：說明列顯示全文、同一段標橘色。手指比字粗：點的地方沒有字時，取周圍 10px 內字框最小的那段
+      const showText = (x, y) => {
+        let hit = document.elementFromPoint(x, y);
+        hit = hit && hit.closest ? hit.closest('text') : null;
+        if (!hit || !stage.contains(hit)) {
+          hit = null; let ba = Infinity;
+          for (const el of stage.querySelectorAll('text')) {
+            const r = el.getBoundingClientRect();
+            if (x >= r.left - 10 && x <= r.right + 10 && y >= r.top - 10 && y <= r.bottom + 10 && r.width * r.height < ba) { hit = el; ba = r.width * r.height; }
+          }
+        }
+        stage.querySelectorAll('text.lp-pick').forEach((el) => el.classList.remove('lp-pick'));
+        if (!hit) { setPick(''); return; }
+        const full = hit.getAttribute('data-full');
+        (full ? Array.from(stage.querySelectorAll('text[data-full]')).filter((el) => el.getAttribute('data-full') === full) : [hit]).forEach((el) => el.classList.add('lp-pick'));
+        const ti = hit.querySelector('title');
+        setPick((full || (ti ? ti.textContent : hit.textContent)).trim());
+      };
+      // Pointer Events（滑鼠、觸控、觸控筆同一條路）：一指拖曳平移、兩指開合縮放（以兩指中點為定點）；沒有移動的一下＝點字，兩下＝放大／還原
+      const pts = new Map(); let pinch = 0; let tap = null; let last = null;
+      const two = () => { const a = Array.from(pts.values()); return { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; };
+      view.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        try { view.setPointerCapture(e.pointerId); } catch (err) { /* 指標已經放開 */ }
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        tap = pts.size === 1 ? { x: e.clientX, y: e.clientY, t: e.timeStamp } : null;
+        if (pts.size === 2) pinch = two().d;
+        view.classList.add('drag');
+      });
+      view.addEventListener('pointermove', (e) => {
+        const p = pts.get(e.pointerId); if (!p) return;
+        const dx = e.clientX - p.x; const dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+        if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap = null;
+        if (pts.size === 1) { st.cx -= dx / (SW * st.z); st.cy -= dy / (SH * st.z); schedule(); }
+        else if (pts.size === 2) {
+          const t = two(); const r = view.getBoundingClientRect();
+          if (pinch > 0 && t.d > 0) zoomAt(t.d / pinch, t.x - r.left - view.clientLeft, t.y - r.top - view.clientTop);
+          pinch = t.d;
+        }
+      });
+      const up = (e) => {
+        if (!pts.delete(e.pointerId)) return;
+        pinch = 0;
+        if (!pts.size) view.classList.remove('drag');
+        const tp = tap; tap = null;
+        if (e.type !== 'pointerup' || pts.size || !tp || e.timeStamp - tp.t > 500) return;
+        if (last && e.timeStamp - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 30) {
+          last = null;
+          const p = local(e); const zh = zHome(); const zt = Math.min(zMax(), Math.max(1.25, zh * 2));   // 放大到開啟倍率的兩倍（至少 125%），再點兩下回開啟倍率
+          zoomAt((st.z < zt * 0.95 ? zt : zh) / st.z, p[0], p[1]);
+        } else { last = { x: e.clientX, y: e.clientY, t: e.timeStamp }; showText(e.clientX, e.clientY); }
+      };
+      view.addEventListener('pointerup', up);
+      view.addEventListener('pointercancel', up);
+      // iOS Safari：觸控的兩指開合交給上面的 Pointer Events，整頁不要跟著縮放；iPad 接觸控板（沒有觸控指標）的開合只送 GestureEvent，照 e.scale 縮放
+      let gs = 1;
+      ov.addEventListener('gesturestart', (e) => { e.preventDefault(); gs = e.scale || 1; });
+      ov.addEventListener('gesturechange', (e) => {
+        e.preventDefault();
+        if (pts.size || !(e.scale > 0)) return;
+        const r = view.getBoundingClientRect();
+        const px = Number.isFinite(e.clientX) ? e.clientX - r.left - view.clientLeft : cw() / 2; const py = Number.isFinite(e.clientY) ? e.clientY - r.top - view.clientTop : ch() / 2;
+        zoomAt(e.scale / gs, px, py);
+        gs = e.scale;
+      });
+      ov.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const c = centre(); const sx = 80 / (SW * st.z); const sy = 80 / (SH * st.z);
+        if (e.key === '+' || e.key === '=') zoomAt(1.25, c[0], c[1]); else if (e.key === '-' || e.key === '_') zoomAt(0.8, c[0], c[1]);
+        else if (e.key === '0') goFit();
+        else if (e.key === 'ArrowLeft') { st.cx -= sx; schedule(); } else if (e.key === 'ArrowRight') { st.cx += sx; schedule(); }
+        else if (e.key === 'ArrowUp') { st.cy -= sy; schedule(); } else if (e.key === 'ArrowDown') { st.cy += sy; schedule(); }
+        else return;
+        e.preventDefault();
+      });
+      const ro = 'ResizeObserver' in window ? new ResizeObserver(() => schedule()) : null;   // 轉向、縮放瀏覽器視窗：維持同一個中心點重排
+      if (ro) ro.observe(view);
+
+      // 以下與 openPidLightbox 的關閉流程相同（✕／Esc／hashchange／ams-close／返回鍵）；背景只認點在外框上的 click
+      const done = (fromHistory) => {
+        if (closed) return;
+        closed = true;
+        if (ro) ro.disconnect();
+        if (raf) cancelAnimationFrame(raf);
+        ov.remove();
+        document.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('hashchange', onHash);
+        if (!document.querySelector('.modal')) document.body.classList.remove('modal-open');
+        if (!fromHistory) AMS.overlay.done(tok);
+        if (opener && opener.isConnected) { try { opener.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); done(false); return; }
+        if (e.key !== 'Tab') return;
+        const f = Array.from(ov.querySelectorAll('button, a[href], [tabindex="0"]')).filter((el) => el.getClientRects().length);
+        const i = f.indexOf(document.activeElement);
+        if (f.length && (e.shiftKey ? i <= 0 : i < 0 || i === f.length - 1)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+      };
+      const onHash = () => done(false);
+      close.addEventListener('click', () => done(false));
+      ov.addEventListener('click', (e) => { if (e.target === ov) done(false); });
+      ov.addEventListener('ams-close', () => done(false));
+      document.addEventListener('keydown', onKey, true);
+      window.addEventListener('hashchange', onHash);
+      tok = AMS.overlay.open('modal', () => done(true), true);   // force：平板／桌機按返回鍵也只關燈箱，不離開這張卡
+      close.focus();
+    }
+
+    /** fillLoop 的 SVG 字串。版面（寬 1120 起）：標題列 → 五區（現場｜接線箱｜幹線｜電子室盤｜Mark VIe，虛線分隔）→ 一條芯一列（芯色寫在幹線上；屏蔽線畫虛線，
      *  盤側沒畫端子的屏蔽線只畫到盤邊、不推測接地；這一頁盤欄底部印著屏蔽排說明的（d.sb：IS → B、OS → A 接地）照抄在盤框底部）→ 接線箱位置、房間、
      *  接線圖說明 → 出處、⚠ 註記、圖例。每條芯從元件圓圈上各自的點出線（共用一點會看成接在一起）。畫法依 wp.mode：direct 沒有接線箱；coax 箱內畫前置器；
      *  jbdev 沒有 GE 接線表的：電氣盤（MCC／PC 的格）把盤框從現場區延伸過來框住元件（接點在盤內），其他接線箱畫成元件直接接到箱內端子排（接線圖沒有現場電纜號）；ff 有 GE 接線表的：元件端子 → 中間的 FF 傳送器 → 支線接段保護器的埠 → 段匯流排 → 段幹線 → FFPC → 控制器 FF_IN_S 段；
-     *  ff 而這一條是段幹線本身的（段保護器，沒有段號）不畫元件圓圈。 */
+     *  ff 而這一條是段幹線本身的（段保護器，沒有段號）不畫元件圓圈。
+     *  v18（字不截斷）：先量字再定版面——Mark VIe 欄照最長的「螺絲 | 通道 | 變數」放寬（W 跟著變寬）、框頂只寫列上沒有的變數；接線箱、盤、Mark VIe 框頂的名稱
+     *  放不下就換行，多出來的行數把整張圖往下推（hx）；頁尾各欄（接線圖說明、位置、房間、訊號與供電、出處、註記）依實際字寬（canvas measureText，與 SVG 同一組
+     *  字型）換行、不限行數，各欄不跨過分區虛線；圓圈裡的 KKS 在系統碼後拆兩行。仍會截的只剩窄格裡的短字（帶 <title>，燈箱裡點字看全文）。
+     *  Mark VIe 每個變數第一次出現的那一列底下用藍字印控制器組態的變數說明與訊號 KKS（d.vd：ToolboxST 的 Description、Alias），有說明時列距加高。
+     *  換成多行的字每一行都帶 data-full（整段原文；Mark VIe 一列的變數與說明共用一段），燈箱點任何一行都看得到整段。 */
     loopSvg(wp, tag) {
       const d = wp.d || {}; const t = wp.t || []; const E = U.esc; const mode = wp.mode;
       const vw = (x) => { let n = 0; for (const c of String(x || '')) { const k = c.charCodeAt(0); n += k > 0x2e7f || (k >= 0x2190 && k <= 0x23ff) ? 2 : 1; } return n; };   // 字寬：全形、箭頭與數學符號算 2
       const cut = (x, n) => { x = String(x || ''); if (!n || vw(x) <= n) return x; let o = ''; for (const c of x) { if (vw(o + c) > n - 1) break; o += c; } return o + '…'; };
-      const wrap = (x, n, max) => {
-        const out = []; let cur = '';
-        for (const tk of String(x || '').match(/[⺀-￿]|[^⺀-￿\s]+\s*|\s+/g) || []) {
-          if (cur && vw(cur + tk.trimEnd()) > n) { out.push(cur.trimEnd()); cur = ''; }
+      // 量字寬：與 SVG 的 <style> 同一組字型（手機上是 PingFang／Menlo，量到的就是那台的寬）；沒有 canvas 時退回字數估
+      const SANS = '"Microsoft JhengHei","Noto Sans TC","PingFang TC",sans-serif'; const MONO = 'Consolas,Menlo,"Courier New",monospace';
+      const FS = '9.5px ' + SANS; const FB = '700 11px ' + SANS; const FXS = '8.6px ' + MONO; const FSM = '9.5px ' + MONO;
+      const ctx = loopCtx || (loopCtx = document.createElement('canvas').getContext('2d'));
+      const tw = (x, f) => { if (!ctx) return vw(x) * parseFloat(f.replace(/^700 /, '')) * 0.62; ctx.font = f; return ctx.measureText(String(x || '')).width; };
+      const cutW = (x, w, f) => { if (tw(x, f) <= w) return x; let o = ''; for (const c of x) { if (tw(o + c + '…', f) > w) break; o += c; } return o + '…'; };
+      // 依實際字寬換行：w＝可用寬（px）、f＝字型；max 只用在窄格。斷行單位是一個全形字或一串半形字，開括號黏後一個、收括號與標點黏前一個
+      // （行尾不留「（」、行首不出「）」「，」）。換成多行時每一行是帶 .full（整段原文）的 String，T 寫成 data-full，燈箱點任何一行都看得到整段
+      const wrap = (x, w, f, max) => {
+        const src = String(x || ''); const out = []; let cur = '';
+        for (const tk of src.match(/[（【「『〔]*(?:[⺀-￿]|[^⺀-￿\s]+)[）】」』〕、，。；：！？]*\s*|\s+/g) || []) {
+          if (cur && tw(cur + tk.trimEnd(), f) > w) { out.push(cur.trimEnd()); cur = ''; }
           let k = tk;
-          while (vw(k) > n) { out.push(cut(k, n + 1).slice(0, -1)); k = k.slice(out[out.length - 1].length); }
+          while (tw(k.trimEnd(), f) > w) { let o = ''; for (const c of k) { if (o && tw(o + c, f) > w) break; o += c; } out.push(o); k = k.slice(o.length); }
           cur += cur || k.trim() ? k : '';
         }
         if (cur.trim()) out.push(cur.trimEnd());
-        if (max && out.length > max) { out.length = max; out[max - 1] = cut(out[max - 1] + '……', n); }
-        return out;
+        if (max && out.length > max) { out.length = max; out[max - 1] = cutW(out[max - 1] + '……', w, f); }
+        return out.length > 1 ? out.map((x2) => Object.assign(new String(x2), { full: src })) : out;
       };
-      const T = (x, y, v, cls, n, anchor, tip) => {
-        const full = String(v == null ? '' : v);
-        if (!full) return '';
-        const sh = cut(full, n);
-        const ti = tip || (sh !== full ? full : '');
-        return `<text x="${x}" y="${y}" class="${cls}"${anchor ? ` text-anchor="${anchor}"` : ''}>${ti ? `<title>${E(ti)}</title>` : ''}${E(sh)}</text>`;
+      // 一段字：tip＝<title>（截掉的全文，滑鼠停留看得到）；full＝data-full（整段原文，不設就用換行的 .full）
+      const T = (x, y, v, cls, n, anchor, tip, full) => {
+        const s = String(v == null ? '' : v);
+        if (!s) return '';
+        const sh = cut(s, n);
+        const ti = tip || (sh !== s ? s : '');
+        const fu = full || (v && v.full) || '';
+        return `<text x="${x}" y="${y}" class="${cls}"${anchor ? ` text-anchor="${anchor}"` : ''}${fu ? ` data-full="${E(fu)}"` : ''}>${ti ? `<title>${E(ti)}</title>` : ''}${E(sh)}</text>`;
+      };
+      const cxIn = (x0, v, f) => Math.min(x0, 246 - tw(v, f) / 2);   // 現場區置中的字：右緣不過 x＝250 的分區虛線
+      // 圓圈裡的位號：一行放不下時拆成 2～3 行——在 '-'、'_'、'(' 之前或空白、','、'/' 之後斷（52ET_CLOSED、G60-A(ANY TRIP)），
+      // KKS（G11LAE12QN001）在系統碼 8 碼後斷；拆完仍太長才截
+      const tagL = (x) => {
+        x = String(x || '');
+        if (vw(x) <= 8) return [x];
+        const out = [];
+        for (const p of x.match(/[-_(]?[^-_( ,\/]*[ ,\/]*/g).filter(Boolean)) {
+          for (const q of /^[A-Z]\d{2}[A-Z]{3}\d{2}./.test(p) && vw(p) > 9 ? [p.slice(0, 8), p.slice(8)] : [p]) {
+            if (out.length && vw((out[out.length - 1] + q).trim()) <= 9) out[out.length - 1] += q; else out.push(q);
+          }
+        }
+        const o2 = out.map((v) => v.trim()).filter(Boolean);
+        return o2.length <= 3 && o2.every((v) => vw(v) <= 10) ? o2 : [x];
       };
       const L = (x1, y1, x2, y2, cls) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls || 'lp-w'}"/>`;
       const R = (x, y, w, h, cls) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" class="${cls}"/>`;
@@ -1254,36 +1478,99 @@
       const atJb = mode === 'jbdev' && !hasF && !isPanel && !selfIn;          // 接線圖上元件直接畫在接線箱端子排旁，沒有現場電纜號
       const mdIn = !!mdJ && !ffF.length && !coax && mode !== 'direct';        // 箱內的中間設備：接線箱框往左延伸把它框進去
       const bx = d.bx && /^(tvba|shra)/.test(d.bx[0]) ? d.bx : null;          // 3500 並聯分支（Mark VIe 下方再畫一個 3500 框）
-      const bxH = bx ? 76 : 0;
-      const n = t.length; const nf = ffF.length; const m = Math.max(n, nf); const RH = 28; const TOP = 124;
+      // ---- 先量字再定版面（v18）：Mark VIe 欄照最長的「螺絲 | 通道 | 變數」放寬（字從 MX0＋6 起、右邊留 ✓），變數名不截
+      // 列上的變數：照盤端子的板位（'CA020-2A5A STCI 3' → 2A5A）與通道找——同一條路徑跨兩片卡、通道同名時只看通道會拿到另一片卡的變數；
+      // 盤端子沒寫板位（或板位不在 io 裡）才只看通道
+      const posOf = (r) => { const m = /^CA\d{3}-(\w+)/.exec(String(r[3] || '')); return m && io.some((x) => x[2] === m[1]) ? m[1] : ''; };
+      const rowV = t.map((r) => { if (!r[4] && !r[7]) return ''; const p = posOf(r); return (io.find((x) => x[4] === r[7] && x[5] && (!p || x[2] === p)) || [])[5] || ''; });
+      const mvTxt = t.map((r, i) => (r[4] || r[7] ? [r[4], r[7], rowV[i]].filter(Boolean).join(' | ') : ''));
+      const vd = d.vd || {};   // 變數說明：同一個變數（Pos／Ret 兩列）只在第一列底下印一次；欄寬也照說明放寬，但最多 340px，再長就換行（最多兩行）
+      const uu = /^[A-Z]\d{2}$/.test(wp.u || '') ? wp.u : '';
+      // 說明（訊號 KKS）；沒有說明只寫 KKS。Alias 照組態原文：機組碼與本圖不同（二號機組態寫一號機的 KKS）就註明，不改寫
+      const descOf = (x) => {
+        if (!x) return '';
+        const a = x[0] ? '（' + x[0] + (uu && /^[A-Z]\d{2}[A-Z]/.test(x[0]) && x[0].slice(0, 3) !== uu ? '，組態寫的機組與本圖不同' : '') + '）' : '';
+        return x[1] ? x[1] + a : a.slice(1, -1);
+      };
+      const pre = (i) => (/✗/.test(GE_WIRE_MARK[t[i][5]] || '') ? '組態這個點是：' : '');   // ✗ 列（組態掛的是別顆或備用點）：說明是組態那個點的，不是這個元件的
+      const rowD = rowV.map((v, i) => (v && rowV.indexOf(v) === i && vd[v] ? pre(i) + descOf(vd[v]) : ''));
+      const rowF = rowV.map((v, i) => (v && vd[v] ? mvTxt[i] + '　' + pre(i) + descOf(vd[v]) : ''));   // 點這一列（或底下的藍字）看到變數與說明
+      const FX = 178; const JX = 384; const PX = 712; const MX0 = 900;
+      const MX1 = Math.max(1112, Math.ceil(MX0 + 32 + Math.max(0, ...mvTxt.map((x) => tw(x, FXS)))), Math.ceil(MX0 + 20 + Math.min(340, Math.max(0, ...rowD.map((x) => tw(x, FS))))));
+      const W = MX1 + 8; const mvW = MX1 - MX0 - 12;
+      const rowDL = rowD.map((x) => wrap(x, MX1 - MX0 - 20, FS, 2));
+      const mvN = 38 + Math.floor((MX1 - 1112) / 5.2);                          // Mark VIe 欄單行字的截斷長度（vw）：欄放寬時跟著放寬
+      // 框頂的名稱與說明：接線箱、電子室盤、Mark VIe（框頂原本留兩行；Mark VIe 另有「螺絲 | 通道 | 變數」一行）
+      const BX0 = inBox ? 14 : mdIn ? 190 : 290; const BX1 = 488;
+      const jbL = direct || inBox ? [] : wrap(d.jb, BX1 - BX0 - 12, FB);
+      const jbL2 = direct || inBox ? [] : wrap(mode === 'ff' && ff ? `段保護器 ${ff[0]}：埠 ${ff[1] || '?'}` : segRow ? (d.jt ? '段保護器 ' + d.jt : '')
+        : d.jd || (d.jt && !coax ? '端子排 ' + d.jt : ''), BX1 - BX0 - 12, FS);
+      const inL = inBox ? wrap(d.jb ? d.jb + (d.jd ? '（' + d.jd + '）' : '') : d.jd, BX1 - BX0 - 16, FB) : [];
+      const known = !!(mdJ || mdF);                                         // 有中間設備的資料：畫實線，經過中間設備的框
+      const inL2 = !inBox ? [] : (selfIn ? wrap(`${tag} 是 ${mdS[1]}（${mdS[2]}）【${mdS[5]}】`, BX1 - BX0 - 16, FS).concat(wrap(mdS[3], BX1 - BX0 - 16, FS))
+        : wrap(d.jr && d.jr !== 'contact' ? `盤內是受控端，接點在另一端（${d.jr}）` : '元件的接點在這個盤裡（接線圖畫在盤內），沒有現場電纜', BX1 - BX0 - 16, FS))
+        .concat(d.jt ? wrap('端子排 ' + d.jt, BX1 - BX0 - 16, FS) : [], known && d.mg ? wrap('沒有圖的部分：' + d.mg, BX1 - BX0 - 16, FS) : []);
+      // 現場區框頂的說明（元件畫在端子排旁／中間設備沒有圖的部分）、中間設備框下的說明與進出線端、3500 分支框：先換好行，行數決定框高與往下推多少
+      const fzL = !(inBox || atJb) || inBox ? [] : !known ? wrap('接線圖上元件畫在端子排旁、沒有現場電纜號；中間若有轉換器、放大器或另一個箱子，不在這張圖上', Math.min(BX0, 250) - 16, FS)
+        : d.mg ? wrap('沒有圖的部分：' + d.mg, Math.min(BX0, 250) - 14, FS) : [];   // 從 x＝8／10 排起，右緣不過分區虛線（箱內有中間設備時不過箱框）
+      const subOf = (it, inJb, w) => [it[2] + (inJb && it[5] ? '【' + it[5] + '】' : ''), it[3] ? '入 ' + it[3] : '', it[4] ? '出 ' + it[4] : ''].filter(Boolean).flatMap((x) => wrap(x, w, FS));
+      const subF = (inBox || atJb) && mdF ? subOf(mdF, false, (mdIn ? 202 : 250) - 122) : [];
+      const subJ = (inBox || atJb) && mdIn ? subOf(mdJ, true, BX1 - 208) : [];
+      const pnL = wrap([d.pk, d.pn].filter(Boolean).join(' '), 208, FB); const cpL = wrap(d.cp, 208, FS);
+      const unshown = [...new Set(io.map((x) => x[5]).filter((v) => v && !rowV.includes(v)))];   // 列上沒有的變數才寫在框頂
+      // 框頂：控制器與 I/O 模組、板位（跨好幾個模組／板的全列），列上沒有的變數；FF 是段號與段變數
+      const mvHL = io.length ? wrap([...new Set(io.map((x) => x[0] + ' ' + x[1]))].join('、'), mvW, FB) : ff && ff[2] ? [`FF_IN_S${ff[2]}`] : [];
+      const mvL = io.length ? wrap([...new Set(io.map((x) => [x[2], x[3]].filter(Boolean).join(' ')))].join('、') + (unshown.length ? '：' + unshown.join('、') : ''), mvW, FS)
+        : ff && ff[2] ? wrap((ff[3] || []).join('、') || '段變數（FF 元件沒有螺絲可核）', mvW, FS) : [];
+      const dv = io.length ? unshown : ff && ff[2] ? ff[3] || [] : [];   // 框頂變數的說明（藍字；好幾個變數時前面加變數名）
+      const mvDL = dv.filter((v) => vd[v]).flatMap((v) => wrap((dv.length > 1 ? v + '：' : '') + descOf(vd[v]), mvW, FS).map((x) => Object.assign(new String(x), { full: v + '：' + descOf(vd[v]) })));
+      const mvRow = (wp.sum || []).find((x) => x[0] === 'Mark VIe');
+      const rk = d.bx && !bx && d.bx[1] ? `；Bently 3500 RACK ${d.bx[1]} SLOT ${d.bx[2]} CH${d.bx[3]}（${d.bx[4]}）` : '';   // 1TBVIB 速度型：只有 3500 收
+      const endL = io.length || (ff && ff[2]) ? [] : wrap((mvRow ? mvRow[1] : '不進 Mark VIe') + rk, mvW, FS);
+      const ffBus = !io.length && ff && ff[2] ? wrap('FF 匯流排：組態沒有螺絲點，以段變數對應（✓ 不適用）', mvW, FS) : [];
+      const mvHd = [].concat(mvHL.map((x) => [x, 'lp-b']), mvL.map((x) => [x, 'lp-s']), mvDL.map((x) => [x, 'lp-d']), ffBus.map((x) => [x, 'lp-s']));   // 框頂各行：粗體行距 14、其餘 12
+      const mvOff = mvHd.length ? 14 * Math.max(mvHL.length - 1, 0) + 12 * (mvHd.length - mvHL.length) : 0;   // 最後一行離第一行多遠
+      const bxL = !bx ? [] : [[`Bently 3500 RACK ${bx[1] || '?'} SLOT ${bx[2] || '?'} CH${bx[3] || '?'}${bx[6] ? ' ⚠' : ''}`, 'lp-b']].concat(
+        wrap([bx[9], bx[4]].filter(Boolean).join('；'), mvW, FS).map((x) => [x, 'lp-s']),
+        wrap(String(bx[8] || '').replace(/^來源 /, '').replace(' → VMS 盤 ', ' → ').replace(/（SHLD[^）]*）/, ''), mvW, FS).map((x) => [x, 'lp-s']),
+        wrap(bx[6] ? (bx[10] === 'legacy' ? 'Legacy 欄讀法：' : '照接線圖排法：') + bx[6] + '（見 ⚠）'
+          : /推論/.test(bx[7] || '') ? (/ETB/.test(bx[8] || '') ? '推測：第 n 通道＝ETB n（排線腳位沒圖）' : '推測：第 n 通道＝CHn（排線腳位沒圖）') : '', mvW, FS).map((x) => [x, bx[6] ? 'lp-n' : 'lp-s']));
+      const bxB = 34 + 12 * Math.max(bxL.length - 2, 0);   // 3500 框高：第一行粗體，其餘每行 12（四行＝58）
+      const bxH = bx ? bxB + 18 : 0;
+      // 框頂一行粗體名稱＋一行說明（by0＋13、by0＋25）是原本的高度；名稱多一行加 14px（粗體 11px 行距 12 會上下疊）、說明多一行加 12px
+      const hy = (a, b) => 14 * Math.max(a - 1, 0) + 12 * b;   // 最後一行離第一行多遠：a 行名稱、b 行說明
+      const hx = Math.max(0, hy(jbL.length, jbL2.length) - 12, hy(pnL.length, cpL.length) - 12,
+        io.length ? mvOff : ff && ff[2] ? mvOff - 24 : 0, hy(inL.length, inL2.length) - 12, 12 * (fzL.length - 2));   // 盤／箱內元件多於兩行也推（JB87 的 DVP 第三行原本壓到圓圈）
+      const n = t.length; const nf = ffF.length; const m = Math.max(n, nf); const RH = 28 + 12 * Math.max(0, ...rowDL.map((x) => x.length)); const TOP = 124 + hx;
       const base = TOP + (Math.max(m, 3) - m) * RH / 2 + RH / 2;
       const ys = t.map((_r, i) => base + ((m - n) / 2 + i) * RH);
       const yf = ffF.map((_r, i) => base + ((m - nf) / 2 + i) * RH);
       const y0 = ys[0]; const y1 = ys[n - 1];
       const yTop = Math.min(y0, nf ? yf[0] : y0); const yBot = Math.max(y1, nf ? yf[nf - 1] : y1); const mid = (yTop + yBot) / 2;
       const sbH = d.sb && d.sb.length ? 36 : 0;                                  // 盤框底部抄屏蔽排說明的高度
-      const by0 = inBox ? Math.min(yTop - 46, mid - 64) : yTop - 46;
-      const by1 = Math.max(yBot + 20 + sbH, mid + (inBox ? 78 : 40), mdIn || mdF ? yBot + 58 : 0);   // 中間設備框下面寫說明與進、出線端
-      const W = 1120; const FX = 178; const JX = 384; const PX = 712; const MX0 = 900; const MX1 = 1112;
+      const by0 = (inBox ? Math.min(yTop - 46, mid - 64) : yTop - 46) - hx;
+      const by1 = Math.max(yBot + 20 + sbH, mid + (inBox ? 78 : 40), mdIn || mdF ? yBot + 25 + 11 * Math.max(3, subF.length, subJ.length) : 0, by0 + 12 + endL.length * 12,
+        Math.max(0, ...rowDL.map((x, i) => (x.length ? ys[i] + 10 + 12 * x.length : 0))));   // 最後一列底下的藍字也在框內   // 中間設備框下面寫說明與進、出線端
       const srcM = new Map();   // 同一份圖的頁碼併成一筆（'電氣盤端子排 … p.5、6、14'）
       (wp.rows || []).filter((r) => r[4] && r[4].hop).forEach((r) => { const k = `${r[0] || GE_WIRE_HOP[r[4].hop]} ${r[1]}`; if (!srcM.has(k)) srcM.set(k, []); if (!srcM.get(k).includes(r[4].p)) srcM.get(k).push(r[4].p); });
       const srcs = [...srcM].map(([k, ps]) => `${k} p.${ps.join('、')}`);
-      const srcL = wrap('出處：' + srcs.join('；'), 196, 4);
+      const srcL = wrap('出處：' + srcs.join('；'), W - 24, FS);
       const notes = wp.n || [];
-      const noteL = notes.slice(0, 8).flatMap((x, i) => wrap(`⚠${i + 1} ${x[0]}`, 196, 3));
+      const noteL = notes.slice(0, 8).flatMap((x, i) => wrap(`⚠${i + 1} ${x[0]}`, W - 24, FS));
       if (notes.length > 8) noteL.push(`（另有 ${notes.length - 8} 則註記，見卡片）`);
       const locY = by1 + 18 + bxH;
-      const jlL = direct ? [] : wrap('位置：' + (d.jl || '—'), 46, 3);
-      if (!direct && d.rf && !/電纜表房間/.test(d.jl || '')) jlL.push(cut('電纜表房間：' + d.rf, 46));
-      if (ffPairs.length) jlL.push(cut('段保護器內部：' + ffPairs.map((x) => `${x[2]}→${x[3] || '?'}`).join('、') + '（各自一條，不相通）', 46));
-      if (d.fsm) jlL.push(...wrap('同一段的元件：' + d.fsm.join('、'), 46, 2));   // ISA-5.4：與其他迴路的關聯（FF 段共用）
-      const fl = (nf && d.kk ? ['元件 KKS：' + d.kk] : []).concat(wrap('接線圖說明：' + (d.ds || '—'), 44, 4), direct && d.rf ? wrap('現場那一端（電纜表）：' + d.rf, 44, 2) : [],
-        mdP ? wrap(`上游感測器：${mdP[1]}（${mdP[2]}）`, 44, 3) : []);
-      const roomL = wrap('房間：' + (d.pr || d.rp || '—'), 42, 2);
+      // 頁尾四欄各在自己的分區裡（分區虛線一路畫到頁尾）：接線圖說明 8–246、位置 254–496、房間 654–884、訊號與供電 Mark VIe 欄
+      const jlL = direct ? [] : wrap('位置：' + (d.jl || '—'), 242, FS);
+      if (!direct && d.rf && !/電纜表房間/.test(d.jl || '')) jlL.push(...wrap('電纜表房間：' + d.rf, 242, FS));
+      if (ffPairs.length) jlL.push(...wrap('段保護器內部：' + ffPairs.map((x) => `${x[2]}→${x[3] || '?'}`).join('、') + '（各自一條，不相通）', 242, FS));
+      if (d.fsm) jlL.push(...wrap('同一段的元件：' + d.fsm.join('、'), 242, FS));   // ISA-5.4：與其他迴路的關聯（FF 段共用）
+      const fl = (nf && d.kk ? ['元件 KKS：' + d.kk] : []).concat(wrap('接線圖說明：' + (d.ds || '—'), 238, FS), direct && d.rf ? wrap('現場那一端（電纜表）：' + d.rf, 238, FS) : [],
+        mdP ? wrap(`上游感測器：${mdP[1]}（${mdP[2]}）`, 238, FS) : []);
+      const roomL = wrap('房間：' + (d.pr || d.rp || '—'), 230, FS);
       // 訊號型式與迴路供電（v16，d.sg）：照接線判；等級寫在括號（組態＝組態直接寫、文字層＝手冊或圖面、推論）
-      const sg = d.sg || [];
-      const sgL = sg.length ? [].concat(wrap(`【${sg[0][3]}】訊號：` + (sg[0][0] ? sg[0][0] + ' ' : '') + sg[0][1], 38, 3), wrap(`供電：${sg[0][2]}`, 38, 6),
-        sg.slice(1).map((x) => cut(`另 ${x[0]}：${x[1]}`, 38))) : [];
+      const sg = d.sg || []; const sgW = MX1 - MX0 - 8;
+      const sgL = sg.length ? [].concat(wrap(`【${sg[0][3]}】訊號：` + (sg[0][0] ? sg[0][0] + ' ' : '') + sg[0][1], sgW, FS), wrap(`供電：${sg[0][2]}`, sgW, FS),
+        ...sg.slice(1).map((x) => wrap(`另 ${x[0]}：${x[1]}`, sgW, FS))) : [];
       const footY = locY + Math.max(fl.length, jlL.length, roomL.length, sgL.length) * 12 + 16;
       const TBH = 40;   // 標題欄（v16）：迴路圖編號、元件、依據的接線圖、產生日期
       const H = footY + 14 + (srcL.length + noteL.length) * 13 + 70 + TBH;   // 圖例四行
@@ -1302,24 +1589,19 @@
       }
       g += L(4, 66, W - 4, 66, 'lp-sep');
       // ---- 現場：元件圓圈（ISA 現場安裝＝沒有橫線的圓）與 KKS；元件畫在箱／盤裡的，箱子框從現場區延伸過來把它框進去
-      const cx = inBox ? 84 : nf ? 44 : 64; const cy = mid; const cr = nf ? 26 : 30; const BX0 = inBox ? 14 : mdIn ? 190 : 290; const BX1 = 488;
+      const cx = inBox ? 84 : nf ? 44 : 64; const cy = mid; const cr = nf ? 26 : 30;
       const stub = (k, tot) => { const a = (tot > 1 ? -55 + 110 * k / (tot - 1) : 0) * Math.PI / 180; return [+(cx + cr * Math.cos(a)).toFixed(1), +(cy + cr * Math.sin(a)).toFixed(1)]; };
       if (inBox) {
         g += R(BX0, by0, BX1 - BX0, by1 - by0, isPanel ? 'lp-box lp-pan lp-fill' : 'lp-box lp-fill');
-        g += T(BX0 + 8, by0 + 13, d.jb + (d.jd ? '（' + d.jd + '）' : ''), 'lp-b', 72);
-        if (selfIn) {   // JB87 的 DVP：這個編號就是箱裡的定位器，現場的電動致動器以接頭插在箱上
-          g += T(BX0 + 8, by0 + 25, `${tag} 是 ${mdS[1]}（${mdS[2]}）【${mdS[5]}】`, 'lp-s', 78);
-          g += T(BX0 + 8, by0 + 37, mdS[3], 'lp-s', 78);
-        } else if (d.jr && d.jr !== 'contact') {
-          g += T(BX0 + 8, by0 + 25, `盤內是受控端，接點在另一端（${d.jr}）`, 'lp-s', 78);
-        } else g += T(BX0 + 8, by0 + 25, '元件的接點在這個盤裡（接線圖畫在盤內），沒有現場電纜', 'lp-s', 78);
+        inL.forEach((x, i) => { g += T(BX0 + 8, by0 + 13 + i * 14, x, 'lp-b'); });
+        inL2.forEach((x, i) => { g += T(BX0 + 8, by0 + 13 + hy(inL.length, i + 1), x, 'lp-s'); });   // JB87 的 DVP：這個編號就是箱裡的定位器；電氣盤的格：接點在盤內
       } else if (mdIn) g += R(BX0, by0, BX1 - BX0, by1 - by0, 'lp-box lp-fill');   // 先鋪底：蓋掉框內的分區虛線（中間設備的線之後才畫）
       if (segRow) {
         wrap('這一條是 FF 段幹線本身：段保護器' + (d.jt ? ' ' + d.jt : '') + ' 在 ' + (d.jb || '接線箱') + ' 裡；'
-          + (d.fm ? '這一段接的元件：' + d.fm.join('、') : '接在這一段的元件各有自己的卡'), 44, 7).forEach((x, i) => { g += T(10, by0 + 14 + i * 12, x, 'lp-s'); });
+          + (d.fm ? '這一段接的元件：' + d.fm.join('、') : '接在這一段的元件各有自己的卡'), Math.min(BX0, 250) - 16, FS, 7).forEach((x, i) => { g += T(10, by0 + 14 + i * 12, x, 'lp-s'); });
       } else {
         g += `<circle cx="${cx}" cy="${cy}" r="${cr}" class="lp-bub"/>`;
-        const tl = vw(tag) <= 8 ? [tag] : (() => { const k = String(tag).lastIndexOf('-'); return k > 0 ? [tag.slice(0, k), tag.slice(k)] : [tag]; })();
+        const tl = tagL(tag);
         tl.forEach((x, i) => { g += T(cx, cy + 4 + (i - (tl.length - 1) / 2) * 13, x, tl.length > 1 || vw(x) > 6 ? 'lp-tag sm' : 'lp-tag', 10, 'middle', tag); });
         if (!nf) g += T(Math.max(cx, vw(d.kk) * 3.1 + (inBox ? 20 : 8)), cy + cr + 14, d.kk, 'lp-m sm', 30, 'middle');   // FF 元件的 KKS 寫在下面（圓圈旁是端子）
       }
@@ -1342,8 +1624,9 @@
         });
         if (via) {
           g += R(VX0, yf[0] - 13, VX1 - VX0, yf[nf - 1] - yf[0] + 26, 'lp-box lp-px');
-          g += T((VX0 + VX1) / 2, yf[0] - 18, via, 'lp-b', 16, 'middle');
-          g += T((VX0 + VX1) / 2, yf[0] - 30, 'FF 傳送器', 'lp-s', 0, 'middle');
+          const vl = wrap(via, 166, FB, 3); const vt = /…$/.test(vl[vl.length - 1]) ? via : '';   // 名稱寫在框上方（圓圈右邊到分區線），放不下往上疊
+          vl.forEach((x, i) => { g += T(159, yf[0] - 18 - (vl.length - 1 - i) * 13, x, 'lp-b', 0, 'middle', vt); });
+          g += T(159, yf[0] - 30 - (vl.length - 1) * 13, 'FF 傳送器', 'lp-s', 0, 'middle');
         }
         g += T((VX0 + VX1) / 2, yf[nf - 1] + 26, '電纜 ' + ffF[0][2], 'lp-s', 20, 'middle');
         g += R(PB0, yf[0] - 12, PB1 - PB0, yf[nf - 1] - yf[0] + 24, 'lp-box lp-px');
@@ -1354,7 +1637,6 @@
         g += L(300, cy, 358, cy, 'lp-bus') + L(358, Math.min(cy, y0), 358, Math.max(cy, y1), 'lp-bus');
         t.forEach((r, i) => { g += L(358, ys[i], JX, ys[i], 'lp-bus'); });
       } else if (inBox || atJb) {
-        const known = !!(mdJ || mdF);                                         // 有中間設備的資料：畫實線，經過中間設備的框
         const lc = 'lp-w' + (atJb && !known ? ' lp-lt' : '');   // 灰線：接線圖上元件畫在端子排旁，中間有沒有別的設備這張圖沒畫
         const FB0 = 116; const FB1 = 196; const DB0 = 202; const DB1 = 282;   // 另一個箱子（現場區）／箱內的中間設備
         const sig = t.map((r, i) => (shield(r) ? null : ys[i])).filter((y) => y != null);   // 箱內的中間設備只接訊號芯；屏蔽芯繞過它直接接到箱內的屏蔽端子
@@ -1372,23 +1654,21 @@
           const tx = mdF ? FB0 : DB0; const ty2 = mdF ? (y0 + y1) / 2 : (sy0 + sy1) / 2;
           g += L(cx + cr, cy, tx, ty2, one === 'coax' ? 'lp-w lp-coax' : 'lp-w lp-fib') + T((cx + cr + tx) / 2, Math.min(cy, ty2) - 7, one === 'coax' ? '同軸' : '光纖', 'lp-s', 0, 'middle');
         }
-        if (mdF) g += T((FB1 + BX0) / 2, y0 - 9, 'GE 段電纜', 'lp-s', 12, 'middle');
+        if (mdF) g += T(cxIn((FB1 + BX0) / 2, 'GE 段電纜', FS), y0 - 9, 'GE 段電纜', 'lp-s', 12, 'middle');
         const mbox = (x0, x1, it, inJb) => {   // 中間設備框（蓋在線上）：名稱在框內，說明與進、出線端寫在框下
-          const nm = wrap(it[1], 14, 2); const a = inJb ? sy0 : y0; const b = inJb ? sy1 : y1;
+          const nm = wrap(it[1], x1 - x0 - 6, FB, 2); const a = inJb ? sy0 : y0; const b = inJb ? sy1 : y1;
           let o = R(x0, a - 14, x1 - x0, b - a + 28, 'lp-box lp-px lp-fill');
-          nm.forEach((v, k) => { o += T((x0 + x1) / 2, (a + b) / 2 + 4 + (k - (nm.length - 1) / 2) * 12, v, 'lp-b', 16, 'middle', it[1]); });
-          const sub = [it[2] + (inJb && it[5] ? '【' + it[5] + '】' : ''), it[3] ? '入 ' + it[3] : '', it[4] ? '出 ' + it[4] : ''].filter(Boolean);
-          sub.slice(0, 3).forEach((v, k) => { o += T(x0, y1 + 26 + k * 11, v, 'lp-s', inJb ? 34 : 26); });
+          nm.forEach((v, k) => { o += T((x0 + x1) / 2, (a + b) / 2 + 4 + (k - (nm.length - 1) / 2) * 13, v, 'lp-b', 16, 'middle', it[1]); });
+          (inJb ? subJ : subF).forEach((v, k) => { o += T(x0, y1 + 26 + k * 11, v, 'lp-s'); });
           return o;
         };
         if (mdF) tb += mbox(FB0, FB1, mdF, false);
         if (mdIn) tb += mbox(DB0, DB1, mdJ, true);
-        if (atJb && !known) wrap('接線圖上元件畫在端子排旁、沒有現場電纜號；中間若有轉換器、放大器或另一個箱子，不在這張圖上', 46, 2).forEach((x, i) => { g += T(10, by0 + 12 + i * 12, x, 'lp-s'); });
-        else if (known && d.mg) wrap('沒有圖的部分：' + d.mg, mdIn ? 34 : 46, 2).forEach((x, i) => { g += T(8, by0 + 12 + i * 12, x, 'lp-s'); });
+        fzL.forEach((x, i) => { g += T(known ? 8 : 10, by0 + 12 + i * 12, x, 'lp-s'); });
       } else if (coax) {
         g += L(cx + cr, cy, 302, cy, 'lp-w lp-coax');
-        g += T(196, cy - 8, d.fc, 'lp-m sm', 32, 'middle');
-        g += T(196, cy + 15, d.fs, 'lp-s', 32, 'middle');
+        g += T(cxIn(196, cut(d.fc, 32), FSM), cy - 8, d.fc, 'lp-m sm', 32, 'middle');
+        g += T(cxIn(196, cut(d.fs, 32), FS), cy + 15, d.fs, 'lp-s', 32, 'middle');
       } else if (!segRow) {
         t.forEach((r, i) => {
           const y = ys[i]; const sh = shield(r); const f = fr[i];
@@ -1406,8 +1686,9 @@
           const fc = hasF ? [...new Set(fr.filter(Boolean).map((f) => f[2]))].join('／') : d.fc;
           const via = hasF ? [...new Set(fr.filter(Boolean).map((f) => f[3]).filter(Boolean))].join('／') : '';
           g += cab(236, y0, y1);
-          g += T(214, y0 - 30, fc, 'lp-m sm', 34, 'middle');
-          g += T(214, y0 - 18, hasF ? (via ? '經 ' + via : 'GE 接線表 138T5502') : d.fs, 'lp-s', 34, 'middle');
+          const fs2 = hasF ? (via ? '經 ' + via : 'GE 接線表 138T5502') : d.fs;
+          g += T(cxIn(214, cut(fc, 34), FSM), y0 - 30, fc, 'lp-m sm', 34, 'middle');
+          g += T(cxIn(214, cut(fs2, 34), FS), y0 - 18, fs2, 'lp-s', 34, 'middle');
         }
       }
       // ---- 接線箱
@@ -1416,10 +1697,9 @@
       } else {
         if (!inBox) {
           g += R(BX0, by0, BX1 - BX0, by1 - by0, isPanel ? 'lp-box lp-pan' : 'lp-box');
-          g += T(BX0 + 6, by0 + 13, d.jb, 'lp-b', 28);
-          g += T(BX0 + 6, by0 + 25, mode === 'ff' && ff ? `段保護器 ${ff[0]}：埠 ${ff[1] || '?'}` : segRow ? (d.jt ? '段保護器 ' + d.jt : '')
-            : d.jd || (d.jt && !coax ? '端子排 ' + d.jt : ''), 'lp-s', 34);
-        } else if (d.jt) g += T(JX, y0 - 17, '端子排 ' + d.jt, 'lp-s', 24, 'middle');
+          jbL.forEach((x, i) => { g += T(BX0 + 6, by0 + 13 + i * 14, x, 'lp-b'); });
+          jbL2.forEach((x, i) => { g += T(BX0 + 6, by0 + 13 + hy(jbL.length, i + 1), x, 'lp-s'); });
+        }
         if (coax) {
           g += R(BX0 + 12, y0 - 12, 58, y1 - y0 + 24, 'lp-box lp-px');
           g += T(BX0 + 41, mid - 2, d.px, 'lp-m sm', 10, 'middle');
@@ -1448,8 +1728,8 @@
       g += T(575, yTop - 16, d.tl ? d.tl + ' m（電纜表）' : '', 'lp-s', 0, 'middle');
       // ---- 電子室盤
       g += R(664, by0, 220, by1 - by0, 'lp-box');
-      g += T(670, by0 + 13, [d.pk, d.pn].filter(Boolean).join(' '), 'lp-b', 34);
-      g += T(670, by0 + 25, d.cp, 'lp-s', 40);
+      pnL.forEach((x, i) => { g += T(670, by0 + 13 + i * 14, x, 'lp-b'); });
+      cpL.forEach((x, i) => { g += T(670, by0 + 13 + hy(pnL.length, i + 1), x, 'lp-s'); });
       t.forEach((r, i) => {
         if (!r[6]) return;
         const y = ys[i]; const rest = String(r[3] || '');
@@ -1462,38 +1742,29 @@
         g += T(676, by1 - sbH + 22, '（接線圖盤欄底部的說明，沒有逐芯畫）', 'lp-s', 0);
       }
       // ---- Mark VIe（或終點）
-      const mvRow = (wp.sum || []).find((x) => x[0] === 'Mark VIe');
       if (io.length || (ff && ff[2])) {
-        const h = io[0] || [];
         g += R(MX0, by0, MX1 - MX0, by1 - by0, 'lp-box lp-mv');
-        g += T(MX0 + 6, by0 + 13, io.length ? `${h[0]} ${h[1]}` : `FF_IN_S${ff[2]}`, 'lp-b', 32);
-        const vars = [...new Set(io.map((x) => x[5]).filter(Boolean))].join('、');
-        g += T(MX0 + 6, by0 + 25, io.length ? [h[2], h[3]].filter(Boolean).join(' ') + (vars ? '：' + vars : '') : (ff[3] || []).join('、') || '段變數（FF 元件沒有螺絲可核）', 'lp-s', 38);
-        if (!io.length) g += L(884, mid, MX0, mid, 'lp-bus') + T(MX0 + 6, by0 + 37, 'FF 匯流排：組態沒有螺絲點，以段變數對應（✓ 不適用）', 'lp-s', 40);
-        else g += T(MX0 + 6, y0 - 12, '螺絲 | 通道 | 變數', 'lp-s', 0);
+        mvHd.forEach(([x, c], i) => { g += T(MX0 + 6, by0 + 13 + 14 * Math.min(i, mvHL.length - 1) + 12 * Math.max(0, i - mvHL.length + 1), x, c); });
+        if (!io.length) g += L(884, mid, MX0, mid, 'lp-bus');
+        else g += T(MX0 + 6, y0 - 21, rowD.some(Boolean) ? '螺絲 | 通道 | 變數（藍字＝組態說明）' : '螺絲 | 通道 | 變數', 'lp-s', 0);
         t.forEach((r, i) => {
-          if (!r[4] && !r[7]) return;
+          if (!mvTxt[i]) return;
           const y = ys[i];
-          const v = (io.find((x) => x[4] === r[7] && x[5]) || [])[5] || '';
           g += L(884, y, MX0, y, 'lp-w');
-          g += T(MX0 + 6, y + 3.5, [r[4], r[7], v].filter(Boolean).join(' | '), 'lp-m xs', 38);   // 螺絲 | 通道 | 變數（右邊留給 ✓）
+          g += T(MX0 + 6, y + 3.5, mvTxt[i], 'lp-m xs', 0, '', '', rowF[i]);   // 螺絲 | 通道 | 變數（欄寬照最長的一列放寬，不截；右邊留給 ✓）
+          rowDL[i].forEach((x, k) => { g += T(MX0 + 14, y + 15.5 + 12 * k, x, 'lp-d', 0, '', /…$/.test(x) ? rowD[i] : '', rowF[i]); });
           const mk = (GE_WIRE_MARK[r[5]] || '').trim();
           if (mk) g += T(MX1 - 6, y + 4, mk, 'lp-mk ' + (mk === '✓' ? 'ok' : mk === '≈' ? 'al' : 'ng'), 0, 'end', GE_WIRE_IO[r[5]] || '');
         });
       } else {
         g += R(MX0, by0, MX1 - MX0, by1 - by0, 'lp-box lp-end');
-        const rk = d.bx && !bx && d.bx[1] ? `；Bently 3500 RACK ${d.bx[1]} SLOT ${d.bx[2]} CH${d.bx[3]}（${d.bx[4]}）` : '';   // 1TBVIB 速度型：只有 3500 收
-        wrap((mvRow ? mvRow[1] : '不進 Mark VIe') + rk, 38, 7).forEach((x, i) => { g += T(MX0 + 6, by0 + 15 + i * 12, x, 'lp-s'); });
+        endL.forEach((x, i) => { g += T(MX0 + 6, by0 + 15 + i * 12, x, 'lp-s'); });
       }
       if (bx) {   // 3500 並聯分支（v16）：Mark VIe 先收到訊號，3500 收 TVBA 的緩衝輸出（SEDP 是 SHRA 轉送的 4–20 mA）；接頭第 n 通道＝3500 CHn 是推論
         const y3 = by1 + 14;
-        g += L(MX0 + 22, by1, MX0 + 22, y3, 'lp-w') + T(MX0 + 28, by1 + 10, bx[0] === 'shra_4_20' ? '另一塊 SHRA 卡轉送 4–20 mA' : `緩衝輸出 ${String(bx[5]).split('（')[0]}`, 'lp-s', 40);
-        g += R(MX0, y3, MX1 - MX0, 58, 'lp-box lp-px');
-        g += T(MX0 + 6, y3 + 13, `Bently 3500 RACK ${bx[1] || '?'} SLOT ${bx[2] || '?'} CH${bx[3] || '?'}${bx[6] ? ' ⚠' : ''}`, 'lp-b', 38);
-        g += T(MX0 + 6, y3 + 26, [bx[9], bx[4]].filter(Boolean).join('；'), 'lp-s', 40);
-        g += T(MX0 + 6, y3 + 38, String(bx[8] || '').replace(/^來源 /, '').replace(' → VMS 盤 ', ' → ').replace(/（SHLD[^）]*）/, ''), 'lp-s', 40);
-        g += T(MX0 + 6, y3 + 50, bx[6] ? (bx[10] === 'legacy' ? 'Legacy 欄讀法：' : '照接線圖排法：') + bx[6] + '（見 ⚠）'
-          : /推論/.test(bx[7] || '') ? (/ETB/.test(bx[8] || '') ? '推測：第 n 通道＝ETB n（排線腳位沒圖）' : '推測：第 n 通道＝CHn（排線腳位沒圖）') : '', bx[6] ? 'lp-n' : 'lp-s', 42);
+        g += L(MX0 + 22, by1, MX0 + 22, y3, 'lp-w') + T(MX0 + 28, by1 + 10, bx[0] === 'shra_4_20' ? '另一塊 SHRA 卡轉送 4–20 mA' : `緩衝輸出 ${String(bx[5]).split('（')[0]}`, 'lp-s', mvN + 2);
+        g += R(MX0, y3, MX1 - MX0, bxB, 'lp-box lp-px');
+        bxL.forEach(([x, c], i) => { g += T(MX0 + 6, y3 + (i ? 14 + 12 * i : 13), x, c); });
       }
       g += tb;
       // ---- 位置、房間、接線圖說明（說明放在下面，不在現場的斜線上）
@@ -1507,9 +1778,9 @@
       for (const x of srcL) { g += T(12, fy, x, 'lp-s'); fy += 13; }
       for (const x of noteL) { g += T(12, fy, x, 'lp-n'); fy += 13; }
       g += T(12, H - TBH - 53, '── 芯線　- - - 屏蔽線（盤側沒畫端子的只畫到盤邊）　······ 光纖　━━ 同軸　灰線＝接線圖沒畫這一段（示意）　⊂⊃ 同一條電纜　○ 元件端子　粗框＝電氣盤（不是接線箱）', 'lp-s', 0);
-      g += T(12, H - TBH - 40, '灰底小框＝中間設備（前置器、放大器、安全柵、轉換模組、另一個箱子）　Mark VIe 下方的框＝Bently 3500 並聯分支　紅字＝文件互相矛盾時的另一種讀法', 'lp-s', 0);
+      g += T(12, H - TBH - 40, '灰底小框＝中間設備（前置器、放大器、安全柵、轉換模組、另一個箱子）　Mark VIe 下方的框＝Bently 3500 並聯分支　紅字＝文件互相矛盾時的另一種讀法　藍字＝控制器組態的變數說明（括號是訊號 KKS）', 'lp-s', 0);
       g += T(12, H - TBH - 27, '✓ 控制器組態核對是這個元件　≈ 名稱寫法不同　✗ 組態掛的是別顆或備用點（依據見網頁卡片的 Mark VIe 列）　【定讞】看過圖面原文　【文字層】只讀文字層或手冊文字　【推論】推測，待現場確認　【組態】依控制器組態', 'lp-s', 0);
-      g += T(12, H - TBH - 14, '本圖由程式依上列文件自動整理，本身不是簽核過的竣工圖；文件互相矛盾的地方列在 ⚠，不替任何一方選邊；截斷的文字全文見網頁卡片；現場作業以現場標示為準', 'lp-s', 0);
+      g += T(12, H - TBH - 14, '本圖由程式依上列文件自動整理，本身不是簽核過的竣工圖；文件互相矛盾的地方列在 ⚠，不替任何一方選邊；截斷的文字全文見網頁卡片（放大檢視點字也看得到）；現場作業以現場標示為準', 'lp-s', 0);
       // ---- 標題欄（ISA-5.4 的迴路圖編號欄）：編號是本站自編（LP-機組-GE 編號，同一台好幾條加 -P 序號），不是 GE 或 EPC 的圖號
       const ty = H - TBH - 4; const today = new Date(); const p2 = (x) => String(x).padStart(2, '0');
       const cells = [[4, 300, d.nn ? '迴路圖編號（本站自編；-P＝這一台這個編號的第幾條）' : '迴路圖編號（本站自編）', (d.no || ['LP', wp.u, tag].filter(Boolean).join('-')) + (d.nn ? `（共 ${d.nn} 條）` : ''), 'lp-b'],
@@ -1522,10 +1793,10 @@
         g += T(a + 6, ty + 13, k, 'lp-s') + T(a + 6, ty + 31, v, cls, Math.floor((b - a - 12) / (cls === 'lp-b' ? 6.4 : 5.6)));
       }
       const css = '.loop-svg .lp-bg{fill:#fff}.loop-svg .lp-frame{fill:none;stroke:#222;stroke-width:1.2}'
-        + '.loop-svg text{font-family:"Microsoft JhengHei","Noto Sans TC","PingFang TC",sans-serif;fill:#111;font-size:10.5px}'
+        + `.loop-svg text{font-family:${SANS};fill:#111;font-size:10.5px}`
         + '.loop-svg .lp-h1{font-size:15px;font-weight:700}.loop-svg .lp-z{font-size:11.5px;font-weight:700;fill:#333}.loop-svg .lp-b{font-weight:700;font-size:11px}'
-        + '.loop-svg .lp-s{font-size:9.5px;fill:#333}.loop-svg .lp-n{font-size:9.5px;fill:#8a1c1c}'
-        + '.loop-svg .lp-m,.loop-svg .lp-tag{font-family:Consolas,"Courier New",monospace}.loop-svg .lp-m{font-size:10.5px}.loop-svg .lp-m.sm{font-size:9.5px}.loop-svg .lp-m.xs{font-size:8.6px}'
+        + '.loop-svg .lp-s{font-size:9.5px;fill:#333}.loop-svg .lp-n{font-size:9.5px;fill:#8a1c1c}.loop-svg .lp-d{font-size:9.5px;fill:#1d4f91}'
+        + `.loop-svg .lp-m,.loop-svg .lp-tag{font-family:${MONO}}.loop-svg .lp-m{font-size:10.5px}.loop-svg .lp-m.sm{font-size:9.5px}.loop-svg .lp-m.xs{font-size:8.6px}`
         + '.loop-svg .lp-tag{font-size:13px;font-weight:700}.loop-svg .lp-tag.sm{font-size:10.5px}'
         + '.loop-svg .lp-w{stroke:#111;stroke-width:1.1;fill:none}.loop-svg .lp-dash{stroke-dasharray:4 3}.loop-svg .lp-coax{stroke-width:2.4}'
         + '.loop-svg .lp-sep{stroke:#999;stroke-width:1;stroke-dasharray:6 4}.loop-svg .lp-bub{fill:#fff;stroke:#111;stroke-width:1.5}'
@@ -2959,7 +3230,6 @@
       // 狀態：z＝一個影像像素幾個 CSS 像素；cx／cy＝視窗正中央對到圖紙的哪一點（0~1）。縮放是改舞台的 width／left／top，
       // 不用 transform: scale——scale 會把框線與編號一起放大；標記是舞台裡以百分比定位的子元素，只跟著移動、粗細不變。
       const st = { z: 1, cx: 0.5, cy: 0.5 };
-      const geom = { left: 0, top: 0 };   // 舞台左上角相對於視窗內緣的位置（px）
       let cur = 0; let raf = 0; let closed = false; let tok = null;
       const vw = () => v.view.clientWidth; const vh = () => v.view.clientHeight;
       const zFit = () => Math.min(vw() / meta.w, vh() / meta.h) || 1;
@@ -2973,7 +3243,6 @@
         left = W <= w ? (w - W) / 2 : Math.min(0, Math.max(w - W, left));   // 圖紙比視窗小就置中；比視窗大就不讓圖邊縮進視窗
         top = H <= h ? (h - H) / 2 : Math.min(0, Math.max(h - H, top));
         st.cx = (w / 2 - left) / W; st.cy = (h / 2 - top) / H;              // 靠邊被擋下時把中心改成實際位置，接著拖曳才沒有空行程
-        geom.left = left; geom.top = top;
         v.stage.style.width = W.toFixed(2) + 'px'; v.stage.style.left = left.toFixed(2) + 'px'; v.stage.style.top = top.toFixed(2) + 'px';
         zoomv.textContent = Math.round(st.z * 100) + '%';
         v.view.classList.toggle('far', st.z < 0.5);                         // 縮得很小：框只剩一小條，CSS 補一個圈
@@ -2981,10 +3250,11 @@
         this.pidRect(v.view, v.stage, mm.rect);
       };
       const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
-      /** 以視窗內的 (px, py) 為定點縮放 f 倍：那一點底下的圖紙位置不動 */
+      /** 以視窗內的 (px, py) 為定點縮放 f 倍：那一點底下的圖紙位置不動。位置由目前的中心與倍率算（同 openLoopLightbox：
+       *  兩指開合時同一個影格會來兩次 pointermove，舞台位置要等下一個影格的 apply 才更新，讀它會一路偏到左上） */
       const zoomAt = (f, px, py) => {
         const z1 = Math.min(zMax(), Math.max(zFit(), st.z * f));
-        const fx = (px - geom.left) / (meta.w * st.z); const fy = (py - geom.top) / (meta.h * st.z);
+        const fx = st.cx + (px - vw() / 2) / (meta.w * st.z); const fy = st.cy + (py - vh() / 2) / (meta.h * st.z);
         st.z = z1; st.cx = fx + (vw() / 2 - px) / (meta.w * z1); st.cy = fy + (vh() / 2 - py) / (meta.h * z1);
         schedule();
       };

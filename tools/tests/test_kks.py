@@ -4,7 +4,10 @@
 AMS 設備卡：G12HAP70BT001（HRSG 給水的傳送器，BOP 接線圖 D1003）摘要多「接線路徑」組——接線圖、電纜表、控制盤 G12CCH02UC201（H12 RIO），
 盤端子 CA007-1A5B 29／30 以 H12 的組態核對（SHRA，✓）；迴路圖一張、編號 LP-G12HAP70BT001。沒有接線路徑的 AMS 設備不出這一組。
 KKS 編號卡：AMS 沒有的 G11LAE12QM004（HP 末級減溫隔離閥，D1003 p.301 直拉到 H11 RIO）打設備 KKS、訊號 KKS（…XB61）、小寫都開得到；
-頂列 Enter 也開到它；打一半的 KKS 在查無頁列出 KKS 候選；本身是 GE 元件的 AMS 設備，接線路徑塊帶 GE 編號卡的路徑與連到 GE 卡的說明；手機寬度不橫向捲動；console 零錯誤。"""
+頂列 Enter 也開到它；打一半的 KKS 在查無頁列出 KKS 候選；本身是 GE 元件的 AMS 設備，接線路徑塊帶 GE 編號卡的路徑與連到 GE 卡的說明；手機寬度不橫向捲動；console 零錯誤。
+v18 迴路圖：「⤢ 放大檢視」開燈箱（Esc 關、焦點回按鈕；點藍字第二行，說明列是整段「變數＋說明」、同一段一起標色、圖區高度不變；
+手機開啟就看得到字、兩指放大定點不動、點字看全文、✕ 關）；G11LAE12QN001 的 Mark VIe 變數名不截、底下有藍字的組態說明與訊號 KKS；
+G11LAB65QM021 的長變數把 Mark VIe 欄放寬、接線圖說明不截在 160 字；G11MSA30GH001 跨兩片卡、同名通道照板位對變數；FF 元件 96AT-TC-1A 也有藍字說明。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
 AMS_TAG = 'G12HAP70BT001'
@@ -40,6 +43,39 @@ WIRE_STATE = """(sel) => { const g = document.querySelector(sel); if (!g) return
     cond: g.querySelectorAll('table.wire-cond tbody tr').length, loop: g.querySelectorAll('details.wire-loop').length, svg: g.querySelectorAll('svg.loop-svg').length,
     img: g.querySelectorAll('.wire-pics img').length, sheets: g.querySelectorAll('.pid-sheet').length, note: (g.querySelector('.aux-note') || {}).textContent || '',
     loopTxt: [...g.querySelectorAll('svg.loop-svg text')].map((t) => t.textContent).join(' ').slice(0, 3000), text: g.textContent.slice(0, 600) }; }"""
+
+
+# v18 迴路圖燈箱：狀態、兩指開合（相距 80px 拉到 240px）、點一下圖上的一段字
+LOOP_LB = """() => { const ov = document.querySelector('.loop-lb'); if (!ov) return null; const st = ov.querySelector('.loop-stage'); const pk = ov.querySelector('.loop-pick');
+  return { svg: ov.querySelectorAll('svg.loop-svg').length, w: st ? parseFloat(st.style.width) || 0 : 0, z: (ov.querySelector('.pid-zoomv') || {}).textContent || '',
+    pick: pk && !pk.classList.contains('hint') ? pk.textContent : '', vh: ov.querySelector('.loop-view').clientHeight, open: document.body.classList.contains('modal-open') }; }"""
+PINCH = """async () => { const v = document.querySelector('.loop-lb .loop-view'); const st = v.querySelector('.loop-stage'); const r = v.getBoundingClientRect();
+  const cx = r.left + r.width * 0.8; const cy = r.top + r.height / 2;   // 兩指中點在右側：手指底下那一點（圖上的位置 a）放大前後要不動
+  const at = () => (cx - r.left - v.clientLeft - parseFloat(st.style.left)) / parseFloat(st.style.width);
+  const a0 = at();
+  const ev = (type, id, x) => v.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: x, clientY: cy, bubbles: true }));
+  ev('pointerdown', 1, cx - 40); ev('pointerdown', 2, cx + 40);
+  for (let k = 1; k <= 4; k++) { ev('pointermove', 1, cx - 40 - 20 * k); ev('pointermove', 2, cx + 40 + 20 * k); }
+  ev('pointerup', 1, cx - 120); ev('pointerup', 2, cx + 120);
+  await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+  return { a0, a1: at() }; }"""
+TAP_TEXT = """() => { const v = document.querySelector('.loop-lb .loop-view'); const vr = v.getBoundingClientRect();
+  const t = [...v.querySelectorAll('svg text')].find((el) => { const r = el.getBoundingClientRect(); const x = r.left + r.width / 2; const y = r.top + r.height / 2;   // 字的中心在畫面內
+    return r.width > 6 && x > vr.left && x < vr.right && y > vr.top && y < vr.bottom && document.elementFromPoint(x, y) === el; });
+  if (!t) return ''; const r = t.getBoundingClientRect(); const x = r.left + r.width / 2; const y = r.top + r.height / 2;
+  for (const type of ['pointerdown', 'pointerup']) v.dispatchEvent(new PointerEvent(type, { pointerId: 5, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true }));
+  const ti = t.querySelector('title'); return t.getAttribute('data-full') || (ti ? ti.textContent : t.textContent); }"""
+# 點藍字說明的第二行（換行的那一段）：說明列要是整段（Mark VIe 列＋說明），同一段的每一行都標色，圖區高度不變
+TAP_DESC2 = """() => { const v = document.querySelector('.loop-lb .loop-view'); const vr = v.getBoundingClientRect();
+  const ds = [...v.querySelectorAll('svg text.lp-d[data-full]')];
+  const vis = (el) => { const r = el.getBoundingClientRect(); return r.top > vr.top && r.bottom < vr.bottom && r.left > vr.left && r.right < vr.right; };
+  const t = ds.find((el, i) => i > 0 && ds[i - 1].getAttribute('data-full') === el.getAttribute('data-full') && vis(el)); if (!t) return null;
+  const r = t.getBoundingClientRect(); const x = r.left + r.width / 2; const y = r.top + r.height / 2; const h0 = v.clientHeight;
+  for (const type of ['pointerdown', 'pointerup']) v.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'mouse', button: 0, isPrimary: true, clientX: x, clientY: y, bubbles: true }));
+  return { line: t.textContent, pick: document.querySelector('.loop-lb .loop-pick').textContent, h0, h1: v.clientHeight, hl: v.querySelectorAll('text.lp-pick').length }; }"""
+LOOP_TXT = """() => { const s = [...document.querySelectorAll('svg.loop-svg')];
+  return { rows: s.flatMap((x) => [...x.querySelectorAll('text.lp-m.xs')].map((t) => t.textContent)), desc: s.flatMap((x) => [...x.querySelectorAll('text.lp-d')].map((t) => t.textContent)),
+    w: s.map((x) => x.viewBox.baseVal.width), txt: s.map((x) => [...x.querySelectorAll('text')].map((t) => t.textContent).join(' ')).join('｜') }; }"""
 
 
 def wait_wire(page, sel, ms=30000):
@@ -120,6 +156,50 @@ def run(ctx):
         order = page.evaluate("() => [...document.querySelectorAll('.sum-groups > .sum-g')].map((g) => [...g.classList].find((c) => c.startsWith('sum-') && c !== 'sum-g'))")
         ck('「接線路徑」組排在全文檢索之前、圖控 HMI 之後', 'sum-wire' in order and 'sum-search' in order and order.index('sum-wire') < order.index('sum-search')
            and ('sum-hmi' not in order or order.index('sum-hmi') < order.index('sum-wire')), order)
+        # ---- v18：迴路圖放大檢視（桌機：按鈕開、Esc 關、焦點回到按鈕）
+        page.click('.sum-wire .loop-zoom-btn')
+        page.wait_for_selector('.loop-lb svg.loop-svg', timeout=5000)
+        lb = page.evaluate(LOOP_LB)
+        ck('迴路圖「⤢ 放大檢視」開燈箱：裡面是這張 SVG、有縮放比例', bool(lb) and lb['svg'] == 1 and lb['w'] > 0 and lb['z'].endswith('%') and lb['open'], lb)
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(400)
+        ck('Esc 關掉迴路圖燈箱、焦點回到放大鈕',
+           page.evaluate("() => !document.querySelector('.loop-lb') && !document.body.classList.contains('modal-open') && !!document.activeElement && document.activeElement.classList.contains('loop-zoom-btn')"))
+        # ---- v18：字不截斷、訊號說明（使用者 2026-10-31 的例子 G11LAE12QN001：Mark VIe 變數原本截成 di_HpStmTermAttTempCvOpe…）
+        for q in ('G11LAE12QN001', 'G11LAB65QM021'):
+            page.goto(ctx['base'] + '/db/#/card/' + q)
+            page.wait_for_selector('.sum-wire', timeout=30000)
+            wait_wire(page, '.sum-wire')
+            lt = page.evaluate(LOOP_TXT)
+            if q == 'G11LAE12QN001':
+                ck('G11LAE12QN001 迴路圖：Mark VIe 列的變數名完整（di_HpStmTermAttTempCvOpen、沒有 …）、底下藍字是組態說明與訊號 KKS',
+                   'Pos23 | Contact23 | di_HpStmTermAttTempCvOpen' in lt['rows'] and not any(x.endswith('…') for x in lt['rows'])
+                   and 'HP Terminal Attemperator Control Valve Open（G11LAE12QN001XG01）' in lt['desc'], (lt['rows'][:4], lt['desc'][:4]))
+            else:
+                ck('G11LAB65QM021 迴路圖：長變數 di_LpEconRecircFullEconOutIsoVlv_AltClosed 完整、Mark VIe 欄放寬（圖寬 > 1120）；接線圖說明超過 160 字的部分也在',
+                   any(x.endswith('di_LpEconRecircFullEconOutIsoVlv_AltClosed') for x in lt['rows']) and max(lt['w'] or [0]) > 1120
+                   and '=G11LAB65QM021XB62' in lt['txt'], (lt['rows'][:3], lt['w']))
+                page.click('.sum-wire .loop-zoom-btn')
+                page.wait_for_selector('.loop-lb svg.loop-svg', timeout=5000)
+                page.wait_for_timeout(300)
+                td = page.evaluate(TAP_DESC2)
+                ck('燈箱點藍字說明的第二行：說明列是整段（螺絲 | 通道 | 變數＋說明＋訊號 KKS），同一段的每一行都標色，圖區高度不變（說明列固定高）',
+                   bool(td) and ' | ' in td['pick'] and 'LpEconRecirc' in td['pick'] and '（G11LAB65QM021X' in td['pick'] and td['line'] in td['pick']
+                   and td['hl'] >= 2 and td['h0'] == td['h1'], td)
+                page.keyboard.press('Escape')
+                page.wait_for_timeout(300)
+        page.goto(ctx['base'] + '/db/#/card/G11MSA30GH001')
+        page.wait_for_selector('.sum-wire', timeout=30000)
+        wait_wire(page, '.sum-wire')
+        lt = page.evaluate(LOOP_TXT)
+        ck('G11MSA30GH001：同一條路徑跨 2A4B、2A5A 兩片卡、通道都叫 Contact02——Mark VIe 列照板位對變數（2A5A 那一列是 AXG52、2A4B 那一列是 AXG01），框頂列出 PDIA-57、PDIA-58',
+           'Pos02 | Contact02 | G11MSA30GH001AXG52' in lt['rows'] and 'Pos02 | Contact02 | G11MSA30GH001AXG01' in lt['rows'] and 'PDIA-57' in lt['txt'] and 'PDIA-58' in lt['txt'],
+           (lt['rows'][:4], lt['txt'][:200]))
+        page.goto(ctx['base'] + '/db/#/card/96AT-TC-1A')
+        page.wait_for_selector('svg.loop-svg', state='attached', timeout=60000)   # AMS 有這台（GE 元件的 AMS 設備卡帶 GE 路徑）或 GE 編號卡，哪一種都行
+        page.wait_for_timeout(500)
+        lt = page.evaluate(LOOP_TXT)
+        ck('FF 元件 96AT-TC-1A：Mark VIe 框頂的段變數底下有藍字組態說明', len(lt['desc']) >= 1 and 'FF_IN_S23' in lt['txt'], (lt['desc'][:3], lt['txt'][:200]))
         # 沒有接線路徑的 AMS 設備（JK 開頭的 HART 多工器模組）：不出這一組
         jk = page.evaluate("() => { const rows = AMS.index.sheet.rows; for (const r of rows) { const k = String(r[AMS.index.kc]); if (/^JK/.test(k)) return k; } return ''; }")
         if jk:
@@ -156,5 +236,24 @@ def run(ctx):
         wait_wire(page, '.kks-only .sum-wire')
         sw = page.evaluate('() => [document.documentElement.scrollWidth, window.innerWidth]')
         ck('手機寬度：KKS 編號卡不橫向捲動', sw[0] <= sw[1] + 1, sw)
+        # ---- v18：手機的迴路圖燈箱——點字看全文（說明列固定高）、開啟就看得到字、兩指放大定點不動、✕ 關
+        page.click('.kks-only .sum-wire .loop-zoom-btn')
+        page.wait_for_selector('.loop-lb svg.loop-svg', timeout=5000)
+        page.wait_for_timeout(200)
+        a0 = page.evaluate(LOOP_LB)
+        tt = page.evaluate(TAP_TEXT)   # 開啟倍率下點一段字（放大後畫面可能只剩電線）
+        page.wait_for_timeout(200)
+        a2 = page.evaluate(LOOP_LB)
+        ck('手機：點一下圖上的字，說明列顯示那段字的全文，圖區高度不變', bool(tt) and bool(a2) and a2['pick'] == tt.strip() and a2['vh'] == a0['vh'],
+           (tt[:80], a2 and a2['pick'][:80], a0 and a0['vh'], a2 and a2['vh']))
+        page.wait_for_timeout(400)
+        pz = page.evaluate(PINCH)
+        page.wait_for_timeout(300)
+        a1 = page.evaluate(LOOP_LB)
+        ck('手機直拿：迴路圖燈箱開啟就看得到字（高度塞滿、倍率 ≥ 50%，不是 31% 的全圖），兩指拉開放大（舞台變寬 1.8 倍以上），手指底下那一點不動',
+           bool(a0) and bool(a1) and int(a0['z'].rstrip('%') or 0) >= 50 and a1['w'] > a0['w'] * 1.8 and bool(pz) and abs(pz['a1'] - pz['a0']) < 0.02, (a0, a1, pz))
+        page.click('.loop-lb .modal-x')
+        page.wait_for_timeout(300)
+        ck('手機：✕ 關掉迴路圖燈箱', page.evaluate("() => !document.querySelector('.loop-lb')"))
         ck('手機：沒有 JS 錯誤', not errors, errors)
     return ck.fails
