@@ -1450,7 +1450,7 @@
   };
   KK.build = function (j) {
     const keys = new Map();
-    (j.entries || []).forEach((e, i) => { e._c = IX.compact(e.t); keys.set(e._c, i); });
+    (j.entries || []).forEach((e, i) => { e._c = IX.compact(e.t); keys.set(e._c, i); (e.s || []).forEach((s) => keys.set(IX.compact(s), i)); });   // s：只在端子表上的元件（co）的訊號名，位號不一定是 KKS（v19）
     KK.K = { j, keys };
     return KK.K;
   };
@@ -1459,6 +1459,8 @@
   KK.hit = function (q) {
     const K = KK.K; if (!K) return null;
     const c = IX.compact(q); const m = KK_SIG.exec(c);
+    const i0 = K.keys.get(c);
+    if (i0 != null && K.j.entries[i0].co) return { i: i0, via: c === K.j.entries[i0]._c ? 'key' : 'signal', sig: c === K.j.entries[i0]._c ? '' : c, raw: String(q).trim() };
     if (!m) return null;
     const i = K.keys.get(m[1]);
     return i == null ? null : { i, via: m[2] ? 'signal' : 'key', sig: m[2] ? c : '', raw: String(q).trim() };
@@ -1470,7 +1472,7 @@
     const c = IX.compact(q);
     if (!K || c.length < 6) return out;
     for (const e of K.j.entries) {
-      if (e._c.startsWith(c) || c.startsWith(e._c)) out.push({ key: e.t, src: 'KKS（接線圖）', alias: [e.u, e.ds].filter(Boolean).join(' · '), tag: '', m: 'pre' });
+      if (e._c.startsWith(c) || c.startsWith(e._c)) out.push({ key: e.t, src: e.co ? 'DCS 端子表' : 'KKS（接線圖）', alias: [e.u, e.ds].filter(Boolean).join(' · '), tag: '', m: 'pre' });
       if (out.length >= limit) break;
     }
     return out;

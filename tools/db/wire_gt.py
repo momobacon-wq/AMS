@@ -213,8 +213,15 @@ def parse_page(pg_ws, fr):
     if not sno or any(w['t'] == 'Intentionally' for w in ws):
         return []
     F = sorted([w for w in ws if w['t'] == 'FIELD' and w['y0'] < 140 and w['x0'] < 320], key=lambda w: w['y0'])
-    if not F:
-        return [{'sheet': sno, 'of': of, 'flags': ['no_field_header'], 'rows': [], 'groups': [], 'mode': ''}]
+    if not F:      # v19：標題列沒有 FIELD 字的頁，照 JUNCTION 的欄位推（p.298、p.665）；兩層熱電偶頁的下層標題是 'FIELD/JUNCTION'（p.395、p.833），只解析下層
+        a = sorted((w for w in ws if w['t'] == 'FIELD/JUNCTION' and w['x0'] < 450 and 200 < w['y0'] < 320), key=lambda w: w['x0']) or [w for w in ws if w['t'] == 'JUNCTION' and 395 < w['x0'] < 430 and w['y0'] < 100]
+        if not a:
+            return [{'sheet': sno, 'of': of, 'flags': ['no_field_header'], 'rows': [], 'groups': [], 'mode': ''}]
+        F = [dict(a[0], t='FIELD', x0=a[0]['x0'] - 214.0, x1=a[0]['x0'] - 199.0)]
+        if a[0]['t'] == 'FIELD/JUNCTION':
+            y_ = a[0]['y0']
+            ws = [w for w in ws if w['y0'] >= y_ - 2]
+            fr = dict(fr, v=[[v[0], max(v[1], y_ + 16), v[2]] for v in fr['v'] if v[2] > y_ + 30], h=[h for h in fr['h'] if h[0] > y_])
     F = F[0]
     dx = F['x0'] - FIELD_REF
     cols = {}
@@ -404,7 +411,8 @@ def parse_page(pg_ws, fr):
         for r in rows:
             r.setdefault('field_cell', None)
             r['jb_in'], r['field_core'], r['prox'] = '', '', ''
-        unit = unit_of(h['panel'], h['jb'], tr[0]['cable'] if tr else '')
+        # 消防手動站 PBL BOX 兩台共用一個（G11CKA32UC003）：元件跟著接線箱的機組（p.822 的 JB 是 G12XGA01XD104）
+        unit = unit_of(h['jb'], h['panel'], tr[0]['cable'] if tr else '') if (h['panel'] or '').startswith('PBL BOX') else unit_of(h['panel'], h['jb'], tr[0]['cable'] if tr else '')
         out.append({'sheet': sno, 'of': of, 'unit': unit, 'h': h, 'mode': mode, 'groups': groups, 'trunks': trunks, 'rows': rows,
                     'pdesc': pdesc, 'flags': sorted(set(flags)), 'sub': si, 'cols': {k: round(v, 1) for k, v in cols.items()}})
     return out

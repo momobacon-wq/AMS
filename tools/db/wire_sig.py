@@ -66,7 +66,7 @@ def contexts(r, con, pathkey):
         cfg = point_cfg(con, ctrl, mod, pt, posr2)
         if not cfg:
             continue
-        yield {'mode': r.get('mode'), 'board': board or cfg[3], 'pt': pt, 'pins': sorted(pins), 'params': cfg[2], 'signal_type': cfg[0],
+        yield {'mode': r.get('mode'), 'board': cfg[3] if board == 'WCSA' else (board or cfg[3]), 'pt': pt, 'pins': sorted(pins), 'params': cfg[2], 'signal_type': cfg[0],
                'input_type': cfg[1], 'ctrl': ctrl, 'mod': mod, 'posr': posr2, 'dtag': cfg[4], 'pathkey': pathkey, 'tag': r.get('tag', ''),
                'drawn': (r.get('wire') or {}).get('drawn', ''), 'jbdesc': '%s %s' % ((r.get('wire') or {}).get('jb', ''), (r.get('wire') or {}).get('jb_desc', ''))}
 

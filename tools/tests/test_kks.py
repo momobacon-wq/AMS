@@ -7,6 +7,10 @@ KKS 編號卡：AMS 沒有的 G11LAE12QM004（HP 末級減溫隔離閥，D1003 p
 頂列 Enter 也開到它；打一半的 KKS 在查無頁列出 KKS 候選；本身是 GE 元件的 AMS 設備，接線路徑塊帶 GE 編號卡的路徑與連到 GE 卡的說明；手機寬度不橫向捲動；console 零錯誤。
 v18 迴路圖：「⤢ 放大檢視」開燈箱（Esc 關、焦點回按鈕；點藍字第二行，說明列是整段「變數＋說明」、同一段一起標色、圖區高度不變；
 手機開啟就看得到字、兩指放大定點不動、點字看全文、✕ 關）；G11LAE12QN001 的 Mark VIe 變數名不截、底下有藍字的組態說明與訊號 KKS；
+v19：G11LAE12QN001 兩條路徑併成一張迴路圖（5 個訊號都在同一張、兩段段頭、預設展開）、頂端「端子表 5 個訊號，迴路圖畫出 5 個」；G11HBK11QM011 有路徑但缺點：列出缺的訊號與原因；
+沒有路徑的 AMS 設備（1-LI-CW101-1）也出這一組；解析更正：G11LAE12QM402 的 XB61、G11HBK11UC102 的 47／48、新增的 C10BBT10EW001 p.144、G11HBK11UC101；
+氣動閥清單先接走的 G11MAN30QN001（設備與訊號 KKS 都開閥卡）下面接接線路徑；GE 卡 S10MAX31GP003 有路徑、不寫查無；只在端子表上的元件（1-CSC-CW011-1、訊號 1-LI-CW091-1AXQ01）開只有端子表比對的卡；
+帶字母尾碼的訊號（G11MSA30GH001A…）併回設備計數。
 G11LAB65QM021 的長變數把 Mark VIe 欄放寬、接線圖說明不截在 160 字；G11MSA30GH001 跨兩片卡、同名通道照板位對變數；FF 元件 96AT-TC-1A 也有藍字說明。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
@@ -76,6 +80,12 @@ TAP_DESC2 = """() => { const v = document.querySelector('.loop-lb .loop-view'); 
 LOOP_TXT = """() => { const s = [...document.querySelectorAll('svg.loop-svg')];
   return { rows: s.flatMap((x) => [...x.querySelectorAll('text.lp-m.xs')].map((t) => t.textContent)), desc: s.flatMap((x) => [...x.querySelectorAll('text.lp-d')].map((t) => t.textContent)),
     w: s.map((x) => x.viewBox.baseVal.width), txt: s.map((x) => [...x.querySelectorAll('text')].map((t) => t.textContent).join(' ')).join('｜') }; }"""
+
+
+LOOP_ALL = """() => { const d = [...document.querySelectorAll('details.wire-loop')]; const s = d[0] && d[0].querySelector('.loop-fig > svg');
+  return { n: d.length, open: d[0] ? d[0].open : false, sum: d[0] ? d[0].querySelector('summary').textContent : '', svg: document.querySelectorAll('.loop-fig > svg').length, inner: s ? s.querySelectorAll('svg').length : 0,
+    heads: s ? [...s.querySelectorAll('text.lp-secth')].map((t) => t.textContent) : [], txt: s ? [...s.querySelectorAll('text')].map((t) => t.textContent).join(' ') : '',
+    cov: (document.querySelector('.wire-cov-h') || {}).textContent || '', gaps: [...document.querySelectorAll('.wire-gap tbody tr')].map((r) => r.textContent) }; }"""
 
 
 def wait_wire(page, sel, ms=30000):
@@ -188,6 +198,54 @@ def run(ctx):
                    and td['hl'] >= 2 and td['h0'] == td['h1'], td)
                 page.keyboard.press('Escape')
                 page.wait_for_timeout(300)
+        # ---- v19：一台一張迴路圖（使用者 2026-10-31 的例子：卡上 5 個訊號，第一張圖只畫 3 個，XQ23、XQ02 在收合的第二張）；端子表逐點對接線路徑
+        page.goto(ctx['base'] + '/db/#/card/G11LAE12QN001')
+        page.wait_for_selector('.sum-wire', timeout=30000)
+        wait_wire(page, '.sum-wire')
+        la = page.evaluate(LOOP_ALL)
+        ck('G11LAE12QN001：兩條路徑併成一張迴路圖（一個 details、預設展開、兩個內層 svg、兩段段頭），5 個訊號都在同一張',
+           la['n'] == 1 and la['open'] and la['svg'] == 1 and la['inner'] == 2 and len(la['heads']) == 2
+           and all('G11LAE12QN001' + x in la['txt'] for x in ('XG01', 'XG02', 'XB62', 'XQ23', 'XQ02')), {k: la[k] for k in ('n', 'open', 'svg', 'inner', 'heads', 'sum')})
+        ck('G11LAE12QN001：接線路徑最上面寫「端子表 5 個訊號，迴路圖畫出 5 個」', la['cov'].startswith('端子表 5 個訊號，迴路圖畫出 5 個') and not la['gaps'], la['cov'])
+        page.click('.sum-wire .loop-zoom-btn')
+        page.wait_for_selector('.loop-lb svg.loop-svg', timeout=5000)
+        page.wait_for_timeout(300)
+        lb = page.evaluate(LOOP_LB)
+        ck('併成一張的圖也能開燈箱：只有外層一張（內層不算）、有縮放比例', bool(lb) and lb['svg'] == 1 and lb['z'].endswith('%'), lb)
+        page.keyboard.press('Escape')
+        page.wait_for_timeout(300)
+        page.goto(ctx['base'] + '/db/#/card/G11HBK11QM011')
+        page.wait_for_selector('.wire-cov', timeout=30000)
+        la = page.evaluate(LOOP_ALL)
+        ck('G11HBK11QM011：端子表 7 個、接線圖少 2 個：逐列列出訊號與原因（XB87、XB20），不畫進迴路圖',
+           '接線圖沒有畫' in la['cov'] and len(la['gaps']) == 2 and any('G11HBK11QM011XB87' in x for x in la['gaps']) and 'XB87' not in la['txt'], (la['cov'], la['gaps'][:2]))
+        page.goto(ctx['base'] + '/db/#/card/1-LI-CW101-1')
+        page.wait_for_selector('.wire-cov', timeout=30000)
+        la = page.evaluate(LOOP_ALL)
+        ck('1-LI-CW101-1（AMS 設備、接線圖沒有路徑）：接線路徑組還在，寫端子表的訊號與原因，沒有迴路圖', la['svg'] == 0 and len(la['gaps']) >= 1 and '接線圖沒有畫' in la['cov'], (la['cov'], la['gaps'][:1]))
+        for q_ in ('G11MAN30QN001', 'G11MAN30QN001XQ23'):
+            page.goto(ctx['base'] + '/db/#/card/' + q_)
+            page.wait_for_selector('.kks-wire .wire-cov', timeout=30000)
+            la = page.evaluate(LOOP_ALL)
+            ck('%s：氣動閥清單先接走，閥卡下面仍有接線路徑與併成一張的迴路圖' % q_, page.evaluate("() => !!document.querySelector('.valve-only')") and la['svg'] == 1 and la['inner'] == 4 and la['cov'].startswith('端子表 7 個訊號'), (la['sum'], la['cov']))
+        page.goto(ctx['base'] + '/db/#/card/S10MAX31GP003')
+        page.wait_for_selector('.kks-wire svg.loop-svg', state='attached', timeout=30000)
+        page.wait_for_timeout(1200)
+        ck('S10MAX31GP003（GE 卡）：有接線路徑時不寫「查無」', '查無：一號機兩份儀控電纜接線圖' not in page.evaluate("() => document.body.textContent"))
+        for q_ in ('1-CSC-CW011-1', '1-LI-CW091-1AXQ01'):
+            page.goto(ctx['base'] + '/db/#/card/' + q_)
+            page.wait_for_selector('.kks-only .wire-cov', timeout=30000)
+            la = page.evaluate(LOOP_ALL)
+            ck('%s（只在端子表上、位號不是 KKS）：開卡，列訊號與原因，沒有 P&ID、圖控「查無」' % q_, la['svg'] == 0 and len(la['gaps']) >= 1 and page.evaluate("() => !document.querySelector('.sum-pid') && !document.querySelector('.sum-hmi')"), (la['cov'], la['gaps'][:1]))
+        page.goto(ctx['base'] + '/db/#/card/G11MSA30GH001')
+        page.wait_for_selector('.wire-cov', timeout=30000)
+        la = page.evaluate(LOOP_ALL)
+        ck('G11MSA30GH001：端子表帶字母尾碼的訊號（…001A、B、C）併回設備計數', la['cov'].startswith('端子表 7 個訊號') or la['cov'].startswith('端子表 8 個訊號'), la['cov'])
+        fix = page.evaluate("""async () => { const K = await AMS.kkstag.load(); const E = K ? K.j.entries : []; const of = async (t) => { const i = E.findIndex((e) => e.t === t); return i >= 0 ? (await AMS.kkstag.loadLoc(i)).lo : null; };
+          const a = await of('G11HBK11UC102'); const b = await of('G11LAE12QM402'); const c = await of('C10LCC10BS004'); const d = await of('G11HBK11UC101');
+          return { a: a ? a.wp.t.map((r) => r[3]) : null, b: b ? [b.wp].concat(b.wpx || []).flatMap((w) => w.d.sl || []) : null, c: !!(c && c.wp), d: !!(d && d.wp) }; }""")
+        ck('解析更正：G11HBK11UC102 第二組芯在 47／48（D1003 p.635 原本錯一列）；G11LAE12QM402 有 XB61（p.297 訊號 KKS 斷兩行）；C10LCC10BS004、G11HBK11UC101 有路徑',
+           bool(fix['a']) and any('47' in str(x) for x in fix['a']) and any('48' in str(x) for x in fix['a']) and bool(fix['b']) and 'G11LAE12QM402XB61' in fix['b'] and fix['c'] and fix['d'], fix)
         page.goto(ctx['base'] + '/db/#/card/G11MSA30GH001')
         page.wait_for_selector('.sum-wire', timeout=30000)
         wait_wire(page, '.sum-wire')

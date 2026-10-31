@@ -74,6 +74,8 @@
   // 迴路圖燈箱（openLoopLightbox）的縮放上限：圖上的字 8.6–9.5 個單位高，放到 4 倍約 35–38 個 CSS 像素
   const LOOP_ZMAX = 4;
   let loopCtx = null;   // loopSvg 量字寬用的 canvas（共用一個）
+  const WIRE_GAP = { doc: '另一份文件有畫，接線路徑還沒有讀這份', scan: '掃描圖有畫（沒有文字層），接線路徑還沒有收', draw: '現行接線圖有畫，這一版沒有解析',
+    cable: '文件庫只到電纜，沒有芯線級的接線圖', none: '文件庫查無接線圖', asb: '竣工版已刪，舊版才有', canc: '現行接線圖標 CANCELLED', stale: '端子表舊列：接線圖沒有，這組螺絲組態也沒有變數', conf: '文件互相矛盾', unk: '還沒有查到接線文件' };   // cv.x 的類別（v19，wire_gaps.json）
   // OCR 辨識信心低於這個值就用紅字（pid_index 的採用門檻是 0.75；看的是這張圖上各處標記的最低值 extra.conf_min，不是只看 ①）
   const PID_LOW = 0.8;
   // 引用（build_card_aux 的 note／notes 代碼 1～4）：圖上「提到」這支位號的地方，不是儀器符號的位置。標頭短籤用 PID_REF（整句在
@@ -454,9 +456,10 @@
           }
         }
         if (res.ge) body.appendChild(this.renderGeOnly(res, true)); // 閥清單與 GE 對照表都有這個編號：閥卡下面接 GE 文件的對照
+        this.kksWireBlock(body, res, [q, res.valve && res.valve.listTag]);
         document.title = String(q) + '（氣動閥清單） · 設備查詢卡 · AMS'; return;
       }
-      if (res.ge) { body.appendChild(this.renderGeOnly(res)); document.title = String(q) + '（GE 原廠編號） · 設備查詢卡 · AMS'; return; }
+      if (res.ge) { body.appendChild(this.renderGeOnly(res)); this.kksWireBlock(body, res, [q]); document.title = String(q) + '（GE 原廠編號） · 設備查詢卡 · AMS'; return; }
       if (res.kks) { body.appendChild(this.renderKksOnly(res)); document.title = String(q) + '（KKS 接線圖） · 設備查詢卡 · AMS'; return; }
       if (res.gePending || res.kkPending) { body.appendChild(U.h('p', { class: 'muted cl-empty' }, '載入中…')); return; }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
@@ -704,6 +707,28 @@
 
     /* ---------- KKS 編號卡（v17，card/kkstag.json；core.js AMS.kkstag） ---------- */
     kksHit(q) { return AMS.kkstag && AMS.kkstag.K ? AMS.kkstag.hit(q) : null; }
+    /** v19：編號先被氣動閥清單或 GE 對照表接走時到不了 KKS 編號卡：閥卡、GE 卡下面接同一份接線路徑與端子表比對（有路徑時 GE 卡不再寫「查無」）。 */
+    kksWireBlock(body, res, qs) {
+      if (!AMS.kkstag) return;
+      AMS.kkstag.load().then(() => {
+        const kh = qs.filter(Boolean).map((q) => this.kksHit(q)).find(Boolean);
+        if (!kh || this.destroyed || this.res !== res) return null;
+        return AMS.kkstag.loadLoc(kh.i, this.spec.aux && this.spec.aux.index).then(({ ix, lo }) => {
+          if (this.destroyed || this.res !== res || !lo) return;
+          const wps = [lo.wp].concat(lo.wpx || []).filter(Boolean);
+          if (!wps.length && !lo.cv) return;
+          const e = AMS.kkstag.K.j.entries[kh.i];
+          const grid = U.h('div', { class: 'sum-body' });
+          body.appendChild(U.h('section', { class: 'csec sum kks-wire' }, U.h('section', { class: 'sum-g sum-wire' }, U.h('h3', { class: 'sum-gh' }, '接線路徑（現場 → 接線箱 → 控制盤；迴路圖）'), grid)));
+          this.wireKeep = { res, rows: wps.flatMap((w) => w.rows || []) };
+          this.pidRelease(null, ix);
+          this.fillWirePaths(grid, wps, ix, this.currentMode(), (t) => '#/card/' + encodeURIComponent(t), e.t);
+          this.fillCov(grid, lo.cv);
+          if (wps.length) { this.kksWired = res; body.querySelectorAll('.ge-wire').forEach((g) => { if (/^查無/.test(g.textContent.trim())) { g.previousElementSibling.remove(); g.remove(); } }); }
+          this.applyMode();
+        });
+      }).catch(() => {});
+    }
     /** 位號索引的模糊對應（包含／唯一建議）要不要採用：KKS 編號卡整串命中，或有「開頭相符、不是 AMS 鍵」的 KKS 候選（打一半的 G11LAE12QM0
      *  不該悄悄開舊位號 G11LAE12 那一台）→ 不採用，改列兩邊的候選 */
     kksBlocksFuzzy(q, rs) {
@@ -716,7 +741,8 @@
     kksLookup(q, res, kh) {
       const e = AMS.kkstag.K.j.entries[kh.i];
       res.kks = kh; res.notfound = true; res.key = AMS.index.norm(q);
-      res.status = `「${AMS.index.norm(q)}」是接線圖上的${kh.via === 'signal' ? '訊號 KKS，設備是 ' + e.t : ' KKS'}${e.ds ? '（' + e.ds + '）' : ''}`
+      res.status = e.co ? `「${AMS.index.norm(q)}」在 DCS 端子表上${e.ds ? '（' + e.ds + '）' : ''}；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`
+        : `「${AMS.index.norm(q)}」是接線圖上的${kh.via === 'signal' ? '訊號 KKS，設備是 ' + e.t : ' KKS'}${e.ds ? '（' + e.ds + '）' : ''}`
         + '；AMS 資料庫沒有這個設備、也沒有 GE 編號，以下是接線圖的接線路徑。';
       return res;
     }
@@ -726,30 +752,32 @@
       const wrap = U.h('section', { class: 'csec sum kks-only' });
       const hero = U.h('div', { class: 'sum-hero' });
       hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, e.t)));
-      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, 'KKS（接線圖）'), e.u ? U.h('span', { class: 'sum-subi', title: '機組（KKS 前三碼）' }, e.u) : null,
+      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, e.co ? 'DCS 端子表' : 'KKS（接線圖）'), e.u ? U.h('span', { class: 'sum-subi', title: '機組（KKS 前三碼）' }, e.u) : null,
         e.ct ? U.h('span', { class: 'sum-subi', title: '盤端子所屬的控制器（signal-atlas 控制器索引）' }, '控制器 ' + e.ct) : null,
         kh.via === 'signal' ? U.h('span', { class: 'sum-subi', title: '輸入的是訊號 KKS' }, '訊號 ' + kh.sig) : null, U.h('span', { class: 'sum-subi' }, '不在 AMS 資料庫')));
       if (e.ds) hero.appendChild(U.h('div', { class: 'sum-svc' }, e.ds));
       wrap.appendChild(hero);
       const groups = U.h('div', { class: 'sum-groups' });
       const grp = (cls, title) => { const s = U.h('section', { class: 'sum-g ' + cls }, U.h('h3', { class: 'sum-gh' }, title)); const g = U.h('div', { class: 'sum-body' }, U.h('p', { class: 'muted cl-empty' }, '載入中…')); s.appendChild(g); groups.appendChild(s); return g; };
-      const gp = grp('sum-pid', 'P&ID 圖面位置（這個元件畫在哪一張圖、圖上哪裡）');
-      const gh = grp('sum-hmi', '圖控 HMI 畫面（這個元件畫在哪一頁）');
+      const gp = e.co ? null : grp('sum-pid', 'P&ID 圖面位置（這個元件畫在哪一張圖、圖上哪裡）');   // 只在端子表上的元件（co）沒有查過 P&ID、圖控，不寫「查無」
+      const gh = e.co ? null : grp('sum-hmi', '圖控 HMI 畫面（這個元件畫在哪一頁）');
       const grid = grp('sum-wire', '接線路徑（現場 → 接線箱 → 控制盤；迴路圖）');
       wrap.appendChild(groups);
-      if (K.j.rule) wrap.appendChild(U.h('p', { class: 'muted small aux-note' }, K.j.rule));
+      if (K.j.rule && !e.co) wrap.appendChild(U.h('p', { class: 'muted small aux-note' }, K.j.rule));
       AMS.kkstag.loadLoc(kh.i, this.spec.aux && this.spec.aux.index).then(({ ix, lo }) => {
         if (this.destroyed || this.res !== res) return;
         const wps = lo ? [lo.wp].concat(lo.wpx || []).filter(Boolean) : [];
         this.wireKeep = { res, rows: wps.flatMap((w) => w.rows || []).concat((lo && lo.pd) || []) };
         this.pidRelease(null, ix);
         const none = (el, t) => { el.innerHTML = ''; el.appendChild(U.h('p', { class: 'muted cl-empty' }, t)); };
+        if (e.co) { grid.innerHTML = ''; this.fillCov(grid, lo && lo.cv); this.applyMode(); return; }
         if (lo && (lo.pd || []).length) { gp.innerHTML = ''; this.fillPid({ rows: lo.pd }, ix, gp, mode, true); }
         else none(gp, '查無（現行 P&ID 圖面的文字層與 OCR 都沒有讀到這個 KKS；不代表圖上沒有畫——馬達、電氣狀態點多半不畫在 P&ID 上）');
         if (lo && (lo.hm || []).length) { gh.innerHTML = ''; this.fillHmi({ rows: lo.hm }, ix, gh, mode, true); }
         else none(gh, '查無（操作員畫面上沒有引用這個 KKS 的物件或訊號）');
         if (!wps.length) { grid.innerHTML = ''; grid.appendChild(U.h('p', { class: 'muted cl-empty' }, '查無接線路徑')); return; }
         this.fillWirePaths(grid, wps, ix, mode, (t) => '#/card/' + encodeURIComponent(t), e.t);
+        this.fillCov(grid, lo.cv);
         this.applyMode();
       }).catch((err) => { if (!this.destroyed && this.res === res) { const m = `<p class="muted cl-empty">無法載入：${U.esc((err && err.message) || err)}</p>`; grid.innerHTML = m; gp.innerHTML = ''; gh.innerHTML = ''; } });
       return wrap;
@@ -1049,7 +1077,7 @@
           const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
           const href = (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : '');
           this.fillWirePaths(gw, wps, ix, mode, href, e.t);
-        } else if (lo.wpn) {
+        } else if (lo.wpn && this.kksWired !== res) {
           const gw = part('接線路徑（現場 → 接線箱 → 電子室盤）', 'ge-wire');
           none(gw, '查無：一號機兩份儀控電纜接線圖（汽機 D1005、燃機 D1004）與 GE 燃機接線表 138T5502 都沒有讀到這個編號。它有 Mark VIe 訊號，可能是 FF 段上 GE 表沒有列的元件、'
             + '撬內或盤內配線、說明格寫成別名，或接線圖這一頁的畫法這一版還沒有解析（兩層熱電偶頁）。');
@@ -1082,17 +1110,45 @@
      *  第一條的迴路圖先展開。href＝接線箱端子排裡認得的元件連到哪裡、tag＝迴路圖的編號用的元件名。 */
     fillWirePaths(gw, wps, ix, mode, href, tag) {
       gw.innerHTML = '';
-      wps.forEach((w, i) => {
-        const box = U.h('div', { class: 'wire-path' });
-        const body = U.h('div', { class: 'wire-path-b' });   // fillWire 會先清空它的容器：標題放在外面
-        if (wps.length > 1) {
-          const pan = ((w.sum || []).find((x) => x[0] === '電子室盤') || [])[1] || '';
-          box.appendChild(U.h('h4', { class: 'wire-path-h' }, (w.u ? w.u + ' ' : '') + '第 ' + (i + 1) + ' 條' + (pan ? '：' + pan : '')));
-        }
-        box.appendChild(body);
-        gw.appendChild(box);
-        this.fillWire(w, ix, body, mode, href, { tag, open: i === 0 });
+      // v19：同一台的訊號常分在幾條路徑上（直拉的接點＋經接線箱的 4–20 mA）：一台一張迴路圖畫完全部訊號，放在各條路徑的表前面；兩台燃機各一張，只先展開第一台
+      [...new Set(wps.map((w) => w.u || ''))].forEach((u, ui) => {
+        const gp = wps.filter((w) => (w.u || '') === u);
+        const drawn = gp.filter((w) => (w.t || []).length);
+        if (drawn.length > 1) this.fillLoop(drawn, gw, tag, ui === 0);
+        gp.forEach((w, i) => {
+          const box = U.h('div', { class: 'wire-path' });
+          const body = U.h('div', { class: 'wire-path-b' });   // fillWire 會先清空它的容器：標題放在外面
+          if (wps.length > 1) {
+            const pan = ((w.sum || []).find((x) => x[0] === '電子室盤') || [])[1] || '';
+            box.appendChild(U.h('h4', { class: 'wire-path-h' }, (w.u ? w.u + ' ' : '') + '第 ' + (i + 1) + ' 條' + (pan ? '：' + pan : '')));
+          }
+          box.appendChild(body);
+          gw.appendChild(box);
+          this.fillWire(w, ix, body, mode, href, drawn.length > 1 ? null : { tag, open: ui === 0 });
+        });
       });
+    }
+    /** v19：端子表的訊號畫到迴路圖了沒（cv，tools/db/wire_cov.py）：放在接線路徑最上面。畫不出來的訊號不進迴路圖，這裡逐列寫清楚盤端子、組態變數與原因；
+     *  只有盤端子對得上、圖上寫別的名稱的另列一段（不判定是不是同一個訊號）。 */
+    fillCov(el, cv) {
+      if (!cv) return;
+      const miss = cv.x || []; const alt = cv.a || [];
+      const head = `端子表 ${cv.n} 個訊號，迴路圖畫出 ${cv.m} 個` + (alt.length ? `、${alt.length} 個圖上寫別的名稱` : '') + (miss.length ? `、${miss.length} 個接線圖沒有畫` : '');
+      const box = U.h('div', { class: 'wire-cov' + (miss.length ? ' gap' : '') }, U.h('p', { class: 'wire-cov-h' + (miss.length ? '' : ' muted small') }, head + `（${cv.d}）`));
+      if (miss.length) {
+        const tb = U.h('tbody');
+        for (const [sig, desc, ctl, pos, pt, pack, tbn, vr, cls, src, note] of miss) {
+          tb.appendChild(U.h('tr', {}, U.h('td', { class: 'mono' }, sig), U.h('td', {}, desc), U.h('td', { class: 'mono' }, `${ctl} ${pos} ${pack} 點 ${pt} 端子 ${tbn}`),
+            U.h('td', { class: 'mono' }, vr || '（這組螺絲組態沒有變數）'), U.h('td', {}, [WIRE_GAP[cls] || WIRE_GAP.unk, src, note].filter(Boolean).join('；'))));
+        }
+        box.appendChild(U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini wire-gap' }, U.h('caption', { class: 'sr-only' }, '接線圖沒有畫的訊號'),
+          U.h('thead', {}, U.h('tr', {}, ...['訊號', '說明', '盤端子（端子表）', '組態變數', '為什麼沒有畫'].map((x) => U.h('th', {}, x)))), tb)));
+      }
+      if (alt.length) {
+        box.appendChild(U.h('ul', { class: 'wire-notes small' }, ...alt.map(([sig, names, term]) => U.h('li', {},
+          `端子表 ${sig} 的盤端子 ${term}，接線圖上${names.length ? '寫 ' + names.join('、') : '沒有寫訊號名'}`))));
+      }
+      el.insertBefore(box, el.firstChild);
     }
     /** v17：AMS 設備卡摘要的「接線路徑」組（card/wire-NN.json，CONTRACT.md「v17」）——現行位號的設備 KKS 在 HRSG／電氣 I&C／BOP 接線圖
      *  （或燃機／汽機圖上沒有 GE 編號的框）上的路徑，畫法同 GE 編號卡。沒有路徑的設備整組拿掉（不留「查無」）。 */
@@ -1102,10 +1158,11 @@
       D.loadWire(res.alias, this.spec.aux && this.spec.aux.index).then(({ ix, w }) => {
         if (this.destroyed || this.res !== res) return;
         const wps = w ? [w.wp].concat(w.wpx || []).filter(Boolean) : [];
-        if (!wps.length) { if (sec) sec.remove(); return; }
+        if (!wps.length && !(w && w.cv)) { if (sec) sec.remove(); return; }
         this.wireKeep = { res, rows: wps.flatMap((x) => x.rows || []) };   // pidRelease 不可收掉這幾張圖（另一條非同步路徑可能晚一點才呼叫它）
         this.pidRelease(this.aux, ix);
         this.fillWirePaths(grid, wps, ix, mode, (t) => '#/card/' + encodeURIComponent(t), (U.text((AMS.devices.sheet.rows[res.i3] || [])[this.spec.lookup.target_tag_col]) || res.key || ''));
+        this.fillCov(grid, w.cv);
         if (w.ge) grid.insertBefore(U.h('p', { class: 'muted small aux-note' }, '這台是 GE 元件 ', U.h('a', { class: 'lk', href: '#/card/' + encodeURIComponent(w.ge) }, w.ge),
           '：下面是 GE 編號卡上同一份接線路徑（燃機／汽機儀控電纜接線圖）。'), grid.firstChild);
         this.applyMode();
@@ -1116,11 +1173,11 @@
      *  n＝註記 [[文字, 出處]]（文件互相矛盾、圖面筆誤：不替任何一方選邊，原樣列出）；rows＝各跳的圖，與 P&ID 同格式，直接交給 fillPid
      *  （接線圖、接線箱位置、盤內板位、3500 盤端子、3500 機架槽位；第一張展開、其餘收合，展開才下載）；
      *  jb＝[接線箱, [[JB 端子, 芯, 元件, 盤端子]…]]：同一個接線箱裡的 TSI 端子排（收合，元件連到它的卡）。
-     *  lp＝{tag, open}：迴路圖（v15，fillLoop）的編號與要不要先展開（多條路徑時只展開第一條）。 */
+     *  lp＝{tag, open}：迴路圖（v15，fillLoop）的編號與要不要先展開；同一台有多條路徑時 null（v19：併成一張畫在 fillWirePaths）。 */
     fillWire(wp, ix, el, mode, href, lp) {
       el.innerHTML = '';
       if (GE_WIRE_MODE[wp.mode]) el.appendChild(U.h('p', { class: 'muted small wire-mode' }, GE_WIRE_MODE[wp.mode]));
-      if (lp && lp.tag) this.fillLoop(wp, el, lp.tag, lp.open);
+      if (lp && lp.tag) this.fillLoop([wp], el, lp.tag, lp.open);
       if ((wp.f || []).length) {   // 燃機撬上：GE 138T5502 的「元件端子 → 撬上接線箱端子」（一芯一列）
         const fb = U.h('tbody');
         for (const row of wp.f) fb.appendChild(U.h('tr', {}, ...row.slice(0, 8).map((v) => U.h('td', { class: 'mono' }, v || ''))));
@@ -1168,15 +1225,19 @@
      *  → 電子室盤端子 → Mark VIe 腳位（✓≈✗ 與表格同一套）。資料全取自卡上這條路徑（wp.d 分開欄位、wp.t 每條芯、wp.f 燃機 GE 接線表、wp.n 註記、
      *  wp.rows 出處圖紙），不另載檔。SVG 用字串組（U.h 建的是 HTML 元素，畫不出 SVG）；「列印這張迴路圖」把它放進 body 底下的 #loop-print 再 window.print
      *  （app.css 的 @media print 只留它、A4 橫向），「下載 SVG」存成獨立檔（樣式寫在 SVG 自己的 <style>，選擇器都掛在 .loop-svg 底下，不影響頁面）。
-     *  v18：「⤢ 放大檢視」或直接點圖，開可縮放、拖曳的燈箱（openLoopLightbox；手機、平板雙指縮放）。 */
-    fillLoop(wp, el, tag, open) {
-      if (!(wp.t || []).length) return;
-      const svg = this.loopSvg(wp, tag);
+     *  v18：「⤢ 放大檢視」或直接點圖，開可縮放、拖曳的燈箱（openLoopLightbox；手機、平板雙指縮放）。
+     *  v19：wps＝這一台要畫的路徑：一條照舊；多條由上而下併成一張（loopStack），列印時每條一頁（A4 一頁放不下一整疊）。 */
+    fillLoop(wps, el, tag, open) {
+      wps = wps.filter((w) => (w.t || []).length);
+      if (!wps.length) return;
+      const wp = wps[0]; const many = wps.length > 1;
+      const parts = wps.map((w) => this.loopSvg(w, tag));
+      const svg = many ? this.loopStack(wps, parts, tag) : parts[0];
       const name = '迴路圖_' + String(tag).replace(/[\\/:*?"<>|\s]+/g, '_') + (wp.u ? '_' + wp.u : '') + '.svg';
       const pr = U.h('button', { type: 'button', class: 'btn xs loop-print-btn', onclick: () => {
         const old = document.getElementById('loop-print');
         if (old) old.remove();
-        const box = U.h('div', { id: 'loop-print', html: svg });
+        const box = U.h('div', { id: 'loop-print', html: parts.join('') });
         document.body.appendChild(box);
         document.body.classList.add('print-loop');
         const done = () => { window.removeEventListener('afterprint', done); document.body.classList.remove('print-loop'); box.remove(); };
@@ -1192,16 +1253,40 @@
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       } }, '下載 SVG');
       const zb = U.h('button', { type: 'button', class: 'btn xs loop-zoom-btn' }, '⤢ 放大檢視');
-      const fig = U.h('div', { class: 'loop-fig', html: svg });
+      const fig = U.h('div', { class: 'loop-fig' + (wps.length > 3 ? ' tall' : ''), html: svg });
       zb.addEventListener('click', () => this.openLoopLightbox(svg, tag, zb));
       fig.addEventListener('click', (e) => {   // 點卡上的圖：燈箱以點的地方為中心開
         const r = (fig.querySelector('svg') || fig).getBoundingClientRect();
         this.openLoopLightbox(svg, tag, zb, r.width > 0 && r.height > 0 ? [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height] : null);
       });
       el.appendChild(U.h('details', Object.assign({ class: 'wire-loop' }, open ? { open: true } : {}),
-        U.h('summary', {}, '迴路圖（ISA-5.4 式單線圖：元件 → 接線箱端子 → 幹線 → 盤端子 → Mark VIe 腳位）'),
+        U.h('summary', {}, many ? `迴路圖${wp.u ? ' ' + wp.u : ''}（全部 ${wps.length} 條路徑併成一張：元件 → 接線箱端子 → 幹線 → 盤端子 → Mark VIe 腳位）`
+          : '迴路圖（ISA-5.4 式單線圖：元件 → 接線箱端子 → 幹線 → 盤端子 → Mark VIe 腳位）'),
         U.h('div', { class: 'loop-tools' }, zb, pr, dl, U.h('span', { class: 'muted small' }, '依接線圖、電纜表與控制器組態由程式整理，本圖未經簽核；文件互相矛盾的地方在圖下方 ⚠ 註記')),
         fig));
+    }
+
+    /** v19：同一台的幾條路徑併成一張：parts＝各條 loopSvg 的字串，由上而下排，每條前面一列段頭（第幾條、盤、這一條的訊號）。
+     *  各條照自己的版面（接線箱、幹線、盤各條不同，不合併欄位），內層 <svg> 只留定位，樣式寫在外層一份（選擇器都掛在外層的 .loop-svg 底下）。 */
+    loopStack(wps, parts, tag) {
+      const E = U.esc; const HH = 30; const GAP = 10; const size = (s) => (s.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/) || [0, 1120, 600]).slice(1).map(Number);
+      const short = (s) => (s.startsWith(tag) ? s.slice(tag.length) || s : s);   // 訊號 KKS 開頭就是這個元件：段頭只留尾碼
+      const W = Math.max(...parts.map((s) => size(s)[0]));
+      const css = (parts[0].match(/<style>[\s\S]*?<\/style>/) || [''])[0];
+      let y = 0; let g = '';
+      parts.forEach((s, i) => {
+        const [w, h] = size(s); const wp = wps[i];
+        const sig = (wp.d || {}).sl || Object.values((wp.d || {}).vd || {}).map((x) => x[0]).filter(Boolean);
+        const pan = ((wp.sum || []).find((x) => x[0] === '電子室盤') || [])[1] || '';
+        const hd = `第 ${i + 1}／${parts.length} 條` + (sig.length ? `　${[...new Set(sig)].map(short).sort().join('、')}` : pan ? `　${pan}` : '');
+        const room = Math.floor((W - 24) / 7.2);                               // 12 px 字一字約 7 px；放不下截掉，點字看全文（data-full）
+        g += `<rect x="0" y="${y}" width="${W}" height="${HH}" class="lp-sect"/><text x="12" y="${y + 20}" class="lp-b lp-secth" data-full="${E(hd)}">${E(hd.length > room ? hd.slice(0, room - 1) + '…' : hd)}</text>`;
+        y += HH;
+        g += `<svg x="0" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` + s.replace(/^<svg[^>]*>/, '').replace(/<style>[\s\S]*?<\/style>/, '');
+        y += h + (i < parts.length - 1 ? GAP : 0);
+      });
+      return `<svg xmlns="http://www.w3.org/2000/svg" class="loop-svg" viewBox="0 0 ${W} ${y}" width="${W}" height="${y}" role="img" aria-label="${E('迴路圖 ' + tag)}">`
+        + css.replace('</style>', '.loop-svg .lp-sect{fill:#e8edf3}.loop-svg .lp-secth{font-size:12px}</style>') + g + '</svg>';
     }
 
     /** 迴路圖放大（v18；手機、平板）：外殼與操作同 P&ID 燈箱（openPidLightbox）——雙指或滾輪縮放、一指拖曳、＋／−／全圖／原尺寸、
@@ -1222,6 +1307,7 @@
       const view = U.h('div', { class: 'pid-view big loop-view', tabindex: '0', role: 'group',
         'aria-label': '迴路圖：拖曳平移，滾輪或雙指縮放，點字看全文；鍵盤 ＋ − 縮放、0 看全圖、方向鍵平移' }, stage);
       const vb = stage.querySelector('svg').viewBox.baseVal; const SW = vb.width || 1120; const SH = vb.height || 600;
+      const inner = stage.querySelector('svg svg'); const SH1 = inner ? +inner.getAttribute('height') + 30 : SH;   // v19：併成一張的圖，開啟倍率照第一段（段頭＋那一條）的高度
       const HINT = U.isTouch() ? '雙指縮放、拖曳移動；點兩下放大／還原；點一下圖上的字，這裡顯示全文'
         : '滾輪或雙指縮放、拖曳移動；連點兩下放大／還原；點一下圖上的字，這裡顯示全文';
       const pick = U.h('div', { class: 'loop-pick hint', 'aria-live': 'polite' }, HINT);
@@ -1238,7 +1324,7 @@
       const cw = () => view.clientWidth; const ch = () => view.clientHeight;
       const zFit = () => Math.min(cw() / SW, ch() / SH) || 1;
       const zMax = () => Math.max(LOOP_ZMAX, zFit());
-      const zHome = () => { const zw = cw() / SW; return zw >= 0.6 || cw() >= ch() ? Math.max(zFit(), Math.min(1, zw)) : Math.max(zw, Math.min(1, ch() / SH)); };
+      const zHome = () => { const zw = cw() / SW; return zw >= 0.6 || cw() >= ch() ? Math.max(zFit(), Math.min(1, zw)) : Math.max(zw, Math.min(1, ch() / SH1)); };
       const apply = () => {
         raf = 0;
         const w = cw(); const h = ch();
@@ -1293,7 +1379,7 @@
         stage.querySelectorAll('text.lp-pick').forEach((el) => el.classList.remove('lp-pick'));
         if (!hit) { setPick(''); return; }
         const full = hit.getAttribute('data-full');
-        (full ? Array.from(stage.querySelectorAll('text[data-full]')).filter((el) => el.getAttribute('data-full') === full) : [hit]).forEach((el) => el.classList.add('lp-pick'));
+        (full ? Array.from(hit.closest('svg').querySelectorAll('text[data-full]')).filter((el) => el.getAttribute('data-full') === full) : [hit]).forEach((el) => el.classList.add('lp-pick'));   // closest：併成一張時只標同一條路徑的
         const ti = hit.querySelector('title');
         setPick((full || (ti ? ti.textContent : hit.textContent)).trim());
       };

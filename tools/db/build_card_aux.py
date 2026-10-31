@@ -104,6 +104,7 @@ PID_KKS_DEFAULT = os.path.join(paths.CARDWORK, 'pid_kks.json')   # pid_index.py 
 HMI_KKS_DEFAULT = os.path.join(paths.CARDWORK, 'hmi_kks.json')   # hmi_index.py --tags-file：KKS 編號卡的圖控畫面位置（v17）
 WIRE_KKS_DEFAULT = os.path.join(paths.CARDWORK, 'wire_kks.json')   # tools/db/wire_kks.py：只有 KKS 的元件的接線路徑（HRSG／電氣 I&C／BOP 接線圖，v17）
 WIRE_GE_DEFAULT = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py：汽機 TSI 的接線路徑（接線圖端子、接線箱位置、盤內板位、3500 盤，v13）
+WIRE_COV_DEFAULT = os.path.join(paths.CARDWORK, 'wire_cov.json')   # tools/db/wire_cov.py：端子表的訊號畫到迴路圖了沒（v19）
 HMI_GE_DEFAULT = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py：GE 原廠編號 → 圖控畫面與座標
 DOC_CAT_ORDER = ['P&ID', 'Hook-up', '規格表', '就地錶規格', '接線圖', '電纜表', '保護箱', '位置圖', '邏輯圖', 'GT I/O 清單']
 ABS_PATH_RE = re.compile(r'(?<![A-Za-z])[A-Za-z]:[\\/]|\\Users\\|/Users/|我的雲端硬碟')  # 磁碟機路徑（https:// 不算）
@@ -2503,7 +2504,7 @@ GE_WIRE_MODE = {'coax': '近接探頭：同軸延長線接到接線箱裡的前�
                 'ff': 'Foundation Fieldbus：元件 → 段保護器的埠 → 段幹線（好幾顆元件共用）→ 電子室盤的 FF 電源調節器 → 控制器的 FF 變數'}
 GE_WIRE_OK = ('same', 'logic', 'equip', 'loc', 'suffix')
 GE_WIRE_MV = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TBTC', 'TCDM', 'SPID',
-              'STCI', 'SRLY')   # Mark VIe 端子板（wire_ge.MARKVIE_BOARDS＋圖上的 TBTC）
+              'STCI', 'SRLY', 'WCSA')   # Mark VIe 端子板（wire_ge.MARKVIE_BOARDS＋圖上的 TBTC）
 
 
 def ge_wire_join(xs):
@@ -2648,6 +2649,9 @@ def ge_wire_loop(r, w, pk, pname, room, where, jls, kks=False):
         d['sg'] = [x[:4] for x in r['sig']]                               # v18：迴路圖收全部的點（摘要表那一列仍最多 4 個）
     if r.get('vd'):
         d['vd'] = r['vd']
+    sl = list(dict.fromkeys(c['sig'] for c in r['cond'] if c.get('sig')))
+    if sl:
+        d['sl'] = sl                                                      # v19：這一條畫了哪些訊號（圖上寫的訊號 KKS，併圖的段頭用）
     ff = r.get('ff') or {}
     if r['mode'] == 'ff' and ff.get('seg'):
         d['ff'] = [ff['seg'], ff.get('port') or '', ff.get('s') or '', ff.get('vars') or ff.get('dev_vars') or []]
@@ -3087,6 +3091,23 @@ def kks_tag_of(tag):
     return m.group(1) if m else ''
 
 
+def wire_cov_card(cov, dev):
+    """wire_cov.json 的一個元件 → 卡片的 cv（v19）：n＝端子表訊號數、m＝迴路圖畫出的、a＝[[訊號, [圖上寫的名稱…], 盤端子]…]（同一組盤端子圖上寫別的名稱）、
+    x＝[[訊號, 說明, 控制器, 盤-板位, 點, 卡別, 端子, 組態變數, 類別, 出處, 說明]…]（接線圖沒有畫）、d＝端子表版次。沒有這個元件回 None。"""
+    B = (cov or {}).get('by_dev') or {}
+    es = [B[k] for k in [dev] + ((cov or {}).get('kids') or {}).get(dev, []) if k in B]    # 帶字母尾碼的（G11MSA30GH001A）併回設備：接線圖的鍵是 13 碼的設備
+    if not es:
+        return None
+    c = {'n': sum(e['n'] for e in es), 'm': sum(e['m'] for e in es), 'd': '%s Rev.%s' % (cov['doc'], cov['rev'])}
+    a = [x for e in es for x in e['alt']]
+    x = [x for e in es for x in e['miss']]
+    if a:
+        c['a'] = a
+    if x:
+        c['x'] = x
+    return c
+
+
 def kks_wire_build(pm, tag_of, aliases, hm=None):
     """wire_kks.json（v17）→ (AMS 設備的接線路徑 {alias: {wp, wpx}}, KKS 編號卡的條目 [...], KKS 編號卡的接線路徑 {條目序號: {wp, wpx}},
     用到的圖紙 {圖紙鍵: 路徑數}, 統計)。AMS 設備：現行位號的設備 KKS 與路徑的 KKS 相同（同一個 KKS 有幾台 AMS 設備就各給一份）；
@@ -3094,6 +3115,7 @@ def kks_wire_build(pm, tag_of, aliases, hm=None):
     if pm is None or pm.get('_wk') is None:
         return None
     pmk = dict(pm, _wg=pm['_wk'], _wg_paths=pm['_wk_paths'], _wg_jbs=pm['_wk_jbs'], _wg_rev=None)
+    cov = pm.get('_cov')
     al_of = {}
     for al in aliases:
         k = kks_tag_of(tag_of.get(al, ''))
@@ -3114,6 +3136,9 @@ def kks_wire_build(pm, tag_of, aliases, hm=None):
         o = {'wp': cards[0]}
         if len(cards) > 1:
             o['wpx'] = cards[1:]
+        cv = wire_cov_card(cov, tag)
+        if cv:
+            o['cv'] = cv
         if tag in al_of:
             for al in al_of[tag]:
                 ams_w[al] = o
@@ -3145,7 +3170,33 @@ def kks_wire_build(pm, tag_of, aliases, hm=None):
         ents.append(e)
     st = {'paths': sum(len(v) for v in pm['_wk_paths'].values()), 'keys': len(pm['_wk_paths']), 'ams_aliases': len(ams_w),
           'ams_kks': len({kks_tag_of(tag_of.get(al, '')) for al in ams_w}), 'kks_cards': len(ents), 'sheets': len(used),
+          'cov_ams': 0, 'cov_cards': 0,
           'pid_cards': sum(1 for v in loc.values() if v.get('pd')), 'hmi_cards': sum(1 for v in loc.values() if v.get('hm')), 'hmi_screens': len(hused)}
+    if cov:                  # v19：AMS 設備有端子表訊號、接線路徑沒有畫（或沒有路徑）：卡片也要說明。位號是端子表的元件名（非 KKS 的也算），其次才是位號裡的 KKS
+        for al in aliases:
+            if al in ams_w:
+                continue
+            t_ = (tag_of.get(al) or '').upper()
+            cv = wire_cov_card(cov, t_) or wire_cov_card(cov, kks_tag_of(t_))
+            if cv:
+                ams_w[al] = {'cv': cv}
+                st['cov_ams'] += 1
+        # 沒有 AMS 設備、沒有接線路徑、只在端子表上的元件（非 KKS 位號的也算）：開一張只有 cv 的 KKS 編號卡（co＝1；s＝訊號名，查詢用），原因與頁碼才查得到
+        have = {e['t'] for e in ents} | {k.split('|', 1)[-1] for k in pm['_wk_paths']} | {(tag_of.get(al) or '').upper() for al in aliases} | {kks_tag_of(tag_of.get(al, '')) for al in aliases}
+        kids = cov.get('kids') or {}
+        sub = {x for p, v in kids.items() if p in have or p in cov['by_dev'] for x in v}
+        for dev in sorted(cov['by_dev']):
+            if dev in have or dev in sub:
+                continue
+            cv = wire_cov_card(cov, dev)
+            r0 = (cv.get('x') or [[''] * 3])[0]
+            sigs = [x[0] for x in cv.get('x') or []] + [x[0] for x in cv.get('a') or []]
+            e = {'t': dev, 'u': dev[:3] if re.match(r'^[A-Z]\d{2}[A-Z]', dev) else '', 'ds': (r0[1] or '')[:160], 'lc': 1, 'co': 1, 's': sigs}
+            if r0[2]:
+                e['ct'] = r0[2]
+            loc[str(len(ents))] = {'cv': cv}
+            ents.append(e)
+            st['cov_cards'] += 1
     return ams_w, ents, loc, used, st, hused
 
 
@@ -3650,6 +3701,7 @@ def main():
     ap.add_argument('--loc-ge', default=LOC_GE_DEFAULT, help='loc_ge.py 的輸出（GE 原廠編號的位置圖位置，v12；預設 <CARDWORK>\\loc_ge.json）')
     ap.add_argument('--wire-ge', default=WIRE_GE_DEFAULT, help='wire_ge.py 的輸出（汽機 TSI 的接線路徑，v13；預設 <CARDWORK>\\wire_ge.json）')
     ap.add_argument('--wire-kks', default=WIRE_KKS_DEFAULT, help='wire_kks.py 的輸出（只有 KKS 的元件的接線路徑，v17；預設 <CARDWORK>\\wire_kks.json）')
+    ap.add_argument('--wire-cov', default=WIRE_COV_DEFAULT, help='wire_cov.py 的輸出（端子表的訊號畫到迴路圖了沒，v19；預設 <CARDWORK>\\wire_cov.json；沒有就不出這一行）')
     ap.add_argument('--pid-kks', default=PID_KKS_DEFAULT, help='pid_index.py --tags-file 的輸出（KKS 編號卡的 P&ID 位置，v17；不存在就不放）')
     ap.add_argument('--hmi-kks', default=HMI_KKS_DEFAULT, help='hmi_index.py --tags-file 的輸出（KKS 編號卡的圖控位置，v17；不存在就不放）')
     ap.add_argument('--no-kks', action='store_true', help='不放只有 KKS 的元件的接線路徑（AMS 設備卡的接線路徑塊、KKS 編號卡）')
@@ -3673,6 +3725,8 @@ def main():
     pm = None if a.no_pid else load_pid(a.pid, a.pid_shots, a.pid_ge if ge_loc_on else None, a.loc_ge if ge_loc_on else None,
                                         a.wire_ge if ge_loc_on else None, None if a.no_kks else a.wire_kks,
                                         None if a.no_kks else a.pid_kks)   # 不一致（圖紙鍵／缺影像／影像與 pid.json 不同步）在這裡就以非 0 結束
+    if pm is not None and not a.no_kks and os.path.exists(a.wire_cov):
+        pm['_cov'] = load(a.wire_cov)
     if a.no_pid:
         print('pid: 略過')
     elif pm is None:
@@ -4292,12 +4346,12 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
                 lo_ = ge_loc.get(e['_i']) or {}
                 wps_ = ([lo_['wp']] if lo_.get('wp') else []) + (lo_.get('wpx') or [])
                 for al, tag, _why in ((ge.get('ams_of') or {}).get(e['_i']) or []) if wps_ else []:
-                    if al in kw_ams or al not in alias_map:
+                    if (kw_ams.get(al) or {}).get('wp') or al not in alias_map:
                         continue
                     um_ = re.match(r'^([GS]\d{2})', re.sub(r'[^A-Z0-9]', '', (tag or '').upper()))
                     mine = [c for c in wps_ if not um_ or c.get('u') == um_.group(1)]
                     if mine:
-                        kw_ams[al] = dict({'wp': mine[0], 'ge': e['tag']}, **({'wpx': mine[1:]} if len(mine) > 1 else {}))
+                        kw_ams[al] = dict(kw_ams.get(al) or {}, wp=mine[0], ge=e['tag'], **({'wpx': mine[1:]} if len(mine) > 1 else {}))
     if kw_ams:
         wire_blobs, files_, n_b = [], [], 0
         for k, p in enumerate(parts):
@@ -4315,7 +4369,7 @@ def write_output(outdir, aliases, out, searched, docs, src_stats, stats, dc, dri
             files_.append(fn)
             n_b += len(data)
         wire_ix = {'version': 1, 'files': files_, 'rule': KK_RULE, 'aliases': len(kw_ams), 'bytes': n_b,
-                   'paths': sum(1 + len(v.get('wpx') or []) for v in kw_ams.values())}
+                   'paths': sum((1 if v.get('wp') else 0) + len(v.get('wpx') or []) for v in kw_ams.values())}
         print('kks: AMS 設備卡的接線路徑塊 %d 台、%d 個檔、%d KB' % (len(kw_ams), len(wire_blobs), n_b // 1024))
     if kw and kw[1]:
         kk_blobs, files_, n_b = [], [], 0

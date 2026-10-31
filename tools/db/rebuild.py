@@ -45,6 +45,7 @@ LOC_GE_JSON = os.path.join(paths.CARDWORK, 'loc_ge.json')   # tools/db/loc_ge.py
 PID_KKS_JSON = os.path.join(paths.CARDWORK, 'pid_kks.json')   # v17：KKS 編號卡的 P&ID 位置（pid_index.py --tags-file）
 HMI_KKS_JSON = os.path.join(paths.CARDWORK, 'hmi_kks.json')   # v17：KKS 編號卡的圖控位置（hmi_index.py --tags-file）
 WIRE_KKS_JSON = os.path.join(paths.CARDWORK, 'wire_kks.json')   # tools/db/wire_kks.py 的輸出（只有 KKS 的元件的接線路徑，v17）
+WIRE_COV_JSON = os.path.join(paths.CARDWORK, 'wire_cov.json')   # tools/db/wire_cov.py 的輸出（端子表的訊號畫到迴路圖了沒，v19）
 WIRE_GE_JSON = os.path.join(paths.CARDWORK, 'wire_ge.json')   # tools/db/wire_ge.py 的輸出（GE 編號的接線路徑，v13 汽機 TSI、v14 一號機全部）
 HMI_GE_JSON = os.path.join(paths.CARDWORK, 'hmi_ge.json')   # tools/db/hmi_ge.py 的輸出（GE 原廠編號 → 圖控畫面與座標）
 
@@ -140,7 +141,7 @@ def ge_flags(a):
     （build_card_aux 在 pid.json／hmi.json 在而它們不在時以非 0 結束）。"""
     if ge_on(a):
         return ['--ge-tags', paths.GE_TAGS, '--pid-ge', PID_GE_JSON, '--hmi-ge', HMI_GE_JSON, '--loc-ge', LOC_GE_JSON, '--wire-ge', WIRE_GE_JSON,
-                '--wire-kks', WIRE_KKS_JSON, '--pid-kks', PID_KKS_JSON, '--hmi-kks', HMI_KKS_JSON]
+                '--wire-kks', WIRE_KKS_JSON, '--wire-cov', WIRE_COV_JSON, '--pid-kks', PID_KKS_JSON, '--hmi-kks', HMI_KKS_JSON]
     why = '--skip-ge' if a.skip_ge else '沒有 GE 編號對照表 %s' % (paths.GE_TAGS or '（paths.GE_TAGS 未設定：hst-docsearch config.json 沒有 ge_tags_dir）')
     print('\n!! %s → build_card_aux 走 --no-ge：沿用上次發布的「GE 原廠編號」；從沒發布過就沒有這一段' % why, flush=True)
     return ['--no-ge'] + ([] if os.path.exists(WIRE_KKS_JSON) else ['--no-kks'])   # v17：KKS 版的接線路徑要對照表才產生得出來；上次的還在就沿用
@@ -188,6 +189,8 @@ def run_pid_ge(a):
     run('GE 編號接線路徑（wire_ge → %s）' % WIRE_GE_JSON, PY, os.path.join('tools', 'db', 'wire_ge.py'), '--out', WIRE_GE_JSON, '--dcdas', paths.DCDAS_INDEX)
     # v17：只有 KKS 的元件（HRSG／電氣 I&C／BOP 接線圖＋燃機／汽機圖上沒有 GE 編號的框）的接線路徑——同一支建置、KKS 分支，約 80 秒
     run('KKS 元件接線路徑（wire_kks → %s）' % WIRE_KKS_JSON, PY, os.path.join('tools', 'db', 'wire_kks.py'), '--out', WIRE_KKS_JSON, '--dcdas', paths.DCDAS_INDEX)
+    # v19：DCS 端子表逐列對接線路徑（卡片上「端子表 N 個訊號，迴路圖畫出 M 個」），約 30 秒
+    run('端子表訊號對接線路徑（wire_cov → %s）' % WIRE_COV_JSON, PY, os.path.join('tools', 'db', 'wire_cov.py'), '--out', WIRE_COV_JSON, '--dcdas', paths.DCDAS_INDEX)
     # KKS 編號卡的 P&ID 與圖控位置：同一支定位器，位號換成 wire_kks.json 的 KKS（AMS 那兩份 pid.json／hmi.json 一個字都不動）
     run('KKS 編號卡的 P&ID 位置（pid_index --tags-file → %s）' % PID_KKS_JSON, PY, os.path.join('tools', 'db', 'pid_index.py'), '--tags-file', WIRE_KKS_JSON, '--out', PID_KKS_JSON)
     if os.path.exists(paths.HMI_JSON):

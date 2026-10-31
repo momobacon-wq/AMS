@@ -97,7 +97,7 @@ VMS_FILE_RE = re.compile(r'CABINET DESIGN DRAWING', re.I)   # Bently 3500 盤（
 VMS_GE_NO = '120V8111'
 VMS_BOARD = '1TBVIB'
 MARKVIE_BOARDS = ('TVBA', 'TTUR', 'TCSA', 'TBAI', 'SHRA', 'TDBT', 'TRLY', 'STTC', 'SCSA', 'STAI', 'STAO', 'SRTD', 'TSVC', 'TRPG', 'TBCI', 'SDII', 'TCDM', 'SPID',
-                  'STCI', 'SRLY')   # TCDM＝燃燒動態（96KP）、SPID＝CANopen（90VGC）；STCI／SRLY＝HRSG、BOP 控制器的接點輸入／繼電器（v17）
+                  'STCI', 'SRLY', 'WCSA')   # TCDM＝燃燒動態（96KP）、SPID＝CANopen（90VGC）；STCI／SRLY＝HRSG、BOP 控制器的接點輸入／繼電器（v17）；WCSA＝TCSA 上的子端子排（v19）
 UNIT_CTRLS = {'S10': ('S1', 'S1S'), 'G11': ('G11', 'G11S'), 'G12': ('G12', 'G12S')}   # 本站（1 號機）各機組的控制器（一般／安全）
 SITE_UNITS = ('S10', 'G11', 'G12')
 WIRE_GT_DOC = 'HT1-1-ICE01-D1004'  # 一號機燃機儀控電纜接線圖（CTCI；GT-11／GT-12 兩半本，wire_gt.py 解析）
@@ -664,6 +664,32 @@ def identify(g, sysset, names, kks_of):
                 for s in sysset:
                     for k in (kks_of.get(s) or {}).get(kks_core(t), ()):
                         hits.setdefault(k, ('kks', y))
+    return hits
+
+
+def identify_bare(g, unit, sysset, kks_of):
+    """說明格只寫不帶機組碼的 KKS（'MKA10EB001/2_CMDON'、'MAC20QM021_OPEN'、'MAV01EB011/12/13_A'）、對照表有這顆的 GE 編號（v19）→ {鍵: ('kks', y)}。
+    只當第三順位（identify、io_keys 都認不出來才用）：identify 也給 KKS 版判斷框歸誰，那邊的語意不能動；斜線後的短號補回前面的尾數。"""
+    hits, base = {}, ''
+    for t, y in desc_tokens(g['desc_w']):
+        m = re.match(r'^(\d{1,2})(?:_\w+)?$', t)
+        mp = re.match(r'^([SG]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})-([A-Z])$', t)    # 'S10MKA69BS001-R'：R／T 兩個編號共用一個本體，尾字母選哪一個（D1005 p.274 起）
+        if mp:
+            for s in sysset:
+                for k in (kks_of.get(s) or {}).get(kks_core(mp.group(1)), ()):
+                    if k.endswith(mp.group(2)):
+                        hits.setdefault(k, ('kks', y))
+            continue
+        if KKS_BARE.match(t):
+            base = re.split(r'[-_]', t)[0]
+        elif not (m and base):
+            base = ''
+            continue
+        else:
+            base = base[:-len(m.group(1))] + m.group(1)
+        for s in sysset:
+            for k in (kks_of.get(s) or {}).get(kks_core(unit + base), ()):
+                hits.setdefault(k, ('kks', y))
     return hits
 
 
@@ -1410,6 +1436,8 @@ def io_lookup(by_screw, unit, c):
     if not pos or not c['num'].isdigit():
         return [], ''
     n = int(c['num'])
+    if c['board'] == 'WCSA':                              # 圖上寫 WCSA 的格：組態記在同一板位 TCSA 的 'WCSA-TB1'（D1005 p.405～410 TE-200、TE-206）
+        return [h for h in by_screw.get((unit, cab, pos, 'TCSA', n), []) or by_screw.get((unit, '', pos, 'TCSA', n), []) if h['tb'] == 'WCSA-TB1'], ''
     cands = by_screw.get((unit, cab, pos, c['board'], n), []) or by_screw.get((unit, '', pos, c['board'], n), [])   # S1S 的櫃號在索引裡是 'Group'
     if not cands and not cab:
         cands = [h for k, v in by_screw.items() if k[0] == unit and k[2] == pos and k[3] == c['board'] and k[4] == n for h in v]
@@ -1963,7 +1991,7 @@ def build(a, log):
                     if not rows:
                         st['group_without_rows'] += 1
                         continue
-                    ids = identify(g, sysset, names, kks_of) or io_keys(rows, unit, sysset)
+                    ids = identify(g, sysset, names, kks_of) or io_keys(rows, unit, sysset) or identify_bare(g, unit, sysset, kks_of)
                     if not ids:
                         st['group_unidentified'] += 1
                         continue

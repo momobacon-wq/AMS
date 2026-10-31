@@ -933,8 +933,16 @@ table.wire-field caption { caption-side: top; text-align: left; padding: 6px 0 2
 .wire-loop > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
 .loop-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 6px; }
 .loop-fig { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
-.loop-fig svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.loop-fig > svg { display: block; width: 100%; min-width: 760px; height: auto; }   /* > ：v19 併成一張的圖裡還有內層 <svg>，不能跟著改寬高 */
 .loop-fig { cursor: zoom-in; }
+.loop-fig.tall { max-height: 80vh; overflow-y: auto; }   /* v19：四條路徑以上併成一張時圖很長：框內捲動，後面的表不被推到很遠 */
+.wire-cov { margin: 2px 0 8px; }
+.wire-cov-h { margin: 2px 0; }
+.wire-cov.gap .wire-cov-h { font-weight: 600; color: #8a5a00; }
+[data-theme="dark"] .wire-cov.gap .wire-cov-h { color: #e3b341; }
+.wire-gap { min-width: 640px; }                      /* 窄螢幕在 .tbl-scroll 裡橫捲，訊號編號不拆成碎字 */
+.wire-gap td { vertical-align: top; }
+.wire-gap td:first-child { white-space: nowrap; }
 /* 放大檢視（v18，card.js openLoopLightbox）：外殼、工具列、可縮放的視窗沿用 P&ID 燈箱（.pid-lb／.pid-tools／.pid-view.big）；
    舞台是整張 SVG（寬高由 card.js 依縮放寫入）。視窗底色用灰，縮小時看得出白底圖的邊；長按不跳出選字／存圖選單。
    點到的那一段（同一段的每一行）標橘色＋淡黃底邊（藍字說明、黑字、紅字註記都分得出來），全文寫在說明列。
@@ -943,7 +951,7 @@ table.wire-field caption { caption-side: top; text-align: left; padding: 6px 0 2
 .pid-lb.loop-lb { touch-action: manipulation; padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
 .pid-view.big.loop-view { background: #c9ced6; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 [data-theme="dark"] .pid-view.big.loop-view { background: #3a414b; }
-.loop-stage svg { display: block; width: 100%; height: 100%; }
+.loop-stage > svg { display: block; width: 100%; height: 100%; }
 .loop-lb .loop-svg text.lp-pick { fill: #c2410c; stroke: #ffe58a; stroke-width: 2.6px; paint-order: stroke; }
 .loop-lb .loop-cap { flex-wrap: nowrap; align-items: flex-start; }
 .loop-lb .loop-cap .hmi-t { flex: none; }
@@ -964,10 +972,12 @@ table.wire-field caption { caption-side: top; text-align: left; padding: 6px 0 2
 @media print {
   body.print-loop > *:not(#loop-print) { display: none !important; }
   body.print-loop #loop-print { display: block; page: loop; }
-  #loop-print svg { display: block; width: 100%; height: auto; max-height: 190mm; }
+  #loop-print > svg { display: block; width: 100%; height: auto; max-height: 190mm; }
+  #loop-print > svg:not(:last-child) { break-after: page; }   /* v19：併成一張的圖列印時每條路徑一頁 */
   .wire-loop .loop-tools { display: none; }
   .loop-fig { overflow: visible; border: 0; }
-  .loop-fig svg { min-width: 0; }
+  .loop-fig, .loop-fig.tall { overflow: visible; max-height: none; }
+  .loop-fig > svg { min-width: 0; max-height: 260mm; }   /* 整頁列印時長圖縮成一頁；要每條一頁用「列印這張迴路圖」 */
 }
 .ge-links .chip-btn.plain { cursor: default; border-style: dashed; } /* 對照表沒有這個名稱的條目：只列名稱，不是連結 */
 .ge-links .chip-btn.plain:hover { border-color: var(--border); color: var(--text); }

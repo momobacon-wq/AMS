@@ -62,8 +62,10 @@ HDR_JB_EPC = re.compile(r'^(?:JUNCTION BOX/PANEL/MCC|JUNCTION BOX NO|SWITCHGEAR/
                         r'MCC/SWGR\.?(?:\s*NO\.?)?)\s*\.?\s*:?\s*(.*)$', re.I)   # 'MCC/SWGR NO.: =G11BFB30_A1_A1E'
 HDR_TB_EPC = re.compile(r'^TERMINAL NO\.?\s*:?\s*(.*)$', re.I)
 DEV_RE = re.compile(r'(?<![A-Z0-9])=?([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})([A-Z]?X[A-Z]\d{2})?(?![A-Z0-9])')   # 設備 KKS 13 碼＋訊號尾碼
-SIG_LINE_RE = re.compile(r'^=?([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})([A-Z]?X[A-Z]\d{2}[A-Z]?)?$')   # 'G11MST10QC601XB11A'（同一訊號碼分 A～D）
-SIG_GLUE_RE = re.compile(r'^=?([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})([A-Z]?X[A-Z]\d{2})([A-Za-z].*)$')   # 訊號 KKS 與說明黏在一起：'=G11HSD10QM001XB61NH3'
+SIG_LINE_RE = re.compile(r"^'?=?([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})([A-Z]?X[A-Z]\d{2}[A-Z]?)?$")   # 'G11MST10QC601XB11A'（同一訊號碼分 A～D）；開頭的撇號是試算表的文字前綴（D1001 p.17）
+SIG_GLUE_RE = re.compile(r"^'?=?([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})([A-Z]?X[A-Z]\d{2})([A-Za-z].*)$")   # 訊號 KKS 與說明黏在一起：'=G11HSD10QM001XB61NH3'
+SIG_WRAP_RE = re.compile(r"^'?=?([A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3})(X[A-Z]\d)$")   # 訊號 KKS 斷在尾碼中間：'G11HBK11UC101XB4'／下一行 '8SCR ANALYZER …'（D1003 p.635）
+SIG_NEXT_RE = re.compile(r'^([A-Z]?X[A-Z]\d{2})(.*)$')                   # 訊號尾碼斷到下一行：'G11LAE12QM402'／下一行 'XB61HP Terminal …'（D1003 p.297）
 ENCL_CODES = ('UC', 'XD', 'GD')                       # 盤、接線箱的設備碼：不是現場元件
 
 
@@ -106,7 +108,7 @@ def epc_layout(ws, frames=None, top=None):
     if top is None:
         big = [w for w in ws if w['y0'] < 160 and w['x1'] < EPC_X and (w['y1'] - w['y0']) >= 7.5]
         top = max((w['y1'] for w in big), default=60.0)
-    cols = core_cols(ws, top + 1)
+    cols = [c for c in core_cols(ws, top + 1) if len(c['ws']) >= 2]   # 只有一個字的欄不是芯色欄：圖上的 'OR'（D1002 p.144、p.150）、端子名 'VT'（D1003 p.612）
     if not cols:
         return {'band': None, 'why': 'no_cores'}
     pan = [c for c in cols if c['c'] >= 590]
@@ -167,7 +169,8 @@ def order_match_epc(labels, cells):
     sh = median(d) if d else 0.0
     if sh < 2.0:
         return _order_match(labels, cells)
-    return _order_match(labels, [dict(c, y=c['y'] - sh) for c in cells])
+    shifted, base = _order_match(labels, [dict(c, y=c['y'] - sh) for c in cells]), _order_match(labels, cells)
+    return shifted if len(shifted) >= len(base) else base    # 平移反而配到比較少：那一頁的格子本來就對齊標籤（D1003 p.635、p.641 會錯一列）
 
 
 def lcs_pair_epc(a, b, key=lambda x: x):
@@ -574,7 +577,7 @@ def device_desc(boxes):
     ds = []
     for b in boxes:
         t = re.sub(r'(?<![A-Z0-9])=?[A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}(?:[A-Z]?X[A-Z]\d{2}[A-Z]?)?(?![A-Z0-9])', ' ', b or '')
-        t = re.sub(r'\s+', ' ', re.sub(r'\bSPARE\b', ' ', t)).strip(' :/-')
+        t = re.sub(r'\s+', ' ', re.sub(r'\bSPARE\b', ' ', t)).strip(" :/-'")
         if t and t not in ds:
             ds.append(t)
     if not ds:
@@ -617,10 +620,22 @@ def row_signals(p, frames=None):
     box = (lambda y: sum(1 for c in cuts if c <= y)) if len(cuts) >= 2 else None
     for gi, g in enumerate(p['groups']):
         anchors, first_hdr, cur = [], None, ('', '', '')
-        for l in W.lines_of(g['desc_w']):
+        ls_ = W.lines_of(g['desc_w'])
+        for li_, l in enumerate(ls_):
             t = ' '.join(w['t'] for w in l)
             y = (l[0]['y0'] + l[0]['y1']) / 2.0
             first = l[0]['t']
+            nx_ = ls_[li_ + 1] if li_ + 1 < len(ls_) else []
+            mw_ = SIG_WRAP_RE.match(first) if nx_ and re.match(r'\d', nx_[0]['t']) else None
+            if mw_:
+                anchors.append({'y': y, 'dev': mw_.group(1), 'sig': mw_.group(1) + mw_.group(2) + nx_[0]['t'][0], 'wrap': 1,
+                                'desc': ' '.join([nx_[0]['t'][1:]] + [w['t'] for w in nx_[1:]]).strip(), 'tok': first, 'hdr': cur, 'gi': gi})
+                continue
+            mt_ = SIG_NEXT_RE.match(nx_[0]['t']) if len(l) == 1 and nx_ and HDR_LINE_RE.fullmatch(first) else None
+            if mt_ and first[8:10] not in ENCL_CODES:      # 這一行不是標頭：框標頭（cur）不動，KKS 卡的說明還是標頭那一句
+                anchors.append({'y': y, 'dev': first.lstrip("'="), 'sig': first.lstrip("'=") + mt_.group(1), 'wrap': 1,
+                                'desc': ' '.join([mt_.group(2)] + [w['t'] for w in nx_[1:]]).strip(), 'tok': first, 'hdr': cur, 'gi': gi})
+                continue
             m = SIG_LINE_RE.match(first) or SIG_GLUE_RE.match(first)
             if m and not m.group(2):
                 m = None                                   # 行首只有設備 KKS（沒有訊號尾碼）是標頭或圖說，不是訊號格
@@ -651,7 +666,7 @@ def row_signals(p, frames=None):
     every = [a for g in p['groups'] for a in g['_anchors']]
     for a in every:
         bw = [w for w in allw if box((w['y0'] + w['y1']) / 2.0) == box(a['y'])] if box else []
-        a['text'] = W.text_of(bw) if bw else ' '.join(x for x in (a['tok'], a['desc']) if x)
+        a['text'] = (a['sig'] + ' ' + a['desc']).strip() if a.get('wrap') else W.text_of(bw) if bw else ' '.join(x for x in (a['tok'], a['desc']) if x)   # 斷行的訊號：格子原文是斷開的字
     for gi, g in enumerate(p['groups']):
         for r in [r for r in p['rows'] if r.get('group') == gi]:
             if p['mode'] in ('tb', 'direct') and not (r.get('field_core') or r.get('jb_in') or r.get('field_cell')) \

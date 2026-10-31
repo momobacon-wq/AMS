@@ -508,6 +508,16 @@ def ge_wp(page, ctx, ck):
     ck('%s: one loop diagram per path, only the first one open; both name the TBAI panel terminal 17 and pin P24V5' % WP_GT,
        bool(st) and st['loop'] == 2 and st['loopOpen'] == 1 and st['loopSvg'] == 2 and st['loopTxt'].count('P24V5') >= 2 and 'TBAI' in st['loopTxt'],
        st and (st['loop'], st['loopOpen'], st['loopSvg'], st['loopTxt'][:160]))
+    # v19：接線解析補上的：燃機兩層熱電偶頁的下層（WT-HDAS-1A，D1004 p.395／p.814）、圖上寫 WCSA 的格對到組態（汽機 TE-200-1）、燃機圖標題列沒有 FIELD 字的頁（30FP-1B，p.298）
+    for tag_, want_, why_ in (('WT-HDAS-1A', 'a_wthdas1a', 'two-tier thermocouple page, lower tier'), ('TE-200-1', 'FlameAnalogInput', 'WCSA cell checked against TCSA WCSA-TB1'), ('30FP-1B', 'd_30fp1b', 'page with no FIELD word in the title')):
+        s = ge_query(page, ctx, tag_)
+        page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-wire'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+        st = page.evaluate(WP_STATE)
+        ck('%s has a wiring path and the Mark VIe point %s (%s)' % (tag_, want_, why_), bool(st) and not st.get('none') and st['loopSvg'] >= 1 and want_ in st['loopTxt'], st and st['loopTxt'][:200])
+    s = ge_query(page, ctx, '30FP-2A')
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-wire'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    st = page.evaluate(WP_STATE)
+    ck('30FP-2A: the G12 page goes to G12, not stacked under G11 (the PBL BOX is shared, the unit follows the junction box)', bool(st) and st['loop'] == 2 and any(p.startswith('G12') for p in st['paths']), st and st['paths'])
     s = ge_query(page, ctx, NOWIRE_TAG)
     page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-pid'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
     st = page.evaluate(WP_STATE)
