@@ -11,7 +11,9 @@ v19：G11LAE12QN001 兩條路徑併成一張迴路圖（5 個訊號都在同一�
 沒有路徑的 AMS 設備（1-LI-CW101-1）也出這一組；解析更正：G11LAE12QM402 的 XB61、G11HBK11UC102 的 47／48、新增的 C10BBT10EW001 p.144、G11HBK11UC101；
 氣動閥清單先接走的 G11MAN30QN001（設備與訊號 KKS 都開閥卡）下面接接線路徑；GE 卡 S10MAX31GP003 有路徑、不寫查無；只在端子表上的元件（1-CSC-CW011-1、訊號 1-LI-CW091-1AXQ01）開只有端子表比對的卡；
 帶字母尾碼的訊號（G11MSA30GH001A…）併回設備計數。
-G11LAB65QM021 的長變數把 Mark VIe 欄放寬、接線圖說明不截在 160 字；G11MSA30GH001 跨兩片卡、同名通道照板位對變數；FF 元件 96AT-TC-1A 也有藍字說明。"""
+G11LAB65QM021 的長變數把 Mark VIe 欄放寬、接線圖說明不截在 160 字；G11MSA30GH001 跨兩片卡、同名通道照板位對變數；FF 元件 96AT-TC-1A 也有藍字說明。
+v20：BOP 震動監測盤（Bently 3500）那一跳——CEP 感測器 C10LCC10BS001 寫 RACK 3 SLOT 13 CH1 與同通道的繼電器／記錄器、繼電器 C10LCC10BS101 寫 Relay Logic 與來源感測器、
+迴路圖把繼電器畫在盤框裡；FWP 的機架叫 Rack13；SWP 兩台共用的 SLOT 15；端子排名漏印的芯照同組補上並註記；空壓機的繼電器有註記；CWP 傳送器的其他編號查得到。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
 AMS_TAG = 'G12HAP70BT001'
@@ -40,7 +42,8 @@ PATHS_OF = """async (tag) => { const IX = AMS.index; const r = IX.first.get(tag)
   const ps = o ? (o.wp ? [o.wp] : []).concat(o.wpx || []) : [];
   return { src, n: ps.length, pid: o && o.pd ? o.pd.length : 0, hmi: o && o.hm ? o.hm.length : 0,
     paths: ps.map((p) => ({ mode: p.mode, u: p.u, ct: p.ct || '', sum: p.sum.map((x) => x[0] + '：' + x[1]), notes: (p.n || []).map((x) => x[0]),
-      hops: p.rows.filter((x) => x[4] && x[4].marks).map((x) => x[4].hop), t: p.t.map((x) => x.slice(0, 6).join('|')) })) }; }"""
+      hops: p.rows.filter((x) => x[4] && x[4].marks).map((x) => x[4].hop), t: p.t.map((x) => x.slice(0, 6).join('|')),
+      pos: p.rows.filter((x) => x[0] === '所在位置').map((x) => x[1]) })) }; }"""
 
 WIRE_STATE = """(sel) => { const g = document.querySelector(sel); if (!g) return null;
   return { loading: /載入中/.test(g.textContent), paths: g.querySelectorAll('.wire-path').length, sum: g.querySelectorAll('table.wire-sum tbody tr').length,
@@ -253,6 +256,61 @@ def run(ctx):
         ck('G11MSA30GH001：同一條路徑跨 2A4B、2A5A 兩片卡、通道都叫 Contact02——Mark VIe 列照板位對變數（2A5A 那一列是 AXG52、2A4B 那一列是 AXG01），框頂列出 PDIA-57、PDIA-58',
            'Pos02 | Contact02 | G11MSA30GH001AXG52' in lt['rows'] and 'Pos02 | Contact02 | G11MSA30GH001AXG01' in lt['rows'] and 'PDIA-57' in lt['txt'] and 'PDIA-58' in lt['txt'],
            (lt['rows'][:4], lt['txt'][:200]))
+        # ---- v20：BOP 震動監測盤（Bently 3500）：感測器 → 3500 → 繼電器／記錄器 → 控制盤，三種卡互相列出
+        def summ(t):
+            o = page.evaluate(PATHS_OF, t) or {}
+            return ' ／ '.join(x for p in o.get('paths') or [] for x in p['sum'] + ['所在位置：' + y for y in p.get('pos') or []]), [h for p in o.get('paths') or [] for h in p['hops']], [n for p in o.get('paths') or [] for n in p['notes']]
+        sm, hp, _n = summ('C10LCC10BS001')
+        ck('CEP 感測器 C10LCC10BS001：Bently 3500 列 RACK 3 SLOT 13 CH1、3500/42M、TB1 13＝PWR、組態叫 Rack15；「3500 輸出」列繼電器 C10LCC10BS101（S13C01P01A2）與記錄器 C10LCC10BS201；圖紙有 3500 盤端子與機架槽位',
+           'Bently 3500：RACK 3 SLOT 13 CH1：3500/42M-09-00（監測器）' in sm and 'TB1 13＝PWR、14＝COM、15＝SIG' in sm and 'Rack15' in sm and '繼電器 C10LCC10BS101' in sm
+           and 'S13C01P01A2' in sm and '記錄器 4–20 mA C10LCC10BS201' in sm and '接到 Bently 3500 監測盤' in sm and 'vmsb' in hp and 'rack' in hp
+           and '所在位置：① 這幾條芯旁的標籤（R機架-S槽-CH通道-功能／端子排-端子）' in sm and '1TBVIB' not in sm, (sm[-700:], hp))
+        sm, hp, _n = summ('C10LCC10BS021')
+        ck('CEP 鍵相 C10LCC10BS021（只有記錄器輸出、沒有繼電器）：Mark VIe 列只寫 4–20 mA 記錄器輸出', '3500 再用4–20 mA 記錄器輸出送控制器' in sm and '繼電器接點與' not in sm, sm[-400:])
+        sm, hp, _n = summ('C10LCC10BS101')
+        ck('CEP 繼電器 C10LCC10BS101：「盤內 3500」取代「元件畫在端子排旁」、2TBRLY 1＝ARM／2＝NO；「3500 來源」寫 S13C01P01A2 與感測器 C10LCC10BS001（第 2 級＝Danger 標推論）；圖紙多 3500 組態（vlog）',
+           '盤內 3500：C10LCC10BS101 是 VMS 盤 C10CCD01UC202 裡 Bently 3500/33-01-00（繼電器模組）的繼電器接點' in sm and '2TBRLY 1＝ARM、2＝NO' in sm
+           and 'S13C01P01A2' in sm and 'SLOT 13 CH1 接的感測器是 C10LCC10BS001' in sm and '【推論】' in sm and '的端子排旁' not in sm and 'vlog' in hp
+           and '震動監測盤：C10CCD01UC202' in sm and '接線箱：' not in sm and '所在位置：① 組態表上這顆繼電器那一列（KKS 與 Relay Logic）' in sm, (sm[:700], hp))
+        sm, hp, _n = summ('C10LCC10BS201')
+        ck('CEP 記錄器 C10LCC10BS201：「3500 來源」是 SLOT 13 CH1 的記錄器輸出、感測器 C10LCC10BS001；TB3 9＝COM、10＝REC',
+           '記錄器輸出（4–20 mA）' in sm and 'SLOT 13 CH1 接的感測器是 C10LCC10BS001' in sm and 'TB3 9＝COM、10＝REC' in sm, sm[-500:])
+        sm, hp, _n = summ('C10LAC50BG101')
+        ck('FWP 繼電器 C10LAC50BG101：FWP 盤 C10CCD01UC201、RACK 1 SLOT 4 CH1、S11C01P01A2 → 感測器 C10LAC50BG001、組態叫 Rack13',
+           'C10CCD01UC201' in sm and 'RACK 1 SLOT 4 CH1' in sm and 'S11C01P01A2' in sm and 'C10LAC50BG001' in sm and 'Rack13' in sm, sm[-500:])
+        sm, hp, nt = summ('C10PHC20BS009')
+        ck('SWP 2 馬達 NDE Z（C10PHC20BS009）：兩台共用的 3500/42M SLOT 15 CH3；接線圖漏印端子排名的 TB1 104＝COM 照同組補上、有註記',
+           'RACK 4 SLOT 15 CH3' in sm and '104＝COM' in sm and 'TB12' not in sm.split('Bently 3500')[0] and any('印成「TB12 104」' in n for n in nt), (sm[-400:], nt[:2]))
+        _s, _h, nt = summ('C10LAC50BG109')
+        _s2, _h2, nt2 = summ('C10PHC10BS003')
+        ck('註記：FWP 推力繼電器 C10LAC50BG109 的 Alarm Status 是 LL or HH or Not OK、繼電器常態 NE；SWP C10PHC10BS003 的方位說明兩份文件不同',
+           any('LL or HH or Not OK' in n for n in nt) and any('NE（平常激磁）' in n for n in nt) and any('說明兩份文件不同' in n and 'VIB PMP DE X-AXIS' in n for n in nt2), (nt[:3], nt2[:2]))
+        _s, _h, nt = summ('C00QEA11BS611')
+        ck('空壓機繼電器 C00QEA11BS611：註記寫在空壓機馬達震動監測盤 C00CCD01UC201（RACK 5／Rack17）、接線圖盤號寫錯；也真的沒畫 3500 那一跳（不會誤接到 FWP 盤的通道）',
+           any('C00CCD01UC201' in n and 'Rack17' in n and '不畫 3500' in n for n in nt) and not {'vmsb', 'rack', 'vlog'} & set(_h)
+           and 'Bently 3500：' not in _s and '3500 來源' not in _s, (nt[:1], _h))
+        page.goto(ctx['base'] + '/db/#/card/C10LCC10BS101')
+        page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+        wait_wire(page, '.kks-only .sum-wire')
+        lt = page.evaluate(LOOP_TXT)
+        tx = lt['txt'].replace(' ', '')
+        ck('C10LCC10BS101 迴路圖：繼電器畫在 VMS 盤框裡（「是 Bently 3500/33 … 的接點」、RACK 3 SLOT 4 CH1、來源 C10LCC10BS001），不寫「元件畫在端子排旁」',
+           'C10LCC10BS101是Bently3500/33-01-00（繼電器模組）的繼電器接點' in tx and 'RACK3SLOT4CH1' in tx and '這個通道的感測器是C10LCC10BS001' in tx and '畫在端子排旁' not in tx
+           and '震動監測盤VMSPANEL' in tx, lt['txt'][:400])
+        page.goto(ctx['base'] + '/db/#/card/C10LCC10BS001')
+        page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+        wait_wire(page, '.kks-only .sum-wire')
+        lt = page.evaluate(LOOP_TXT)
+        ck('C10LCC10BS001 迴路圖：Mark VIe 欄寫接到 3500 監測盤與 RACK 3 SLOT 13 CH1', 'Bently3500RACK3SLOT13CH1' in lt['txt'].replace(' ', ''), lt['txt'][-400:])
+        # ---- v20：CWP 馬達震動（只在端子表上）：傳送器位號、DCDAS I/O 表的編號、GE 的 RDS-PP 碼都開到 1-VI-CW011-n 那張卡
+        for q_, dev in (('1-VT-CW011-1AE', '1-VI-CW011-1'), ('C10PAC12BS101', '1-VI-CW011-2'), ('1-vi-cw011-3ad', '1-VI-CW011-3'), ('C10PAC11BS101XQ01', '1-VI-CW011-1')):
+            page.goto(ctx['base'] + '/db/#/card/' + q_)
+            page.wait_for_selector('.kks-only .wire-cov', timeout=30000)
+            st = page.evaluate("() => document.querySelector('.cq-status').textContent")
+            cv = page.evaluate("() => document.querySelector('.wire-cov').textContent")
+            ck('%s：開 %s 的卡（狀態列說是另一個編號）、卡上列其他編號與原因（電纜 =C10PAC…-VETB-WG-R601、端子箱 VE1～VE4）' % (q_, dev),
+               page.evaluate("() => document.querySelector('.kks-only .sum-tagtext').textContent") == dev and '其他編號裡' in st and '其他編號：' in cv
+               and 'VETB-WG-R601' in cv and 'VE1' in cv, (st[:160], cv[:300]))
         page.goto(ctx['base'] + '/db/#/card/96AT-TC-1A')
         page.wait_for_selector('svg.loop-svg', state='attached', timeout=60000)   # AMS 有這台（GE 元件的 AMS 設備卡帶 GE 路徑）或 GE 編號卡，哪一種都行
         page.wait_for_timeout(500)

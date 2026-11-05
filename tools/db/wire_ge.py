@@ -121,6 +121,12 @@ JBDOCS = (   # v14：其餘接線箱所在的設備圖（GE／廠商的外形圖
 GEN_OUTLINE = {'G11': 'HT0-1-EGJ01-D0012', 'G12': 'HT0-1-EGJ01-D0012', 'S10': 'HT0-1-EGK01-D0009'}   # 發電機接線箱（KKS MKA10XG…）沒畫在這張上 → 註記
 GEN_WIRING = {'G11': 'HT0-1-EGJ01-M0109', 'G12': 'HT0-1-EGJ01-M0109'}
 VMS_GT_DOC = 'HT1-1-AQB01-Q1850'   # v16：燃機 Bently 3500 盤（GT-VMP）的製造完成報告，附 Rev D 盤圖的 3500 接線表（G11 的 RACK 1；G12 的 RACK 2 那幾頁只有文字層、不框）
+VMS_BOP_DOC = 'HT0-1-IMI01-D0006'  # v20：BOP 震動監測盤（Bently 3500）盤圖：一份 PDF 兩面盤，各一套 SHEET n OF 32；接線頁芯旁的標籤寫出機架、槽、通道
+VMS_BOP_CFG = 'HT1-1-AQB01-Q1886'  # v20：同一批 3500 機架的製造完成報告；組態表（Page n of 21）每顆繼電器一列 Relay Logic（'S13C01P01A2'）
+VMS_LAB_RE = re.compile(r'^(?:(\d?TB[A-Z]*\d?)-(\d+)/)?R(\d+)-S(\d+)-CH(\d+)-([A-Z]+)(?:/(\d?TB[A-Z]*\d?)-(\d+))?$')   # 'R3-S13-CH1-SIG/TB1-15'、'2TBRLY-1/R3-S4-CH1-ARM'
+VMS_LOGIC_RE = re.compile(r'^S(\d{1,2})C(\d{2})P(\d{2})A(\d)$')   # 第 13 槽、第 1 通道、P01、第 2 級警報
+VMS_KKS_RE = re.compile(r'^[A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}$')
+VMS_CAB_RE = re.compile(r'^[A-Z]\d{2}C[A-Z]{2}\d{2}UC\d{3}$')
 DEV_TB_RE = re.compile(r'CHARGE AMP|PROXIMIT|^TB PROX_')   # v16：GE 138T5502「接線箱端子排」欄寫的是箱內的中間設備（電荷放大器、前置器），不是端子排   # v15：GE 燃機發電機接線圖（H6／H8）——元件表列了外形圖沒畫的箱子（JB-5D＝MKA01 GD005D ACCELEROMETERS），註記一併指出
 MCC_DOCS = (   # v15：480 V MCC／PC 的盤面配置圖（GE EP24 EQUIPMENT ARRANGEMENT，各機組一份）；檔名沒有文件號（'noKKS_… _revQ.pdf'），照檔名標題找、取最高版次
     ('G11', 'EQUIPMENT ARRANGEMENT - 480V MOTOR CONTROL CENTER FOR UNIT 1 GT1'),
@@ -1368,6 +1374,79 @@ def rack_cell(pg, core):
     return {'box': ubox([w], 2.0), 'rack': rk, 'slot': slot, 'ch': ch[0]['t'][2:] if ch else ''}
 
 
+def vmsb_index(tx):
+    """v20：BOP 震動監測盤（Bently 3500）盤圖 → {lab, cell, mod}：
+    lab＝{(盤 KKS, 端子排, 端子號): [(機架, 槽, 通道, 功能, 頁, 字框)…]}——接線頁每條芯旁的標籤：感測器輸入 'R3-S13-CH1-SIG/TB1-15'、
+      記錄器輸出 'R3-S13-CH1-REC/TB3-10'、繼電器接點 '2TBRLY-1/R3-S4-CH1-ARM'；
+    cell＝{(盤 KKS, KKS): [(機架, 槽, 通道, 頁, 字框)…]}——機架配置圖（'PART NUMBER' 表；每槽一格、每通道一列）；mod＝{(盤 KKS, 機架, 槽): 料號}。
+    一份 PDF 兩面盤：頁的歸屬照「最近一次單獨出現的盤 KKS」（每套第 2 頁與機架配置圖印 CABINET PART NO.）。
+    這份圖畫成直式紙上的橫式圖（字是直的）：槽的表頭 'SLOT' 下接數字、排成一欄，格子歸表頭中心最近的那一槽；通道 'CHn' 與格子同一個 x。"""
+    lab, cell, mod = defaultdict(list), defaultdict(list), {}
+    cab = None
+    for pno, pg in enumerate(tx['pg'], 1):
+        ws = disp_words(pg)
+        cs = {w['t'] for w in ws if VMS_CAB_RE.match(w['t'])}
+        if len(cs) == 1:
+            cab = next(iter(cs))
+        if not cab:
+            continue
+        for w in ws:
+            m = VMS_LAB_RE.match(w['t'])
+            if m and (m.group(1) or m.group(7)):
+                tb, pin = (m.group(1), m.group(2)) if m.group(1) else (m.group(7), m.group(8))
+                lab[(cab, tb, int(pin))].append((m.group(3), m.group(4), m.group(5), m.group(6), pno, (w['x0'], w['y0'], w['x1'], w['y1'])))
+        if not {'PART', 'NUMBER'} <= {w['t'] for w in ws} or sum(1 for w in ws if w['t'] == 'SLOT') < 10:
+            continue
+        heads = []
+        for w in ws:
+            if w['t'] == 'SLOT':
+                n = [x for x in ws if x['t'].isdigit() and abs(x['x0'] - w['x0']) < 2 and 0 <= x['y0'] - w['y1'] <= 3]
+                if n:
+                    heads.append((n[0]['t'], (w['y0'] + n[0]['y1']) / 2.0, round(w['x0'])))
+        if len(heads) < 10:
+            continue
+        hx = Counter(h[2] for h in heads).most_common(1)[0][0]
+        heads = [h for h in heads if abs(h[2] - hx) < 2]         # 槽表頭那一欄（料號說明裡的 'SPARE SLOT' 不算）
+        rk = [x for x in ws if x['t'] == 'RACK' and x['y1'] - x['y0'] > 30]   # 頁面大標題 'RACK 3'（直排、字最大）
+        rno = next((x['t'] for x in ws if rk and x['t'].isdigit() and abs(x['x0'] - rk[0]['x0']) < 4 and 0 <= x['y0'] - rk[0]['y1'] <= 20), '')
+        chs = [x for x in ws if re.fullmatch(r'CH\d{1,2}', x['t'])]
+        pns = [x for x in ws if re.match(r'^3500/\d', x['t'])]
+        for s, yc, _x in heads:
+            near = [x for x in pns if abs((x['y0'] + x['y1']) / 2.0 - yc) < 12]
+            if near:
+                mod[(cab, rno, s)] = min(near, key=lambda x: abs((x['y0'] + x['y1']) / 2.0 - yc))['t']
+        for w in ws:
+            if VMS_KKS_RE.match(w['t']):
+                yc = (w['y0'] + w['y1']) / 2.0
+                s = min(heads, key=lambda h: abs(h[1] - yc))
+                ch = [x['t'][2:] for x in chs if abs(x['x0'] - w['x0']) < 1.5]
+                if len(ch) == 1:
+                    cell[(cab, w['t'])].append((rno, s[0], ch[0], pno, ubox([w], 2.0)))
+    return {'lab': dict(lab), 'cell': dict(cell), 'mod': mod}
+
+
+def vms_logic(tx):
+    """v20：3500 製造完成報告的組態表 → {KKS: (槽, 通道, 警報級, 字串, 頁, 字框, 機架名)}：同一列（y 差 3 pt 內）右邊最近的 'S13C01P01A2'；
+    機架名＝那一頁的 'Rack15'（報告的機架編號與盤圖的 RACK n 不同）。同一個 KKS 只取第一次出現。"""
+    out = {}
+    for pno, pg in enumerate(tx['pg'], 1):
+        ws = disp_words(pg)
+        lg = [w for w in ws if VMS_LOGIC_RE.match(w['t'])]
+        if not lg:
+            continue
+        rk = next((w['t'] for w in ws if re.fullmatch(r'Rack\d+', w['t'])), '')
+        for w in ws:
+            if not VMS_KKS_RE.match(w['t']) or w['t'] in out:
+                continue
+            yc = (w['y0'] + w['y1']) / 2.0
+            same = [x for x in lg if abs((x['y0'] + x['y1']) / 2.0 - yc) < 3 and x['x0'] > w['x1']]
+            if same:
+                x = min(same, key=lambda x: x['x0'] - w['x1'])
+                m = VMS_LOGIC_RE.match(x['t'])
+                out[w['t']] = (str(int(m.group(1))), str(int(m.group(2))), m.group(4), x['t'], pno, ubox([w, x]), rk)
+    return out
+
+
 def io_index(path):
     """signal-atlas 控制器索引 → (by_screw, by_dev)（v14：一號機三台的控制器，UNIT_CTRLS）：
     by_screw＝{(機組, 櫃, 板位, 板名, 螺絲號): [{ctrl, mod, pt, sn, var, dt, tb}…]}——只收控制器自己的板（position_r 不含 '-'；
@@ -1661,6 +1740,8 @@ def build(a, log):
             docs[kd_] = resolve_doc(lib, dn_)
         for kd_, dn_, _zh in WP.LOC_DOCS:
             docs.setdefault(kd_, resolve_doc(lib, dn_))
+        docs['vmsb'] = resolve_doc(lib, VMS_BOP_DOC)    # v20：BOP 震動監測盤盤圖與 3500 組態
+        docs['vmsq'] = resolve_doc(lib, VMS_BOP_CFG)
     for k, d in docs.items():
         log('%s：%s' % (k, d.get('rel') or d.get('why')))
     if not docs['wire'].get('rel'):
@@ -2854,6 +2935,119 @@ def build(a, log):
                         rack_where[(k, i)] = {'page': pno, 'marks': [mark_of(pg, R, hit['box'])], 'rack': hit['rack'], 'slot': hit['slot'], 'ch': hit['ch'], 'drawn': core}
                         used_sheets[('vms', pno)] = 'loc'
                         break
+    # ---- 4c. BOP 震動監測盤（v20，KKS 版）：感測器路徑的終點、繼電器與記錄器輸出路徑的起點是 VMS 盤（Bently 3500）。
+    #      盤圖接線頁的芯旁標籤 → 機架槽通道與每顆端子的功能（'vms' 那一跳）；機架配置圖 → 模組料號（'rack' 那一跳，表上有格子的才有）；
+    #      3500 組態表 → 繼電器看哪個通道（'vlog' 那一跳）。同一通道的感測器與輸出互相列出（卡片的「3500 來源」「3500 輸出」）。
+    vmsb_where, vlog_where = {}, {}
+    if kks and 'vmsb' in tx:
+        vb = vmsb_index(tx['vmsb'])
+        vlg = vms_logic(tx['vmsq']) if 'vmsq' in tx else {}
+        vpan = {k_[0] for k_ in vb['lab']}
+        chan, vrows = defaultdict(set), []
+        for k, plist in recs.items():
+            kk_ = k.split('|', 1)[1]
+            for i, r in enumerate(plist):
+                w = r['wire']
+                side = 'in' if w['panel'] in vpan else 'out' if w['jb'] in vpan else ''
+                if not side:
+                    continue
+                pan = w['panel'] if side == 'in' else w['jb']
+                fn, hit, ok, guess = [], defaultdict(list), True, []
+                tbs_ = {c.get('tb') for c in r['cond'] if c.get('tb')}
+                for c in r['cond']:
+                    if side == 'in':
+                        tb, pin = c.get('tb') or '', c['num']
+                        if not tb and str(pin).isdigit() and len(tbs_) == 1:   # 接線圖這一芯的盤端子沒印端子排名或印錯（'TB12 104'）：照同一組其他芯的端子排（下面要對到同一個通道才算）
+                            tb = next(iter(tbs_))
+                            guess.append([c['core'], tb, str(pin), c])
+                    else:
+                        m = re.match(r'^(\S+)\s+(\d+)$', c['jb'] or '')
+                        tb, pin = (m.group(1), m.group(2)) if m else ('', '')
+                    if not tb or not str(pin).isdigit():
+                        continue
+                    hs = vb['lab'].get((pan, tb, int(pin))) or []
+                    if len(hs) != 1:
+                        if guess and guess[-1][0] == c['core']:     # 猜的端子排對不到：這一芯不算，也不擋整條
+                            guess.pop()
+                        else:
+                            ok = False
+                        continue
+                    fn.append([tb, str(pin), hs[0][3]])
+                    hit[hs[0][:3]].append(hs[0])
+                if not fn or not ok or len(hit) != 1:
+                    st['vms_unmatched'] += 1
+                    continue
+                (rk_, sl_, ch_), hs = next(iter(hit.items()))
+                v = {'pan': pan, 'side': side, 'rack': rk_, 'slot': sl_, 'ch': ch_, 'mod': vb['mod'].get((pan, rk_, sl_), ''), 'fn': fn}
+                for core_, tb_, pin_, c_ in guess:
+                    f_ = next((f[2] for f in fn if f[0] == tb_ and f[1] == pin_), '?')
+                    pr_ = c_.get('board') if re.match(r'^\d?TB\w*$', c_.get('board') or '') else ''
+                    r['notes'].append(['接線圖第 %s 頁 %s 這一芯的盤端子%s（同一組其他芯都是 %s）；照 %s 對到 3500 盤圖（%s-%s＝%s，與其他芯同一個通道），卡上照 %s 寫' % (
+                        w['page'], core_, '印成「%s %s」' % (pr_, pin_) if pr_ else ' %s 沒有印端子排名' % pin_, tb_, tb_, tb_, pin_, f_, tb_),
+                        '%s 第 %s 頁；%s 接線頁' % ((docs.get(r['doc']) or {}).get('doc') or '接線圖', w['page'], VMS_BOP_DOC)])
+                    c_['tb'] = tb_
+                    if pr_:
+                        c_['board'] = ''
+                    st['vms_tb_guess'] += 1
+                pgs = defaultdict(list)
+                for h in hs:
+                    pgs[h[4]].append(h[5])
+                for p_, bs in pgs.items():                    # 接線頁上也框元件框裡的 KKS（同一頁只有一個時）
+                    kw_ = [x for x in disp_words(tx['vmsb']['pg'][p_ - 1]) if x['t'] == kk_]
+                    if len(kw_) == 1:
+                        bs.append(ubox(kw_, 2.0))
+                    used_sheets[('vmsb', p_)] = 'loc'
+                vmsb_where[(k, i)] = {p_: [mark_of(tx['vmsb']['pg'][p_ - 1], page_R('vmsb', p_)[0], b_) for b_ in bs] for p_, bs in pgs.items()}
+                cl = vb['cell'].get((pan, kk_)) or []
+                if cl and cl[0][:3] == (rk_, sl_, ch_):
+                    rack_where[(k, i)] = {'kind': 'vmsb', 'page': cl[0][3], 'marks': [mark_of(tx['vmsb']['pg'][cl[0][3] - 1], page_R('vmsb', cl[0][3])[0], cl[0][4])],
+                                          'rack': rk_, 'slot': sl_, 'ch': ch_, 'drawn': kk_, 'mod': v['mod']}
+                    used_sheets[('vmsb', cl[0][3])] = 'loc'
+                elif cl:
+                    r['notes'].append(['3500 盤圖的機架配置表把 %s 寫在 RACK %s SLOT %s CH%s，接線頁的標籤是 RACK %s SLOT %s CH%s；卡片照接線頁' % (kk_, cl[0][0], cl[0][1], cl[0][2], rk_, sl_, ch_),
+                                       '%s 第 %d、%d 頁' % (VMS_BOP_DOC, cl[0][3], min(pgs))])
+                    st['vms_cell_conflict'] += 1
+                fs_ = {f[2] for f in fn}
+                v['kind'] = 'in' if side == 'in' else 'relay' if fs_ & {'ARM', 'NO', 'NC'} else 'rec' if 'REC' in fs_ else 'other'
+                r['vms3'] = v
+                vrows.append((k, i, r, kk_))
+                if side == 'in':
+                    chan[(pan, rk_, sl_, ch_)].add(kk_)
+        cfg_rack = defaultdict(Counter)
+        for k, i, r, kk_ in vrows:
+            v = r['vms3']
+            if v['side'] != 'out':
+                continue
+            lg = vlg.get(kk_)
+            if lg and v['kind'] == 'relay':
+                v['lg'] = {'t': lg[3], 'slot': lg[0], 'ch': lg[1], 'a': lg[2], 'page': lg[4], 'cfg': lg[6]}
+                vlog_where[(k, i)] = (lg[4], [mark_of(tx['vmsq']['pg'][lg[4] - 1], page_R('vmsq', lg[4])[0], lg[5])], lg[3])
+                used_sheets[('vmsq', lg[4])] = 'loc'
+                src = (v['pan'], v['rack'], lg[0], lg[1])
+                if lg[6]:
+                    cfg_rack[(v['pan'], v['rack'])][lg[6]] += 1
+            elif v['kind'] == 'rec':
+                src = (v['pan'], v['rack'], v['slot'], v['ch'])
+            else:
+                continue
+            v['src'] = sorted(chan.get(src) or [])
+            v['src_at'] = list(src[1:])
+        outs_of = defaultdict(list)
+        dn_ = [docs['vmsb'].get('doc') or VMS_BOP_DOC, (docs.get('vmsq') or {}).get('doc') or VMS_BOP_CFG]
+        for k, i, r, kk_ in vrows:
+            v = r['vms3']
+            v['dn'] = dn_
+            for s_ in v.get('src') or []:   # [輸出 KKS, 種類, 機架, 槽, 通道, 盤端子, 接線頁, Relay Logic, 組態頁]
+                outs_of[s_].append([kk_, v['kind'], v['rack'], v['slot'], v['ch'], '／'.join('%s %s' % (f[0], f[1]) for f in v['fn']),
+                                    min(vmsb_where[(k, i)]), (v.get('lg') or {}).get('t', ''), (v.get('lg') or {}).get('page', 0)])
+        for k, i, r, kk_ in vrows:
+            v = r['vms3']
+            cr = cfg_rack.get((v['pan'], v['rack']))
+            if cr:
+                v['cfg'] = cr.most_common(1)[0][0]
+            if v['side'] == 'in' and outs_of.get(kk_):
+                v['outs'] = sorted(outs_of[kk_])
+            st['vms_' + v['side']] += 1
     # ---- 4b. Bently 3500 並聯分支（v16，wire_curated.json 的 branch）：Mark VIe 先收到訊號、3500 收 TVBA 的緩衝輸出（JA1／JB1／JC1／JD1 排線）；
     #      1TBVIB 速度型只有 3500 收；SEDP 是 Mark VIe 轉送 4–20 mA。燃機的機架槽位這一版才有（GT-VMP Rev D 的 RDS-PP 欄，G11→RACK 1、G12→RACK 2）；
     #      'RP-1 (Jumpered)' 是送 GHM 的鍵相、不進 3500，原本照標籤掛上的槽位拿掉。框在 3500 接線表那一頁（機架槽位表已經是 rack 那一跳）
@@ -2983,9 +3177,14 @@ def build(a, log):
                 hops.append(['cab', slug[(ck, cw['page'])], cw['marks'], cw['drawn']])
             if vms_where and r['unit'] == 'S10' and any(c['board'] == VMS_BOARD for c in r['cond']):
                 hops.append(['vms', slug[('vms', vms_where['page'])], vms_where['marks'], vms_where['drawn']])
+            for p_, mk_ in sorted((vmsb_where.get((k, recs[k].index(r))) or {}).items()):   # v20：BOP 震動監測盤的接線頁
+                hops.append(['vmsb', slug[('vmsb', p_)], mk_, '3500 盤端子'])
             rw = rack_where.get((k, recs[k].index(r)))
             if rw:
-                hops.append(['rack', slug[('vms', rw['page'])], rw['marks'], rw['drawn']])
+                hops.append(['rack', slug[(rw.get('kind', 'vms'), rw['page'])], rw['marks'], rw['drawn']])
+            vl_ = vlog_where.get((k, recs[k].index(r)))
+            if vl_:                                                                            # v20：3500 組態表上這顆繼電器那一列
+                hops.append(['vlog', slug[('vmsq', vl_[0])], vl_[1], vl_[2]])
             for (kd, pp), mk in sorted((bnw_where.get((k, recs[k].index(r))) or {}).items()):
                 hops.append(['bnw', slug[(kd, pp)], mk, '3500 接線表'])
             for kind, s, marks, drawn in hops:
@@ -3016,6 +3215,8 @@ def build(a, log):
                     out['cab']['side'] = cw['side']
             if rw:
                 out['rack'] = {'rack': rw['rack'], 'slot': rw['slot'], 'ch': rw['ch']}
+                if rw.get('mod'):
+                    out['rack']['mod'] = rw['mod']
             elif (r.get('bx') or {}).get('rack') and r['bx'].get('slot'):   # 燃機（v16）：槽位取自 GT-VMP 盤圖的接線表，沒有 rack 那一跳
                 out['rack'] = {'rack': r['bx']['rack'], 'slot': r['bx']['slot'], 'ch': r['bx'].get('ch', ''), 'by': 'bx'}
             cur = notes.get(k, []) + notes.get('%s@%s' % (k, r['unit']), []) + notes.get('%s@p%s' % (k, r['wire']['page']), [])   # '鍵@p111'＝只掛在接線圖那一頁的路徑（v16）
@@ -3066,7 +3267,9 @@ def build(a, log):
              'notes': sum(len(r['notes']) for r in allp)}
     if kks:                                       # v17
         stats.update({'by_doc': dict(sorted(Counter(r['doc'] for r in allp).items())), 'by_ctl': dict(sorted(Counter(r.get('ctl') or '' for r in allp).items())),
-                      'devloc_paths': sum(1 for r in allp if r.get('devloc')), 'room_paths': sum(1 for r in allp if r.get('room'))})
+                      'devloc_paths': sum(1 for r in allp if r.get('devloc')), 'room_paths': sum(1 for r in allp if r.get('room')),
+                      'vms_paths': sum(1 for r in allp if r.get('vms3')), 'vms_relays': sum(1 for r in allp if (r.get('vms3') or {}).get('lg')),
+                      'vms_linked': sum(1 for r in allp if (r.get('vms3') or {}).get('src') or (r.get('vms3') or {}).get('outs'))})
     out = {'kind': 'wire_kks' if kks else 'wire_ge', 'generated_by': GENERATED_BY, 'version': VERSION,
            'units': list(SITE_UNITS) if not kks else sorted({r['unit'] for r in allp}, key=uord), 'docs': docs_out, 'sheets': sheets_out,
            'by_ge': by_ge, 'paths': paths_out, 'jbs': jbs_out, 'ff': ff_out, 'stats': stats}

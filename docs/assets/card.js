@@ -92,7 +92,7 @@
     jbdev: '元件畫在接線箱裡（撬上接線箱、閥體接線盒、發電機接線箱、MCC 或本地盤），由箱內端子經幹線到盤', direct: '電纜從現場直拉到盤，中間沒有接線箱',
     ff: 'Foundation Fieldbus：元件 → 段保護器的埠 → 段幹線（好幾顆元件共用一條）→ 電子室盤的 FF 電源調節器 → 控制器的 FF 變數' };
   const GE_WIRE_HOP = { conn: 'GE 接線表', wire: '接線圖', jbloc: '接線箱位置', gtjb: '撬上接線箱位置', gtjbt: '撬上接線箱座標', jbdoc: '接線箱所在設備圖', mcc: '電氣盤格位', cs: '電纜表',
-    cab: '盤內板位', vms: '3500 盤端子', rack: '3500 機架槽位', bnw: '3500 接線表', epnl: '電氣盤端子排' };   // 圖紙標頭前的這一跳名稱（extra.hop）
+    cab: '盤內板位', vms: '3500 盤端子', vmsb: '3500 盤端子', rack: '3500 機架槽位', bnw: '3500 接線表', vlog: '3500 組態（繼電器邏輯）', epnl: '電氣盤端子排' };   // 圖紙標頭前的這一跳名稱（extra.hop）
   const GE_WIRE_IO = { same: '✓ 控制器組態的這顆螺絲就是這個元件', logic: '✓ 這顆螺絲的變數就是這個元件的 Mark VIe 訊號',
     equip: '✓ 這顆螺絲的 DeviceTag 是同一個設備（同一個 KKS 本體，或對照表連在一起的量測鏈）', loc: '✓ 同位置的另一個點（例：LVDT 的電源點）',
     suffix: '✓ 同一顆，編號後綴寫法不同（4WW ↔ 4WW-1）', alias: '≈ 組態的名稱與圖上的編號寫法不同，多半是同一顆的另一種寫法（見註記）',
@@ -741,7 +741,8 @@
     kksLookup(q, res, kh) {
       const e = AMS.kkstag.K.j.entries[kh.i];
       res.kks = kh; res.notfound = true; res.key = AMS.index.norm(q);
-      res.status = e.co ? `「${AMS.index.norm(q)}」在 DCS 端子表上${e.ds ? '（' + e.ds + '）' : ''}；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`
+      res.status = e.co && kh.via === 'alias' ? `「${AMS.index.norm(q)}」列在端子表元件 ${e.t}${e.ds ? '（' + e.ds + '）' : ''} 的其他編號裡（同一台設備的傳送器位號、I/O 表編號或 GE 文件的碼，不一定是接進 DCS 的那一顆，見下方說明）；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`   // v20
+        : e.co ? `「${AMS.index.norm(q)}」在 DCS 端子表上${e.ds ? '（' + e.ds + '）' : ''}；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`
         : `「${AMS.index.norm(q)}」是接線圖上的${kh.via === 'signal' ? '訊號 KKS，設備是 ' + e.t : ' KKS'}${e.ds ? '（' + e.ds + '）' : ''}`
         + '；AMS 資料庫沒有這個設備、也沒有 GE 編號，以下是接線圖的接線路徑。';
       return res;
@@ -1135,6 +1136,9 @@
       const miss = cv.x || []; const alt = cv.a || [];
       const head = `端子表 ${cv.n} 個訊號，迴路圖畫出 ${cv.m} 個` + (alt.length ? `、${alt.length} 個圖上寫別的名稱` : '') + (miss.length ? `、${miss.length} 個接線圖沒有畫` : '');
       const box = U.h('div', { class: 'wire-cov' + (miss.length ? ' gap' : '') }, U.h('p', { class: 'wire-cov-h' + (miss.length ? '' : ' muted small') }, head + `（${cv.d}）`));
+      if ((cv.l || []).length) {   // v20：其他編號（傳送器位號、GE 的 RDS-PP 碼；wire_alias.json 人工查證）
+        box.appendChild(U.h('p', { class: 'small' }, `其他編號：${cv.l.join('、')}` + (cv.ln && cv.ln[0] ? `。${cv.ln[0]}` : '') + (cv.ln && cv.ln[1] ? `（${cv.ln[1]}）` : '')));
+      }
       if (miss.length) {
         const tb = U.h('tbody');
         for (const [sig, desc, ctl, pos, pt, pack, tbn, vr, cls, src, note] of miss) {
@@ -1558,7 +1562,7 @@
       // 中間設備（v16，d.md）：jb＝在這個接線箱裡（電荷放大器、前置器、安全柵＋PLC、光電模組）、field＝先進另一個箱子（發電機上的 JB-164）、
       // self＝這個編號本身就在接線箱裡（JB87 的 DVP）、pre＝上游還有一個沒有 GE 編號的感測器
       const md = d.md || []; const mdJ = md.find((x) => x[0] === 'jb'); const mdF = md.find((x) => x[0] === 'field');
-      const mdS = md.find((x) => x[0] === 'self'); const mdP = md.find((x) => x[0] === 'pre');
+      const mdS = md.find((x) => x[0] === 'self') || (d.vs ? ['self'].concat(d.vs) : null); const mdP = md.find((x) => x[0] === 'pre');   // vs（v20）：VMS 盤裡 3500 模組的輸出
       const selfIn = !!mdS && mode === 'jbdev' && !hasF && !isPanel;
       const inBox = (mode === 'jbdev' && !hasF && isPanel) || selfIn;        // 電氣盤的格：元件接點在盤內，沒有現場電纜；DVP：這個編號就在箱裡
       const atJb = mode === 'jbdev' && !hasF && !isPanel && !selfIn;          // 接線圖上元件直接畫在接線箱端子排旁，沒有現場電纜號
@@ -1667,7 +1671,7 @@
       g += T(W / 2, 27, [tag, d.kk ? d.kk + (d.kw ? '（接線圖寫 ' + d.kw + '）' : '') : '', wp.u].filter(Boolean).join('　'), 'lp-h1', 84, 'middle');
       g += T(W - 16, 27, d.pg ? `接線圖 p.${d.pg[0]}（Sheet ${d.pg[1]} of ${d.pg[2]}）` : '', 'lp-s', 0, 'end');
       g += L(4, 40, W - 4, 40, 'lp-w');
-      const zt = [[0, 250, '現場 FIELD'], [250, 500, direct ? '（沒有接線箱）' : mode === 'ff' ? 'FF 段保護器' : isPanel ? '電氣盤（不是接線箱）' : '接線箱 JUNCTION BOX'],
+      const zt = [[0, 250, '現場 FIELD'], [250, 500, direct ? '（沒有接線箱）' : mode === 'ff' ? 'FF 段保護器' : d.vp ? '震動監測盤 VMS PANEL' : isPanel ? '電氣盤（不是接線箱）' : '接線箱 JUNCTION BOX'],
         [500, 650, '幹線 CABLE'], [650, 890, d.po ? '終點盤 PANEL' : '電子室盤 PANEL'], [890, W, io.length || (ff && ff[2]) ? 'Mark VIe' : mode === 'ff' ? 'Mark VIe（FF 段）' : '終點']];
       for (const [a, b, s] of zt) {
         g += T((a + b) / 2, 58, s, 'lp-z', 0, 'middle');

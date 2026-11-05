@@ -9,6 +9,8 @@ r"""tools/db/wire_cov.py — 每個元件端子表的訊號畫到迴路圖了沒
   alt：  訊號名不在，但同一個控制器的（盤-板位, 端子）有芯——圖上寫別的訊號名（盤對盤的另一端名稱、竣工改名，或那組螺絲畫的是別的訊號）；alt 列出圖上寫的名稱，不判定是不是同一個訊號。
   miss： 都沒有。變數＝signal-atlas 控制器索引這一組螺絲上的變數（空＝這組螺絲組態沒有變數；同名變數可能在別的地方）；
          原因來自 ge_tags_dir 的 wire_gaps.json（不進 repo；{訊號: [類別, 出處, 說明]}，人工查證：哪份文件有畫、還是查無），沒有記載的類別是 'unk'。
+別名（v20）：ge_tags_dir 的 wire_alias.json（不進 repo；{元件: {al: [其他編號…], n: 說明, src: 出處}}，人工查證）——例：端子表只寫顯示訊號 1-VI-…，
+  傳送器本身另有位號、GE 文件另有 RDS-PP 碼；照原樣帶到 by_dev 的 al／aln，卡片可以用這些編號查到。
 輸出 cardwork/wire_cov.json：by_dev={元件: {n, m, alt: [[訊號, [圖上名稱…], 盤端子]…], miss: [[訊號, 說明, 控制器, 盤-板位, 點, 卡別, 端子, 變數, 類別, 出處, 說明]…]}}；
 元件＝FLD_DEV（空的用 SIGNAL_NAME）；kids＝{設備 KKS: [它底下帶字母尾碼的元件…]}（'G11MSA30GH001' ← 'G11MSA30GH001A'：接線圖的鍵是 13 碼的設備）。
 build_card_aux 依元件（KKS）接到卡片的 cv。drawn 只比訊號名：名字在別的控制器或別的端子上也算畫出（路徑自己的 ✗ 與註記會講）。
@@ -106,6 +108,7 @@ def main():
     ap.add_argument('--wire-kks', default=os.path.join(paths.CARDWORK, 'wire_kks.json'))
     ap.add_argument('--dcdas', default=paths.DCDAS_INDEX)
     ap.add_argument('--gaps', default=os.path.join(gdir, 'wire_gaps.json'), help='人工查證的原因表（預設 ge_tags.json 同目錄的 wire_gaps.json；不進 repo；沒有就全部 unk）')
+    ap.add_argument('--alias', default=os.path.join(gdir, 'wire_alias.json'), help='元件的其他編號（預設 ge_tags.json 同目錄的 wire_alias.json；不進 repo；沒有就不加）')
     ap.add_argument('--out', default=os.path.join(paths.CARDWORK, 'wire_cov.json'))
     a = ap.parse_args()
     rev, fname, rows = design_rows(a.library)
@@ -136,6 +139,13 @@ def main():
         st['miss'] += 1
         st['miss_' + g[0]] += 1
         st['miss_live' if var else 'miss_novar'] += 1
+    alias = json.load(open(a.alias, encoding='utf-8')) if os.path.exists(a.alias) else {}
+    for dev, v in alias.items():
+        if dev.upper() in by and v.get('al'):
+            by[dev.upper()]['al'] = list(v['al'])   # 照原樣（VibSCWP1）；查詢時 core.js 的 IX.compact 才轉大寫
+            if v.get('n'):
+                by[dev.upper()]['aln'] = [v['n'], v.get('src', '')]
+            st['devices_alias'] += 1
     st['devices'] = len(by)
     st['devices_all_drawn'] = sum(1 for e in by.values() if e['m'] == e['n'])
     st['devices_alt'] = sum(1 for e in by.values() if e['alt'] and not e['miss'])

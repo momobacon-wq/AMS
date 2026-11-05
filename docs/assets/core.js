@@ -1451,6 +1451,7 @@
   KK.build = function (j) {
     const keys = new Map();
     (j.entries || []).forEach((e, i) => { e._c = IX.compact(e.t); keys.set(e._c, i); (e.s || []).forEach((s) => keys.set(IX.compact(s), i)); });   // s：只在端子表上的元件（co）的訊號名，位號不一定是 KKS（v19）
+    (j.entries || []).forEach((e, i) => { e._al = (e.al || []).map((s) => IX.compact(s)); e._al.forEach((c) => { if (!keys.has(c)) keys.set(c, i); }); });   // al：其他編號（v20）；不蓋掉別張卡的鍵
     KK.K = { j, keys };
     return KK.K;
   };
@@ -1460,9 +1461,14 @@
     const K = KK.K; if (!K) return null;
     const c = IX.compact(q); const m = KK_SIG.exec(c);
     const i0 = K.keys.get(c);
-    if (i0 != null && K.j.entries[i0].co) return { i: i0, via: c === K.j.entries[i0]._c ? 'key' : 'signal', sig: c === K.j.entries[i0]._c ? '' : c, raw: String(q).trim() };
+    if (i0 != null && K.j.entries[i0].co) {
+      const e0 = K.j.entries[i0];
+      if (c !== e0._c && (e0._al || []).includes(c)) return { i: i0, via: 'alias', sig: '', raw: String(q).trim() };   // v20：其他編號
+      return { i: i0, via: c === e0._c ? 'key' : 'signal', sig: c === e0._c ? '' : c, raw: String(q).trim() };
+    }
     if (!m) return null;
     const i = K.keys.get(m[1]);
+    if (i != null && (K.j.entries[i]._al || []).includes(m[1])) return { i, via: 'alias', sig: '', raw: String(q).trim() };   // v20：其他編號加訊號尾碼（C10PAC11BS101XQ01）
     return i == null ? null : { i, via: m[2] ? 'signal' : 'key', sig: m[2] ? c : '', raw: String(q).trim() };
   };
   /** 打一半的 KKS → 開頭相符的 KKS 編號卡條目（至少 6 個字元；項目形狀同 IX.suggest） */
@@ -1473,6 +1479,7 @@
     if (!K || c.length < 6) return out;
     for (const e of K.j.entries) {
       if (e._c.startsWith(c) || c.startsWith(e._c)) out.push({ key: e.t, src: e.co ? 'DCS 端子表' : 'KKS（接線圖）', alias: [e.u, e.ds].filter(Boolean).join(' · '), tag: '', m: 'pre' });
+      else if ((e._al || []).some((a) => a.startsWith(c))) out.push({ key: e.t, src: 'DCS 端子表（其他編號）', alias: [(e.al || []).find((a) => IX.compact(a).startsWith(c)), e.ds].filter(Boolean).join(' · '), tag: '', m: 'pre' });   // v20
       if (out.length >= limit) break;
     }
     return out;
