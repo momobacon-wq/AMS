@@ -127,6 +127,9 @@ VMS_LAB_RE = re.compile(r'^(?:(\d?TB[A-Z]*\d?)-(\d+)/)?R(\d+)-S(\d+)-CH(\d+)-([A
 VMS_LOGIC_RE = re.compile(r'^S(\d{1,2})C(\d{2})P(\d{2})A(\d)$')   # 第 13 槽、第 1 通道、P01、第 2 級警報
 VMS_KKS_RE = re.compile(r'^[A-Z]\d{2}[A-Z]{3}\d{2}[A-Z]{2}\d{3}$')
 VMS_CAB_RE = re.compile(r'^[A-Z]\d{2}C[A-Z]{2}\d{2}UC\d{3}$')
+VMS_CFG_COLS = (('desc', 'Description'), ('rack', 'Rack'), ('slot', 'Slot'), ('chan', 'Chan'), ('mtype', 'Module'), ('bot', 'Bottom'), ('top', 'Top'),
+                ('units', 'Units'), ('orient', 'Orientation'), ('kp', 'Assigned'), ('zpv', 'ZPV'), ('cmt', 'Comments'))   # v21：組態表表頭字 → 欄
+VMS_CFG_KEEP = ('desc', 'ctype', 'xd', 'bot', 'top', 'units', 'orient', 'kp', 'aL', 'aH', 'dLL', 'dHH', 'lNOK', 'lA', 'lD', 'tA', 'tD', 'zpv', 'cmt', 'chan', 'rk')
 DEV_TB_RE = re.compile(r'CHARGE AMP|PROXIMIT|^TB PROX_')   # v16：GE 138T5502「接線箱端子排」欄寫的是箱內的中間設備（電荷放大器、前置器），不是端子排   # v15：GE 燃機發電機接線圖（H6／H8）——元件表列了外形圖沒畫的箱子（JB-5D＝MKA01 GD005D ACCELEROMETERS），註記一併指出
 MCC_DOCS = (   # v15：480 V MCC／PC 的盤面配置圖（GE EP24 EQUIPMENT ARRANGEMENT，各機組一份）；檔名沒有文件號（'noKKS_… _revQ.pdf'），照檔名標題找、取最高版次
     ('G11', 'EQUIPMENT ARRANGEMENT - 480V MOTOR CONTROL CENTER FOR UNIT 1 GT1'),
@@ -1444,6 +1447,99 @@ def vms_logic(tx):
                 x = min(same, key=lambda x: x['x0'] - w['x1'])
                 m = VMS_LOGIC_RE.match(x['t'])
                 out[w['t']] = (str(int(m.group(1))), str(int(m.group(2))), m.group(4), x['t'], pno, ubox([w, x]), rk)
+    return out
+
+
+def vms_cfg_cols(ws):
+    """v21：3500 組態表一頁的表頭 → ([(欄, 中心 x)…], 表頭底 y)。表頭兩層：'Alert'／'Danger' 下面是 L／H／LL／HH，'Latching' 與 'Alarm Time Delays'
+    下面是 Not OK／Alert／Danger；各格的字靠左、表頭置中，格子的歸屬照字串中心最近的表頭（逐頁量：各頁表頭的位置不同）。沒有 'Bottom' 的頁不是監測通道表。"""
+    bt = [w for w in ws if w['t'] == 'Bottom']
+    if not bt:
+        return [], 0
+    y0 = bt[0]['y0']
+    hw = sorted([w for w in ws if y0 - 7 <= w['y0'] <= y0 + 14], key=lambda w: w['x0'])
+    mid = lambda a, b: (a['x0'] + b['x1']) / 2.0  # noqa: E731
+    nxt = lambda w, t: next((x for x in hw if x['t'] == t and abs(x['y0'] - w['y0']) < 2 and 0 <= x['x0'] - w['x1'] < 5), None)  # noqa: E731
+    cols = []
+    for nm, t in VMS_CFG_COLS:
+        f = next((w for w in hw if w['t'] == t), None)
+        if f:
+            cols.append((nm, mid(f, f)))
+    for nm, t, t2 in (('tag', 'Tag', 'Name'), ('ctype', 'Channel', 'Type')):
+        f = next((w for w in hw if w['t'] == t), None)
+        if f:
+            cols.append((nm, mid(f, nxt(f, t2) or f)))
+    f = next((w for w in hw if w['t'] == 'Transducer' and nxt(w, 'Type')), None)
+    if f:
+        cols.append(('xd', mid(f, nxt(f, 'Type'))))
+    lv = [w for w in hw if w['t'] in ('L', 'H', 'LL', 'HH')]
+    if [w['t'] for w in lv] == ['L', 'H', 'LL', 'HH']:
+        cols += [(nm, mid(w, w)) for nm, w in zip(('aL', 'aH', 'dLL', 'dHH'), lv)]
+    f = next((w for w in hw if w['t'] == 'Not'), None)
+    if f:
+        cols.append(('lNOK', mid(f, nxt(f, 'OK') or f)))
+    ad = [w for w in hw if w['t'] in ('Alert', 'Danger') and w['y0'] > y0 + 5]
+    if [w['t'] for w in ad] == ['Alert', 'Danger', 'Alert', 'Danger']:
+        cols += [(nm, mid(w, w)) for nm, w in zip(('lA', 'lD', 'tA', 'tD'), ad)]
+    return sorted(cols, key=lambda x: x[1]), max(w['y1'] for w in hw)
+
+
+def vms_cfg(tx):
+    """v21：3500 製造完成報告組態表的監測通道列 → {KKS: {欄: 字串…, page, box, rk}}（Relay Logic 列不收、同一個 KKS 只取第一次出現）。
+    欄：desc 說明、chan 通道、ctype 通道型式、xd 感測器型式、bot／top 量程、units 單位、orient 感測器方位、kp 鍵相、aL／aH Alert、dLL／dHH Danger、
+    lNOK／lA／lD 閂鎖（Not OK／Alert／Danger）、tA／tD 警報延時、zpv、cmt；rk＝那一頁的 'Rack15'。一列的字照間距（> 4.5 pt）切成格。"""
+    out = {}
+    for pno, pg in enumerate(tx['pg'], 1):
+        ws = disp_words(pg)
+        cols, hy = vms_cfg_cols(ws)
+        if not cols:
+            continue
+        rk = next((w['t'] for w in ws if re.fullmatch(r'Rack\d+', w['t'])), '')
+        for w in ws:
+            if not VMS_KKS_RE.match(w['t']) or w['y0'] < hy or w['t'] in out:
+                continue
+            yc = (w['y0'] + w['y1']) / 2.0
+            row = sorted([x for x in ws if abs((x['y0'] + x['y1']) / 2.0 - yc) < 3], key=lambda x: x['x0'])
+            cells = []
+            for x in row:
+                if cells and x['x0'] - cells[-1][-1]['x1'] <= 4.5:
+                    cells[-1].append(x)
+                else:
+                    cells.append([x])
+            got = defaultdict(list)
+            for cl in cells:
+                cx = (cl[0]['x0'] + cl[-1]['x1']) / 2.0
+                got[min(cols, key=lambda c: abs(c[1] - cx))[0]].append(' '.join(x['t'] for x in cl))
+            got = {k: ' '.join(v) for k, v in got.items()}
+            if got.get('tag') != w['t'] or got.get('ctype') == 'Relay Logic' or 'top' not in got:
+                continue
+            out[w['t']] = dict(got, page=pno, box=ubox(row), rk=rk)
+    return out
+
+
+def io_params(path, pairs):
+    """v21：signal-atlas 控制器索引 → {(控制器, 變數): [訊號型式, 輸入型式, 下限, 上限, 單位, {組態參數}]}（3500 輸出那幾條：4–20 mA 的量程與跳線、
+    接點輸入的 Sense／反相／濾波／SOE）。單位取變數的 format_spec。沒有索引回 {}。"""
+    if not path or not os.path.exists(path) or not pairs:
+        return {}
+    import sqlite3
+    c = sqlite3.connect('file:%s?mode=ro' % path.replace('\\', '/'), uri=True)
+    out = {}
+    q = ('select p.signal_type, p.input_type, p.low_value, p.high_value, p.params_json, f.units from io_point p join variable v on v.id = p.var_id '
+         'left join format_spec f on f.name = v.format_spec where p.ctrl = ? and v.name = ?')
+    g = lambda x: '' if x is None else ('%g' % x if isinstance(x, float) else str(x))  # noqa: E731
+    for ctrl, var in sorted(pairs):
+        row = c.execute(q, (ctrl, var)).fetchone()
+        if not row:
+            continue
+        stp, it, lo, hi, pj, un = row
+        try:
+            pr = json.loads(pj or '{}')
+        except ValueError:
+            pr = {}
+        keep = {k: v for k, v in pr.items() if k in ('Sense', 'SignalInvert', 'SignalFilter', 'SeqOfEvents', 'InputFilter') or re.fullmatch(r'JP\d+[AB]', k)}
+        out[(ctrl, var)] = [stp or '', it or '', g(lo), g(hi), un or '', keep]
+    c.close()
     return out
 
 
@@ -2938,10 +3034,16 @@ def build(a, log):
     # ---- 4c. BOP 震動監測盤（v20，KKS 版）：感測器路徑的終點、繼電器與記錄器輸出路徑的起點是 VMS 盤（Bently 3500）。
     #      盤圖接線頁的芯旁標籤 → 機架槽通道與每顆端子的功能（'vms' 那一跳）；機架配置圖 → 模組料號（'rack' 那一跳，表上有格子的才有）；
     #      3500 組態表 → 繼電器看哪個通道（'vlog' 那一跳）。同一通道的感測器與輸出互相列出（卡片的「3500 來源」「3500 輸出」）。
-    vmsb_where, vlog_where = {}, {}
+    vmsb_where, vlog_where, vcfg_where = {}, {}, {}
     if kks and 'vmsb' in tx:
         vb = vmsb_index(tx['vmsb'])
         vlg = vms_logic(tx['vmsq']) if 'vmsq' in tx else {}
+        vcf = vms_cfg(tx['vmsq']) if 'vmsq' in tx else {}   # v21：監測通道那一列（量程、感測器、警報值、閂鎖、延時）
+        st['vms_cfg_rows'] = len(vcf)
+        vsg = {}                                           # v21：簽名掃描版的對照（人工查證；ge_tags_dir 的 vms_cfg_signed.json）
+        if getattr(a, 'vms_signed', None) and os.path.exists(a.vms_signed):
+            with open(a.vms_signed, encoding='utf-8') as f_:
+                vsg = json.load(f_)
         vpan = {k_[0] for k_ in vb['lab']}
         chan, vrows = defaultdict(set), []
         for k, plist in recs.items():
@@ -3009,6 +3111,23 @@ def build(a, log):
                     st['vms_cell_conflict'] += 1
                 fs_ = {f[2] for f in fn}
                 v['kind'] = 'in' if side == 'in' else 'relay' if fs_ & {'ARM', 'NO', 'NC'} else 'rec' if 'REC' in fs_ else 'other'
+                mc = vcf.get(kk_) if side == 'in' else None
+                if mc:                                    # v21：組態表上這個通道那一列（'vcfg' 那一跳）；通道號與接線頁不同時加註記、卡上照接線頁
+                    v['mc'] = dict({k2: mc[k2] for k2 in VMS_CFG_KEEP if mc.get(k2)}, page=mc['page'])
+                    sg_ = (vsg.get('racks') or {}).get(mc.get('rk') or '')
+                    if sg_:                               # 簽名的出廠版（Rev -）那一頁與簽核日：逐列對過、數值相同（說明欄空白）
+                        v['mc']['sg'] = [sg_['signed'], sg_.get('date') or '']
+                    sx_ = (vsg.get('struck') or {}).get(kk_)
+                    if sx_:                               # 簽名版上被紅筆劃掉的格：[欄, 註記, 日期, 頁]（打字版 Rev B 仍印著）
+                        v['mc']['x'] = [sx_['fields'], sx_.get('note') or '', sx_.get('date') or '', sx_.get('page') or 0]
+                        st['vms_cfg_struck'] += 1
+                    vcfg_where[(k, i)] = (mc['page'], [mark_of(tx['vmsq']['pg'][mc['page'] - 1], page_R('vmsq', mc['page'])[0], mc['box'])], kk_)
+                    used_sheets[('vmsq', mc['page'])] = 'loc'
+                    st['vms_cfg'] += 1
+                    if mc.get('chan') and mc['chan'] != ch_:
+                        r['notes'].append(['3500 組態表把 %s 寫在 %s 第 %s 通道，盤圖接線頁的標籤是 RACK %s SLOT %s CH%s；卡片照接線頁' % (kk_, mc.get('rk') or '', mc['chan'], rk_, sl_, ch_),
+                                           '%s 第 %d 頁；%s 第 %d 頁' % (VMS_BOP_CFG, mc['page'], VMS_BOP_DOC, min(pgs))])
+                        st['vms_cfg_ch_conflict'] += 1
                 r['vms3'] = v
                 vrows.append((k, i, r, kk_))
                 if side == 'in':
@@ -3021,6 +3140,9 @@ def build(a, log):
             lg = vlg.get(kk_)
             if lg and v['kind'] == 'relay':
                 v['lg'] = {'t': lg[3], 'slot': lg[0], 'ch': lg[1], 'a': lg[2], 'page': lg[4], 'cfg': lg[6]}
+                as_ = (vsg.get('relays') or {}).get(kk_)
+                if as_:                                   # v21：簽名的 Relay Logic Report 那一列的 Alarm Status 與頁（HH；推力 'LL or HH or Not OK'）
+                    v['lg']['as'] = list(as_)
                 vlog_where[(k, i)] = (lg[4], [mark_of(tx['vmsq']['pg'][lg[4] - 1], page_R('vmsq', lg[4])[0], lg[5])], lg[3])
                 used_sheets[('vmsq', lg[4])] = 'loc'
                 src = (v['pan'], v['rack'], lg[0], lg[1])
@@ -3048,6 +3170,14 @@ def build(a, log):
             if v['side'] == 'in' and outs_of.get(kk_):
                 v['outs'] = sorted(outs_of[kk_])
             st['vms_' + v['side']] += 1
+        mvp = io_params(a.dcdas, {(x[0], x[5]) for _k, _i, r, _kk in vrows if r['vms3']['side'] == 'out' for x in r.get('io') or [] if x[5]})
+        for k, i, r, kk_ in vrows:                         # v21：輸出那一條在 Mark VIe 的組態（4–20 mA 的量程、接點輸入的 Sense）
+            if r['vms3']['side'] != 'out':
+                continue
+            mv_ = {x[5]: mvp[(x[0], x[5])] for x in r.get('io') or [] if (x[0], x[5]) in mvp}
+            if mv_:
+                r['vms3']['mv'] = mv_
+                st['vms_mv'] += 1
     # ---- 4b. Bently 3500 並聯分支（v16，wire_curated.json 的 branch）：Mark VIe 先收到訊號、3500 收 TVBA 的緩衝輸出（JA1／JB1／JC1／JD1 排線）；
     #      1TBVIB 速度型只有 3500 收；SEDP 是 Mark VIe 轉送 4–20 mA。燃機的機架槽位這一版才有（GT-VMP Rev D 的 RDS-PP 欄，G11→RACK 1、G12→RACK 2）；
     #      'RP-1 (Jumpered)' 是送 GHM 的鍵相、不進 3500，原本照標籤掛上的槽位拿掉。框在 3500 接線表那一頁（機架槽位表已經是 rack 那一跳）
@@ -3185,6 +3315,9 @@ def build(a, log):
             vl_ = vlog_where.get((k, recs[k].index(r)))
             if vl_:                                                                            # v20：3500 組態表上這顆繼電器那一列
                 hops.append(['vlog', slug[('vmsq', vl_[0])], vl_[1], vl_[2]])
+            vc_ = vcfg_where.get((k, recs[k].index(r)))
+            if vc_:                                                                            # v21：3500 組態表上這個監測通道那一列
+                hops.append(['vcfg', slug[('vmsq', vc_[0])], vc_[1], vc_[2]])
             for (kd, pp), mk in sorted((bnw_where.get((k, recs[k].index(r))) or {}).items()):
                 hops.append(['bnw', slug[(kd, pp)], mk, '3500 接線表'])
             for kind, s, marks, drawn in hops:
@@ -3269,7 +3402,8 @@ def build(a, log):
         stats.update({'by_doc': dict(sorted(Counter(r['doc'] for r in allp).items())), 'by_ctl': dict(sorted(Counter(r.get('ctl') or '' for r in allp).items())),
                       'devloc_paths': sum(1 for r in allp if r.get('devloc')), 'room_paths': sum(1 for r in allp if r.get('room')),
                       'vms_paths': sum(1 for r in allp if r.get('vms3')), 'vms_relays': sum(1 for r in allp if (r.get('vms3') or {}).get('lg')),
-                      'vms_linked': sum(1 for r in allp if (r.get('vms3') or {}).get('src') or (r.get('vms3') or {}).get('outs'))})
+                      'vms_linked': sum(1 for r in allp if (r.get('vms3') or {}).get('src') or (r.get('vms3') or {}).get('outs')),
+                      'vms_cfg': sum(1 for r in allp if (r.get('vms3') or {}).get('mc')), 'vms_mv': sum(1 for r in allp if (r.get('vms3') or {}).get('mv'))})
     out = {'kind': 'wire_kks' if kks else 'wire_ge', 'generated_by': GENERATED_BY, 'version': VERSION,
            'units': list(SITE_UNITS) if not kks else sorted({r['unit'] for r in allp}, key=uord), 'docs': docs_out, 'sheets': sheets_out,
            'by_ge': by_ge, 'paths': paths_out, 'jbs': jbs_out, 'ff': ff_out, 'stats': stats}

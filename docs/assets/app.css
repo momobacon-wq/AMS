@@ -929,8 +929,8 @@ table.wire-field caption { caption-side: top; text-align: left; padding: 6px 0 2
 .wire-jb > summary { cursor: pointer; padding: 4px 0; }
 /* 迴路圖（v15，card.js fillLoop／loopSvg）：ISA-5.4 式單線圖。圖本身白底黑線（像圖紙），深色主題也一樣；
    「列印這張迴路圖」把 SVG 放進 body 底下的 #loop-print，列印時只印它（A4 橫向）；平常整頁列印時迴路圖跟著卡片印 */
-.wire-loop { margin: 2px 0 8px; }
-.wire-loop > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
+.wire-loop, .wire-chain { margin: 2px 0 8px; }
+.wire-loop > summary, .wire-chain > summary { cursor: pointer; padding: 4px 0; font-weight: 600; }   /* v21 .wire-chain：Bently 3500 通道圖（fillChain） */
 .loop-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 6px; }
 .loop-fig { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
 .loop-fig > svg { display: block; width: 100%; min-width: 760px; height: auto; }   /* > ：v19 併成一張的圖裡還有內層 <svg>，不能跟著改寬高 */
@@ -974,7 +974,7 @@ table.wire-field caption { caption-side: top; text-align: left; padding: 6px 0 2
   body.print-loop #loop-print { display: block; page: loop; }
   #loop-print > svg { display: block; width: 100%; height: auto; max-height: 190mm; }
   #loop-print > svg:not(:last-child) { break-after: page; }   /* v19：併成一張的圖列印時每條路徑一頁 */
-  .wire-loop .loop-tools { display: none; }
+  .wire-loop .loop-tools, .wire-chain .loop-tools { display: none; }
   .loop-fig { overflow: visible; border: 0; }
   .loop-fig, .loop-fig.tall { overflow: visible; max-height: none; }
   .loop-fig > svg { min-width: 0; max-height: 260mm; }   /* 整頁列印時長圖縮成一頁；要每條一頁用「列印這張迴路圖」 */

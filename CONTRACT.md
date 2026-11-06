@@ -989,6 +989,29 @@ v8 的 GE 編號卡只有對照（編號、說明、KKS、訊號）；查 `96FG-
 - 3500 的設定值（Alert／Danger、延時、閂鎖）不收：在 Q1886 組態表，各台不同，要另外核。
 - Relay Logic 取自組態表打字版（Rev B，核對人欄空白）；簽名的 Relay Logic Report 是掃描頁，查核代理開圖對過、數值相同。
 
+## v21：Bently 3500 通道圖——感測器、盤內 3500、繼電器接點與 4–20 mA 畫成一張（2026-11-06）
+
+使用者看 v20 的 C10LCC10BS001：感測器的迴路圖停在 VMS 盤 TB1（終點欄只有一句「接到 Bently 3500 監測盤」），繼電器 BS101、記錄器 BS201 的迴路圖從 VMS 盤才開始，3500 裡面那一段只有文字。要求把 3500 的繼電器與 4–20 mA 迴路、迴路圖等詳細資料也畫出來。
+
+**資料（wire_ge.py 4c，KKS 版）**：
+- `vms_cfg`：3500 製造完成報告組態表打字版（HT1-1-AQB01-Q1886 PDF p.28～36，CFG-BNX-120014477 Rev B）的監測通道列。表頭兩層（Alert L／H、Danger LL／HH、Latching Not OK／Alert／Danger、Alarm Time Delays Alert／Danger），各格的字靠左、表頭置中：一列的字照間距（> 4.5 pt）切成格，每格照字串中心最近的表頭歸欄；表頭位置逐頁量（各頁不同）。Relay Logic 列不收。感測器那一條的 `vms3.mc`＝{desc, chan, ctype 通道型式, xd 感測器型式, bot／top 量程, units, orient, kp, aL／aH, dLL／dHH, lNOK／lA／lD 閂鎖, tA／tD 警報延時, zpv, cmt, rk 組態的機架名, page}，原字照抄；新的一跳 'vcfg'（組態表那一列，框整列）。組態表的通道號與接線頁不同時加註記、卡上照接線頁（這一版沒有）。查核代理逐格開圖對過 63 列：0 處不符。
+- 簽名掃描版對照（ge_tags_dir 的 `vms_cfg_signed.json`，人工查證，不進 repo；`wire_kks.py --vms-signed`）：racks＝每個機架的打字頁、簽名頁（Rev -，Q1886 Section D）與簽核日 → `mc.sg`＝[簽名頁, 日期]；struck＝簽名版上被紅筆劃掉的格 → `mc.x`＝[[欄…], 註記, 日期, 頁]（FWP 兩個轉速通道 C10LAC50／60BS021 的 Alert H 3500、Danger LL 800／HH 3200，註記「NO SETPOINTS FOR TACHOMETER」，打字版仍印著）；relays＝簽名的 Relay Logic Report 每顆繼電器那一列的 Alarm Status 與頁 → `vms3.lg.as`（徑向／加速度 HH，推力 BG109 'LL or HH or Not OK'）。四個查核代理逐列對過簽名頁：除了簽名版的說明欄空白與上面兩列，數值全部相同。
+- `io_params`：輸出那一條（繼電器、記錄器）在 Mark VIe 的組態 `vms3.mv`＝{變數: [訊號型式, 輸入型式, 下限, 上限, 單位（format_spec）, {Sense, SignalInvert, SignalFilter, SeqOfEvents, InputFilter, JPnA／JPnB}]}，讀 signal-atlas 控制器索引的 io_point。
+- GE 版輸出不變（D0006／Q1886 只在 kks 模式載入；wire_ge.json 逐欄相同）。
+
+**卡片（build_card_aux）**：
+- 感測器那一條的摘要多「3500 組態」列（`ge_vms_cfg_parts`）：通道型式、感測器、量程、方位（推力通道是正方向；轉速通道的 '0 None' 不印）、鍵相、警報值（單位同量程；沒有設定值的寫明、不列閂鎖；簽名版劃掉的照印並寫兩版不同）、閂鎖、警報延時（3500/42M 引原廠手冊寫秒；其他模組標【推論】）、ZPV，後面寫組態的機架名與 SLOT／CH、打字版頁、簽名版頁與查核日。
+- 繼電器的「3500 來源」：Relay Logic 的第 n 級寫成 Alarm 1＝Alert／Alarm 2＝Danger（引 3500/42M User Guide），加簽名 Relay Logic Report 的 Alarm Status 與頁；有 Alarm Status 時等級是 doc。
+- 原廠說明的出處（`VMS_REF`，放進 `vc.b.rf`）：3500/42M User Guide 143489 Rev. V（掃描檔收在汽機 TSI 的 EOMR HT1-1-AQB01-Q1851：p.645 Recorder Output 照通道滿量程比例、bypass 時 clamp 或 2 mA；p.646 Delay Panel 延時以秒計、Alert＝Alarm 1、Danger＝Alarm 2；p.853～854 §5.5 滿量程 20 mA、零點 4 mA）、Bently 3500 Field Wiring Diagram Package 130432-01 Rev R p.110 Note 4（NE 時非警報狀態 NO 閉合）、盤圖 D0006 p.11「2-20mA RECORDER OUTPUTS」。3500/33 與 3500/50 的手冊不在文件庫：3500/50 轉速通道的延時單位與記錄器量程仍標【推論】；NE 繼電器失電時打開是由 NE 推得，標【推論】。
+- 通道圖 `wp.vc`（`ge_vms_chain`）：同一個 3500 通道的路徑以感測器那一條的（盤, 機架, 槽, 通道）為準，繼電器照 Relay Logic 跟的通道、記錄器照自己的通道（`vms3.src_at`）；感測器不是剛好一條的通道不畫（這一版沒有）。感測器、繼電器、記錄器三種卡都掛同一份：`me`＝本卡是 L 的第幾個、`L`＝[[KKS, 種類 in／relay／rec／other, 精簡路徑（`ge_wire_slim`：mode、t、d、n、u、sum 的「Mark VIe」「電子室盤」兩列、rows 的跳別與頁；本卡自己是 0）]…]、`b`＝盤內那一段（`ge_vms_bridge`：pan／pn 盤與盤名〔盤名從同一面盤的每一條補〕、rk／sl／ch／mod 監測器的機架槽通道與料號、m42、cfg 組態的機架名、fn 感測器進盤的端子與功能、mc、o＝各輸出 {k, kd, rk, sl, ch, mod, fn, lg（含 as）, mv, ne（繼電器卡人工註記裡簽名報告的 Relay Normal State／Contact Normal State 與出處）, io（Mark VIe 第一個點）, to（[盤, 盤名, 幹線]）}、sr＝各段 3500 那幾跳的圖與頁、dn、rf）。63 個通道：57 個是感測器＋繼電器＋記錄器，6 個鍵相轉速只有記錄器。
+- `ge_vms_self` 不再印雙分號（v20 記錄器的迴路圖框裡「CH1；；這個通道…」）。
+
+**畫法（card.js）**：`fillWirePaths` 有 `vc` 時先畫「Bently 3500 通道圖」（`details.wire-chain`，預設展開），這張卡自己的單條迴路圖收合。`fillChain` 用 `loopStack`（多了自訂段頭）由上而下併成一張：① 感測器那一條的迴路圖 → ② 盤內那一段（`vmsBridgeSvg`）→ ③… 各輸出那一條的迴路圖；段頭寫種類、KKS、走向，本卡那一段標「（本卡）」。盤內段：感測器進盤的端子與功能 → 3500 機架虛線框裡的監測器（SLOT／CH、模組、組態表那一列與打字／簽名兩個頁碼；簽名版劃掉的值紅字）→ 繼電器：虛線箭頭（Alarm Status；推力通道寫 LL／HH＋Not OK 並標紅）到繼電器模組框（SLOT／CH、料號、Relay Logic、簽名報告的 Alarm Status 與常態），NO 接點照慣例畫失電狀態（打開）；記錄器：電流輸出符號（3500/42M 照滿量程比例，引手冊；3500/50 標【推論】）→ 輸出端子與功能 → 右欄寫接到第幾段、幹線、終點盤、Mark VIe 那個點與組態（接點輸入平常讀 1【推論】；4–20 mA 的量程與 3500 滿量程相同打 ✓，不同紅字並在 ⚠ 寫出倍數——FWP 徑向 24 個記錄器 Mark VIe 是 0～300 µm、3500 是 0～150／0～225 µm pp，段頭與摘要也標 ⚠）。頁尾：出處（3500 盤圖接線頁與機架配置、組態表打字頁與簽名頁、Relay Logic Report）、⚠ 註記（兩版組態、劃掉的值、Relay Logic 與 Alarm Status、常態與 NE 的出處、記錄器量程的出處與 clamp、量程不符）、照實際畫了什麼列的圖例、標題欄。「列印這張迴路圖」每段一頁、各頁帶自己的段頭；「下載 SVG」是併好的一張；燈箱同迴路圖。`loopFig` 是迴路圖與通道圖共用的外框。
+
+**數字**：組態表 75 列（另 12 列是空壓機的，沒有接到路徑）；63 條感測器路徑有 `mc`（簽名頁 4 張、劃掉 2 列），120 條輸出路徑有 `mv`，57 顆繼電器有 `lg.as`；通道圖掛在 183 張卡；卡片分塊 kkstag-loc-01／02 加密後多約 100 KB（每張卡帶同一通道其他段的精簡路徑）。
+
+**已知限制**：空壓機 C00QEA11～13 沒有通道圖（那一面盤現行 D0006-0 沒有圖，v20 照舊只註記）；3500 內部的接法（監測器到繼電器模組經背板）不是圖面畫的，圖上是示意；組態表的設定值是出廠值，現場以機架上傳的組態為準；FWP 記錄器量程不符兩邊並列、不替任何一方定案；pk 與 rms（CEP 的 4.5／7.1 mm/s）這一版沒有寫進卡片；整頁列印時通道圖縮成一頁、字很小，要每段一頁請用「列印這張迴路圖」。
+
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
 GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只有 `data/meta.json` 是明文；瀏覽器在員工代號登入後再輸入**密語**解密（與 momobacon-wq/signal-atlas 同一套作法）。

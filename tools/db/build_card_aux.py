@@ -2478,7 +2478,7 @@ def ge_ld_rows(pm, ents, scope, kks=()):
 GE_WIRE_HOP = {'conn': 'GE 接線表（元件 → 撬上接線箱）', 'wire': '接線圖', 'jbloc': '接線箱位置', 'devloc': '元件位置（一號機儀器位置圖）', 'devlist': '儀器清單（位置圖上的表）', 'gtjb': '撬上接線箱位置（GE 外形等角圖）',
                'gtjbt': '撬上接線箱座標（GE 外形圖的 JB 表）', 'jbdoc': '接線箱所在的設備圖', 'mcc': '電氣盤格位（GE EP24 盤面配置圖）', 'cs': '電纜表',
                'cab': '盤內板位', 'vms': '3500 盤端子', 'vmsb': '3500 盤端子', 'rack': '3500 機架槽位', 'bnw': '3500 接線表（Bently 盤圖）', 'vlog': '3500 組態（繼電器邏輯）',
-               'epnl': '電氣盤端子排（設備配置圖）'}
+               'vcfg': '3500 組態（監測通道）', 'epnl': '電氣盤端子排（設備配置圖）'}
 GE_WIRE_REL = {'conn': 'neutral', 'wire': 'exact', 'jbloc': 'exact', 'devloc': 'exact', 'devlist': 'exact', 'gtjb': 'neutral', 'gtjbt': 'neutral', 'jbdoc': 'neutral', 'mcc': 'exact', 'cs': 'exact',
                'cab': 'neutral', 'vms': 'neutral', 'rack': 'neutral', 'bnw': 'neutral', 'epnl': 'neutral'}   # 一號機專屬的圖（接線圖、JB 位置圖、電纜表、各機組一份的 MCC／PC 盤面配置）＝就是本台；
 #                                                                           GE 的表與控制盤盤面配置、Bently 盤圖各機組共用一份
@@ -2698,12 +2698,57 @@ def ge_vms_what(vm):
     return {'relay': '繼電器接點', 'rec': '記錄器輸出（4–20 mA）'}.get(vm.get('kind'), '輸出')
 
 
+VMS_LATCH_ZH = {'L': '閂鎖', 'Non-L': '不閂鎖', 'N/A': '不適用'}
+VMS_ALARM_ZH = {'aL': 'Alert L', 'aH': 'Alert H', 'dLL': 'Danger LL', 'dHH': 'Danger HH'}
+# v21：文件庫裡查到的 Bently 原廠說明（查核代理開圖、主控親核 Q1851 p.587／645／646 與 130432 p.110）：卡片與通道圖引用
+VMS_REF = {'rec': '3500/42M User Guide 143489 Rev. V 的 Recorder Output（收在 HT1-1-AQB01-Q1851 PDF p.645：記錄器輸出照通道滿量程比例；§5.5 PDF p.853～854：滿量程 20 mA、中點 12 mA、零點 4 mA）',
+           'clamp': '同手冊 p.645：通道 bypass 時輸出改成 clamp 值，選了 2 mA clamp 就是 2 mA；盤圖 HT0-1-IMI01-D0006 PDF p.11 也標「2-20mA RECORDER OUTPUTS」；組態表沒有 clamp 欄位，有沒有選查無',
+           'dly': '3500/42M User Guide 143489 Rev. V 的 Delay Panel（HT1-1-AQB01-Q1851 PDF p.646：Alert、Danger 延時以 1 秒為單位，1～60 秒）',
+           'a2': '3500/42M User Guide 143489 Rev. V 的 Delay Panel（HT1-1-AQB01-Q1851 PDF p.646：Alert＝Alarm 1、Danger＝Alarm 2）',
+           'ne': 'Bently 3500 Field Wiring Diagram Package 130432-01 Rev R 的 16 通道繼電器接線圖 Note 4（PDF p.110：NE 時非警報狀態 NO 閉合）'}
+
+
+def ge_vms_cfg_parts(mc, mod=''):
+    """v21：3500 組態表監測通道那一列（vms3.mc，wire_ge.vms_cfg）→ [(項目, 內容)…]：通道型式、感測器、量程、方位、鍵相、警報值（單位同量程）、閂鎖、延時、ZPV。
+    原字照抄。延時：3500/42M 的手冊寫明以秒計；其他模組（3500/50 轉速）的手冊不在文件庫，標【推論】。簽名的出廠版劃掉的警報值（mc.x）照印並註明兩版不同；
+    沒有警報值的通道寫「沒有設定值」、不列閂鎖。推力通道的 Transducer Orientation 欄是正方向；轉速通道的 '0 None' 不印。"""
+    u = mc.get('units') or ''
+    x = mc.get('x') or [[], '', '', 0]
+    lv = '、'.join('%s %s' % (VMS_ALARM_ZH[k], mc[k]) for k in ('aL', 'aH', 'dLL', 'dHH') if mc.get(k))
+    la = '、'.join('%s %s' % (n, VMS_LATCH_ZH.get(mc[k], mc[k])) for k, n in (('lA', 'Alert'), ('lD', 'Danger'), ('lNOK', 'Not OK')) if mc.get(k))
+    td = '、'.join('%s %s' % (n, mc[k]) for k, n in (('tA', 'Alert'), ('tD', 'Danger')) if mc.get(k))
+    if lv and x[0]:
+        alarm = '%s（%s）——簽名的出廠版（Rev -，第 %s 頁，%s）把 %s 劃掉，紅筆註記「%s」；打字版 Rev B 仍印著，兩版不同' % (
+            lv, u, x[3], x[2], '、'.join(VMS_ALARM_ZH.get(f, f) for f in x[0]), x[1])
+    else:
+        alarm = ('%s（%s）' % (lv, u)) if lv and u else lv or '組態表這個通道沒有設定值（不發警報）'
+    m42 = (mod or '').startswith('3500/42M')
+    thr = mc.get('ctype') == 'Thrust Position'
+    ori = mc.get('orient') or ''
+    out = [('通道型式', mc.get('ctype') or ''), ('感測器', mc.get('xd') or ''),
+           ('量程', ('%s～%s %s' % (mc.get('bot') or '?', mc['top'], u)).strip() if mc.get('top') else ''),
+           ('正方向（Transducer Orientation 欄）' if thr else '感測器方位', '' if ori == '0 None' else ori), ('鍵相', mc.get('kp') or ''), ('警報值', alarm),
+           ('閂鎖', la if lv else ''),
+           ('警報延時', ('%s（秒：%s）' % (td, '3500/42M User Guide 的 Delay Panel〔HT1-1-AQB01-Q1851 PDF p.646〕') if m42
+                         else '%s（表上沒寫單位；這個模組的手冊不在文件庫，以秒計是讀法【推論】）' % td) if td else ''),
+           ('ZPV（零位電壓，表上沒寫單位）', mc.get('zpv') or '')]
+    return [(k, v) for k, v in out if v]
+
+
 def ge_vms_rows(vm, tag, sheets, hops):
-    """v20：BOP 震動監測盤（Bently 3500）那一跳的摘要列：[跳, 內容, lvl, 出處]…（wire_kks.json 路徑的 vms3）。"""
+    """v20：BOP 震動監測盤（Bently 3500）那一跳的摘要列：[跳, 內容, lvl, 出處]…（wire_kks.json 路徑的 vms3）。
+    v21：感測器那一條多「3500 組態」（組態表上這個通道那一列；vms3.mc）。"""
     src = ge_vms_src(sheets, hops)
     cfg = '（3500 組態報告把這個機架叫 %s）' % vm['cfg'] if vm.get('cfg') else ''
     rows = [['Bently 3500', 'RACK %s SLOT %s CH%s：%s；盤端子 %s%s' % (vm['rack'], vm['slot'], vm['ch'], ge_vms_mod(vm.get('mod')), ge_vms_pins(vm['fn']), cfg), 'doc', src]]
     dn = vm.get('dn') or ['', '']
+    mc = vm.get('mc')
+    if mc:
+        sg = mc.get('sg')
+        rows.append(['3500 組態', '；'.join('%s %s' % kv for kv in ge_vms_cfg_parts(mc, vm.get('mod'))) + '（%s SLOT %s CH%s；組態表打字版 Rev B 第 %s 頁%s；現場設定以機架上傳的組態為準）' % (
+            mc.get('rk') or '組態表', vm['slot'], mc.get('chan') or '?', mc['page'],
+            ('；簽名的出廠版 Rev -（第 %s 頁，%s 查核）逐列對過%s' % (sg[0], sg[1], '，警報值不同見上' if mc.get('x') else '數值相同（簽名版說明欄空白）')) if sg else '，核對人欄空白'),
+            'doc', 'PDF 文字層 · %s 第 %s 頁（3500 組態表打字版）' % (dn[1], mc['page']) + ('；掃描 · 第 %s 頁（簽名版，開圖逐列對過）' % sg[0] if sg else '')])
     lg = vm.get('lg')
     if vm['side'] == 'in' and vm.get('outs'):
         txt = '、'.join(('繼電器 %s（RACK %s SLOT %s CH%s，盤端子 %s%s）' % (o[0], o[2], o[3], o[4], o[5], ('；Relay Logic %s' % o[7]) if o[7] else '')) if o[1] == 'relay'
@@ -2715,8 +2760,12 @@ def ge_vms_rows(vm, tag, sheets, hops):
         sn = '、'.join(vm.get('src') or []) or ''
         at = vm.get('src_at') or []
         if lg:
-            txt = '3500 組態報告的 Relay Logic「%s」：這顆繼電器跟著 SLOT %s CH%s 的第 %s 級警報動作（第 2 級是 Danger 是讀法【推論】）；' % (lg['t'], lg['slot'], lg['ch'], lg['a'])
-            ls = 'PDF 文字層 · %s 第 %s 頁（%s 組態表）' % (dn[1], lg['page'], lg.get('cfg') or '3500')
+            as_ = lg.get('as')
+            txt = '3500 組態報告的 Relay Logic「%s」：這顆繼電器跟著 SLOT %s CH%s 的第 %s 級警報動作（%s；3500/42M User Guide〔HT1-1-AQB01-Q1851 PDF p.646〕）；' % (
+                lg['t'], lg['slot'], lg['ch'], lg['a'], {'1': 'Alarm 1＝Alert', '2': 'Alarm 2＝Danger'}.get(lg['a'], '級別'))
+            if as_:
+                txt += '簽名的 Relay Logic Report（第 %s 頁）寫這一列的 Alarm Status 是「%s」；' % (as_[1], as_[0])
+            ls = 'PDF 文字層 · %s 第 %s 頁（%s 組態表）' % (dn[1], lg['page'], lg.get('cfg') or '3500') + ('；掃描 · 第 %s 頁（Relay Logic Report，開圖對過）' % as_[1] if as_ else '')
         elif vm.get('kind') == 'relay':
             txt = '3500 組態報告上沒有對到這顆繼電器的 Relay Logic，看不出它跟著哪個通道；'
             ls = src
@@ -2725,7 +2774,7 @@ def ge_vms_rows(vm, tag, sheets, hops):
             ls = src
         rows.append(['3500 來源', txt + ('SLOT %s CH%s 接的感測器是 %s' % (at[1], at[2], sn) if sn and at else
                                          'SLOT %s CH%s 在盤圖上沒有對到感測器的路徑' % (at[1], at[2]) if at else ''),
-                     'inferred' if lg else 'doc', ls])
+                     'inferred' if lg and not lg.get('as') else 'doc', ls])
     return rows
 
 
@@ -2734,10 +2783,102 @@ def ge_vms_self(vm):
     lg = vm.get('lg')
     sn = '、'.join(vm.get('src') or [])
     at = vm.get('src_at') or []
-    how = ('跟著 SLOT %s CH%s 的第 %s 級警報' % (lg['slot'], lg['ch'], lg['a'])) if lg else ''   # 記錄器：機架槽通道就是它自己的，不再重寫一次
-    how += ('；這個通道的感測器是 %s' % sn) if sn else ''
+    how = '；'.join(x for x in (('跟著 SLOT %s CH%s 的第 %s 級警報' % (lg['slot'], lg['ch'], lg['a'])) if lg else '',   # 記錄器：機架槽通道就是它自己的，不再重寫一次
+                                ('這個通道的感測器是 %s' % sn) if sn else '') if x)
     return ['Bently %s的%s' % (ge_vms_mod(vm.get('mod')), ge_vms_what(vm)), 'RACK %s SLOT %s CH%s%s' % (vm['rack'], vm['slot'], vm['ch'], ('；' + how) if how else ''),
             '盤端子 ' + ge_vms_pins(vm['fn']), '', '文字層']
+
+
+def ge_vms_ne(notes):
+    """v21：繼電器卡的人工註記（wire_notes_kks.json，簽名的 Relay Logic Report）→ [Relay Normal State, Contact Normal State, 出處] 或 None。"""
+    for tx, src in notes or []:
+        a = re.search(r'Relay Normal State (\w+)', tx or '')
+        if a:
+            b = re.search(r'Contact Normal State (\w+)', tx)
+            return [a.group(1), b.group(1) if b else '', src]
+    return None
+
+
+def ge_wire_slim(c):
+    """v21：一條路徑的卡片資料 → 通道圖裡畫那一段要的部分（loopSvg 讀 mode／t／d／n／u、sum 的「Mark VIe」「電子室盤」兩列、rows 的圖紙跳別與頁碼）。"""
+    o = {k: c[k] for k in ('mode', 't', 'u', 'd', 'n') if c.get(k)}
+    o['sum'] = [x[:2] for x in c.get('sum') or [] if x[0] in ('Mark VIe', '電子室盤')]
+    o['rows'] = [[x[0], x[1], '', '', {'hop': x[4]['hop'], 'p': x[4].get('p')}] for x in c.get('rows') or [] if len(x) > 4 and isinstance(x[4], dict) and x[4].get('hop')]
+    return o
+
+
+def ge_vms_chain(paths, cards_of):
+    """v21：BOP 震動監測盤同一個 3500 通道的路徑（感測器、繼電器接點、記錄器 4–20 mA）→ {(路徑鍵, 序號): vc}，卡片的「Bently 3500 通道圖」：
+    vc＝{me: 本卡是第幾段, L: [[KKS, 種類 in／relay／rec／other, 那一段的路徑（ge_wire_slim；本卡自己是 0）]…], b: 盤內那一段（ge_vms_bridge）}。
+    通道以感測器那一條的（盤, 機架, 槽, 通道）為準；繼電器照 Relay Logic 跟的通道、記錄器照自己的通道（vms3.src_at）。沒有感測器或有兩條感測器的通道不畫。"""
+    grp = {}
+    for key, plist in paths.items():
+        for pi, r in enumerate(plist if isinstance(plist, list) else [plist]):
+            v = r.get('vms3') or {}
+            if v.get('side') == 'in':
+                grp.setdefault((v['pan'], v['rack'], v['slot'], v['ch']), []).append((key, pi, r))
+            elif v.get('side') == 'out' and v.get('src_at'):
+                grp.setdefault((v['pan'],) + tuple(v['src_at']), []).append((key, pi, r))
+    order = {'in': 0, 'relay': 1, 'rec': 2}
+    pnames = {}                                    # 盤 KKS → 盤名：感測器那一條的終點盤名、輸出那一條的接線箱說明（同一面盤的每一條都可以補）
+    for mem in grp.values():
+        for key, pi, r in mem:
+            c = ((cards_of.get(key) or [])[pi:pi + 1] or [None])[0]
+            d = (c or {}).get('d') or {}
+            nm = d.get('pn') if r['vms3']['side'] == 'in' else d.get('jd')
+            if nm and not pnames.get(r['vms3']['pan']):
+                pnames[r['vms3']['pan']] = nm
+    out = {}
+    for mem in grp.values():
+        if sum(1 for m in mem if m[2]['vms3']['side'] == 'in') != 1:
+            continue
+        mem.sort(key=lambda m: (order.get(m[2]['vms3'].get('kind'), 3), m[0], m[1]))
+        cards = [(cards_of.get(m[0]) or [])[m[1]] if m[1] < len(cards_of.get(m[0]) or []) else None for m in mem]
+        if any(c is None for c in cards):
+            continue
+        b = ge_vms_bridge(mem, cards, pnames)
+        legs = [[m[0].split('|', 1)[-1], m[2]['vms3'].get('kind') or '', ge_wire_slim(c)] for m, c in zip(mem, cards)]
+        for j, m in enumerate(mem):
+            out[(m[0], m[1])] = {'me': j, 'L': [x if i != j else x[:2] + [0] for i, x in enumerate(legs)], 'b': b}
+    return out
+
+
+def ge_vms_bridge(mem, cards, pnames=None):
+    """v21：通道圖「盤內那一段」的資料（card.js vmsBridgeSvg）：pan／pn＝VMS 盤與盤名、rk／sl／ch／mod＝監測器的機架槽通道與料號、cfg＝組態報告的機架名、
+    fn＝感測器進盤的端子與功能、mc＝組態表那一列（vms3.mc）、o＝各輸出 {k, kd, rk, sl, ch, mod, fn, lg（Relay Logic）, mv（Mark VIe 組態）, ne（簽名報告的常態）,
+    io（Mark VIe 第一個點 [控制器, 模組, 板位, 板名, 點, 變數]）, to（[盤, 盤名, 幹線]）}；sr＝[[跳, 圖名, 頁]…]（各段 3500 那幾跳的圖，去重）。"""
+    vi, ci = mem[0][2]['vms3'], cards[0]
+    b = {'pan': vi['pan'], 'pn': (pnames or {}).get(vi['pan']) or ci['d'].get('pn') or '', 'rk': vi['rack'], 'sl': vi['slot'], 'ch': vi['ch'], 'mod': vi.get('mod') or '',
+         'cfg': vi.get('cfg') or (vi.get('mc') or {}).get('rk') or '', 'fn': vi['fn'], 'dn': vi.get('dn') or []}
+    if vi.get('mc'):
+        b['mc'] = vi['mc']
+    if (vi.get('mod') or '').startswith('3500/42M'):
+        b['m42'] = 1                              # 監測器是 3500/42M：記錄器量程、延時單位有手冊明文（VMS_REF）
+    b['rf'] = VMS_REF
+    o = []
+    for (key, _pi, r), c in zip(mem[1:], cards[1:]):
+        v, d = r['vms3'], c.get('d') or {}
+        e = {'k': key.split('|', 1)[-1], 'kd': v.get('kind') or '', 'rk': v['rack'], 'sl': v['slot'], 'ch': v['ch'], 'mod': v.get('mod') or '', 'fn': v['fn'],
+             'to': [d.get('pk') or '', d.get('pn') or '', d.get('tc') or '']}
+        for k2 in ('lg', 'mv'):
+            if v.get(k2):
+                e[k2] = v[k2]
+        ne = ge_vms_ne(c.get('n'))
+        if ne:
+            e['ne'] = ne
+        if d.get('io'):
+            e['io'] = d['io'][0][:6]
+        o.append(e)
+    b['o'] = o
+    sr = []
+    for c in cards:
+        for x in c.get('rows') or []:
+            if len(x) > 4 and isinstance(x[4], dict) and x[4].get('hop') in ('vmsb', 'rack', 'vcfg', 'vlog'):
+                it = [x[0], x[1], x[4].get('p')]
+                if it not in sr:
+                    sr.append(it)
+    b['sr'] = sr
+    return b
 
 
 def ge_wire_card(pm, key, r, pi=0, multi=False, lno='', kks=False):
@@ -3067,6 +3208,9 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno='', kks=False):
         elif kind == 'vlog':   # v20：3500 製造完成報告的組態表
             pos_t = '① 組態表上這顆繼電器那一列（KKS 與 Relay Logic）'
             how = 'PDF 文字層：同一列 KKS 右邊最近的 Relay Logic 字串（S槽 C通道 P01 A警報級）；簽名的 Relay Logic Report 是掃描頁，另見註記'
+        elif kind == 'vcfg':   # v21：3500 製造完成報告組態表的監測通道那一列
+            pos_t = '① 組態表上這個感測器那一列（通道型式、感測器、量程、警報值、閂鎖、延時）'
+            how = 'PDF 文字層：表頭兩層（Alert L／H、Danger LL／HH、Latching、Alarm Time Delays），每一格照字串中心最近的表頭歸欄；打字版 Rev B，核對人欄空白'
         elif kind == 'epnl':
             e_ = next((x for x in r.get('ep') or [] if sh['page'] in (x.get('pages') or [])), None) or {}
             pos_t = '① %s%s（%s那一端）' % ('隔間 ' if e_.get('lv') == 'cmp' else '端子排與端子表那一列 ', lab, '接線箱' if e_.get('end') == 'jb' else '盤')
@@ -3232,9 +3376,14 @@ def kks_wire_build(pm, tag_of, aliases, hm=None):
     ams_w, ents, loc, used, hused = {}, [], {}, {}, {}
     pmp = dict(pm, by_tag=pm['_pk'], _applied=set()) if pm.get('_pk') is not None else None   # KKS 編號卡的 P&ID 位置（pid_rows 讀 by_tag）
     hmk = dict(hm, by_tag=hm['_hk']) if hm is not None and hm.get('_hk') is not None else None
+    # v21：BOP 震動監測盤同一個 3500 通道的感測器、繼電器、記錄器：先做好這幾條的卡片，各掛上同一份通道圖（vc）
+    vkeys = [k for k, pl in pm['_wk_paths'].items() if any((r.get('vms3') or {}).get('side') for r in (pl if isinstance(pl, list) else [pl]))]
+    vcards = {k: ge_wire_cards(pmk, k, (), kks=True) for k in vkeys}
+    for (k, pi_), vc in ge_vms_chain({k: pm['_wk_paths'][k] for k in vkeys}, vcards).items():
+        vcards[k][pi_]['vc'] = vc
     for key in sorted(pm['_wk_paths']):
         tag = key.split('|', 1)[-1]
-        cards = ge_wire_cards(pmk, key, (), kks=True)
+        cards = vcards[key] if key in vcards else ge_wire_cards(pmk, key, (), kks=True)
         if not cards:
             continue
         for c in cards:
@@ -3278,7 +3427,7 @@ def kks_wire_build(pm, tag_of, aliases, hm=None):
         ents.append(e)
     st = {'paths': sum(len(v) for v in pm['_wk_paths'].values()), 'keys': len(pm['_wk_paths']), 'ams_aliases': len(ams_w),
           'ams_kks': len({kks_tag_of(tag_of.get(al, '')) for al in ams_w}), 'kks_cards': len(ents), 'sheets': len(used),
-          'cov_ams': 0, 'cov_cards': 0,
+          'cov_ams': 0, 'cov_cards': 0, 'vms_chain_cards': sum(1 for v in vcards.values() for c in v if c.get('vc')),
           'pid_cards': sum(1 for v in loc.values() if v.get('pd')), 'hmi_cards': sum(1 for v in loc.values() if v.get('hm')), 'hmi_screens': len(hused)}
     if cov:                  # v19：AMS 設備有端子表訊號、接線路徑沒有畫（或沒有路徑）：卡片也要說明。位號是端子表的元件名（非 KKS 的也算），其次才是位號裡的 KKS
         for al in aliases:

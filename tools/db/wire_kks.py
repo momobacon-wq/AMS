@@ -38,6 +38,8 @@ def main():
     ap.add_argument('--ge-tags', default=paths.GE_TAGS, help='GE 原廠編號對照表 ge_tags.json（燃機／汽機圖上 GE 編號的框要排除）')
     ap.add_argument('--notes', default=os.path.join(gdir, 'wire_notes_kks.json'), help='人工註記（預設 ge_tags.json 同目錄的 wire_notes_kks.json；不進 repo）')
     ap.add_argument('--curated', default=os.path.join(gdir, 'wire_curated.json'), help='人工查證資料（訊號型式與供電規則；與 GE 版共用）')
+    ap.add_argument('--vms-signed', default=os.path.join(gdir, 'vms_cfg_signed.json'),
+                    help='v21 人工查證：3500 組態表簽名掃描版與打字版的對照、簽名 Relay Logic Report 的 Alarm Status（ge_tags_dir 的 vms_cfg_signed.json，不進 repo；沒有就不做）')
     ap.add_argument('--dcdas', default=paths.DCDAS_INDEX, help='signal-atlas 控制器索引（預設 paths.DCDAS_INDEX）；不存在就不核對 I/O 點')
     ap.add_argument('--text-cache', default=W.TEXT_CACHE, help='文字層字框快取目錄（與 wire_ge 共用）')
     ap.add_argument('--out', default=os.path.join(paths.CARDWORK, 'wire_kks.json'), help='輸出（預設 <CARDWORK>\\wire_kks.json）')

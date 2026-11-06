@@ -13,7 +13,10 @@ v19：G11LAE12QN001 兩條路徑併成一張迴路圖（5 個訊號都在同一�
 帶字母尾碼的訊號（G11MSA30GH001A…）併回設備計數。
 G11LAB65QM021 的長變數把 Mark VIe 欄放寬、接線圖說明不截在 160 字；G11MSA30GH001 跨兩片卡、同名通道照板位對變數；FF 元件 96AT-TC-1A 也有藍字說明。
 v20：BOP 震動監測盤（Bently 3500）那一跳——CEP 感測器 C10LCC10BS001 寫 RACK 3 SLOT 13 CH1 與同通道的繼電器／記錄器、繼電器 C10LCC10BS101 寫 Relay Logic 與來源感測器、
-迴路圖把繼電器畫在盤框裡；FWP 的機架叫 Rack13；SWP 兩台共用的 SLOT 15；端子排名漏印的芯照同組補上並註記；空壓機的繼電器有註記；CWP 傳送器的其他編號查得到。"""
+迴路圖把繼電器畫在盤框裡；FWP 的機架叫 Rack13；SWP 兩台共用的 SLOT 15；端子排名漏印的芯照同組補上並註記；空壓機的繼電器有註記；CWP 傳送器的其他編號查得到。
+v21：Bently 3500 通道圖——C10LCC10BS001 的卡上一張圖畫完感測器 → 盤內 3500（監測器、組態表那一列、繼電器模組與 Relay Logic、記錄器 4–20 mA）
+→ 繼電器接點 → WSC1 PDIA-42、4–20 mA → WSC1 PHRA-78（四段、預設展開，本卡那一段標「本卡」，單條迴路圖收合）；繼電器、記錄器的卡是同一張圖；
+FWP 推力（BG009）寫 Alert L／H、Danger LL／HH 與 ZPV；SWP BS009 補上的 TB1 104 也在盤內段；空壓機與 GE 卡沒有這張圖；摘要多「3500 組態」列與組態表那一跳（vcfg）。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
 AMS_TAG = 'G12HAP70BT001'
@@ -89,6 +92,14 @@ LOOP_ALL = """() => { const d = [...document.querySelectorAll('details.wire-loop
   return { n: d.length, open: d[0] ? d[0].open : false, sum: d[0] ? d[0].querySelector('summary').textContent : '', svg: document.querySelectorAll('.loop-fig > svg').length, inner: s ? s.querySelectorAll('svg').length : 0,
     heads: s ? [...s.querySelectorAll('text.lp-secth')].map((t) => t.textContent) : [], txt: s ? [...s.querySelectorAll('text')].map((t) => t.textContent).join(' ') : '',
     cov: (document.querySelector('.wire-cov-h') || {}).textContent || '', gaps: [...document.querySelectorAll('.wire-gap tbody tr')].map((r) => r.textContent) }; }"""
+
+
+CHAIN = """() => { const d = document.querySelector('details.wire-chain'); if (!d) return null; const s = d.querySelector('.loop-fig > svg');
+  const tx = s ? [...s.querySelectorAll('text')] : []; const inn = s ? [...s.querySelectorAll(':scope > svg')] : [];
+  const tt = (el) => (el ? [...el.querySelectorAll('text')].map((t) => t.getAttribute('data-full') || t.textContent).join(' ') : '');
+  return { open: d.open, sum: d.querySelector('summary').textContent, inner: s ? s.querySelectorAll('svg').length : 0,
+    heads: s ? [...s.querySelectorAll('text.lp-secth')].map((t) => t.getAttribute('data-full') || t.textContent) : [],
+    txt: tx.map((t) => t.getAttribute('data-full') || t.textContent).join(' '), br: tt(inn[1]), loopOpen: [...document.querySelectorAll('details.wire-loop')].map((x) => x.open) }; }"""
 
 
 def wait_wire(page, sel, ms=30000):
@@ -268,9 +279,9 @@ def run(ctx):
         sm, hp, _n = summ('C10LCC10BS021')
         ck('CEP 鍵相 C10LCC10BS021（只有記錄器輸出、沒有繼電器）：Mark VIe 列只寫 4–20 mA 記錄器輸出', '3500 再用4–20 mA 記錄器輸出送控制器' in sm and '繼電器接點與' not in sm, sm[-400:])
         sm, hp, _n = summ('C10LCC10BS101')
-        ck('CEP 繼電器 C10LCC10BS101：「盤內 3500」取代「元件畫在端子排旁」、2TBRLY 1＝ARM／2＝NO；「3500 來源」寫 S13C01P01A2 與感測器 C10LCC10BS001（第 2 級＝Danger 標推論）；圖紙多 3500 組態（vlog）',
+        ck('CEP 繼電器 C10LCC10BS101：「盤內 3500」取代「元件畫在端子排旁」、2TBRLY 1＝ARM／2＝NO；「3500 來源」寫 S13C01P01A2 與感測器 C10LCC10BS001（Alarm 2＝Danger 引 User Guide、簽名 Relay Logic Report 的 Alarm Status HH）；圖紙多 3500 組態（vlog）',
            '盤內 3500：C10LCC10BS101 是 VMS 盤 C10CCD01UC202 裡 Bently 3500/33-01-00（繼電器模組）的繼電器接點' in sm and '2TBRLY 1＝ARM、2＝NO' in sm
-           and 'S13C01P01A2' in sm and 'SLOT 13 CH1 接的感測器是 C10LCC10BS001' in sm and '【推論】' in sm and '的端子排旁' not in sm and 'vlog' in hp
+           and 'S13C01P01A2' in sm and 'SLOT 13 CH1 接的感測器是 C10LCC10BS001' in sm and 'Alarm 2＝Danger' in sm and 'Alarm Status 是「HH」' in sm and '的端子排旁' not in sm and 'vlog' in hp
            and '震動監測盤：C10CCD01UC202' in sm and '接線箱：' not in sm and '所在位置：① 組態表上這顆繼電器那一列（KKS 與 Relay Logic）' in sm, (sm[:700], hp))
         sm, hp, _n = summ('C10LCC10BS201')
         ck('CEP 記錄器 C10LCC10BS201：「3500 來源」是 SLOT 13 CH1 的記錄器輸出、感測器 C10LCC10BS001；TB3 9＝COM、10＝REC',
@@ -292,7 +303,8 @@ def run(ctx):
         page.goto(ctx['base'] + '/db/#/card/C10LCC10BS101')
         page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
         wait_wire(page, '.kks-only .sum-wire')
-        lt = page.evaluate(LOOP_TXT)
+        # v21：卡上另有 3500 通道圖（裡面的感測器那一段本來就寫「畫在端子排旁」）：這一項只看這張卡自己的迴路圖
+        lt = {'txt': page.evaluate("() => [...document.querySelectorAll('details.wire-loop svg.loop-svg text')].map((t) => t.textContent).join(' ')")}
         tx = lt['txt'].replace(' ', '')
         ck('C10LCC10BS101 迴路圖：繼電器畫在 VMS 盤框裡（「是 Bently 3500/33 … 的接點」、RACK 3 SLOT 4 CH1、來源 C10LCC10BS001），不寫「元件畫在端子排旁」',
            'C10LCC10BS101是Bently3500/33-01-00（繼電器模組）的繼電器接點' in tx and 'RACK3SLOT4CH1' in tx and '這個通道的感測器是C10LCC10BS001' in tx and '畫在端子排旁' not in tx
@@ -300,8 +312,72 @@ def run(ctx):
         page.goto(ctx['base'] + '/db/#/card/C10LCC10BS001')
         page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
         wait_wire(page, '.kks-only .sum-wire')
-        lt = page.evaluate(LOOP_TXT)
+        lt = {'txt': page.evaluate("() => [...document.querySelectorAll('details.wire-loop svg.loop-svg text')].map((t) => t.textContent).join(' ')")}   # v21：只看這張卡自己的迴路圖
         ck('C10LCC10BS001 迴路圖：Mark VIe 欄寫接到 3500 監測盤與 RACK 3 SLOT 13 CH1', 'Bently3500RACK3SLOT13CH1' in lt['txt'].replace(' ', ''), lt['txt'][-400:])
+        # ---- v21：Bently 3500 通道圖（感測器 → 盤內 3500 → 繼電器接點／4–20 mA → Mark VIe）
+        ch = page.evaluate(CHAIN) or {}
+        tx = (ch.get('txt') or '').replace(' ', '').replace('\u3000', '')
+        br = (ch.get('br') or '').replace(' ', '').replace('\u3000', '')   # 只看第 2 段（盤內段）：其他段也有 p.32、TB3 10 之類的字
+        hd = ch.get('heads') or []
+        ck('C10LCC10BS001 通道圖：預設展開、四段（感測器、盤內 3500、繼電器、記錄器），段頭依序 ①～④、本卡是第 1 段；這張卡的單條迴路圖收合',
+           ch.get('open') and ch.get('inner') == 4 and len(hd) == 4 and hd[0].startswith('① 感測器 C10LCC10BS001') and '（本卡）' in hd[0]
+           and hd[1].startswith('② 震動監測盤內 Bently 3500：RACK 3 SLOT 13 CH1') and hd[2].startswith('③ 繼電器接點 C10LCC10BS101') and hd[3].startswith('④ 4–20 mA 記錄器輸出 C10LCC10BS201')
+           and '本卡是第 1 段' in ch.get('sum', '') and ch.get('loopOpen') == [False], (hd, ch.get('sum'), ch.get('loopOpen')))
+        ck('C10LCC10BS001 盤內段：3500/42M SLOT 13 CH1 與組態表那一列（Acceleration 2、330400、0～25.4 mm/s pk、Alert H 4.5、Danger HH 7.1、閂鎖、延時 30 秒）、出處打字 p.32 與簽名 p.510',
+           'SLOT13CH1監測器' in br and '3500/42M-09-00' in br and 'p.510（簽名Rev-' in br and 'Alert30、Danger30.00（秒）' in br and 'Acceleration2' in tx and '330400StdIntegralAcceleration' in tx and '量程：0～25.4mm/spk' in tx
+           and 'Alert：H4.5mm/spk' in tx and 'Danger：HH7.1mm/spk' in tx and 'Alert閂鎖' in tx and 'NotOK不閂鎖' in tx and 'Alert30、Danger30.00' in tx and 'p.32' in tx, tx[:600])
+        ck('C10LCC10BS001 盤內段：繼電器模組 SLOT 4 CH1（Relay Logic S13C01P01A2、簽名報告 Alarm Status HH、NE／Closed）→ 2TBRLY 1／2 → WSC1 PDIA-42 Contact24（平常＝1）；記錄器（照滿量程比例，引 User Guide）→ TB3 10／9 → WSC1 PHRA-78 AnalogInput05（0～25.4 mm/s，與 3500 量程相同 ✓）',
+           'SLOT4CH1繼電器模組' in br and 'RelayLogicS13C01P01A2' in br and 'AlarmStatusHH（p.511）' in br and '常態NE（常激磁）、接點Closed' in br and '2TBRLY1' in br and '2TBRLY2' in br
+           and 'WSC1PDIA-42Contact24：C10LCC10BS101XG03' in br and '平常＝1、動作＝0' in br and 'TB310' in br and 'TB39' in br and '（照滿量程比例）' in br and 'HT1-1-AQB01-Q1851' in br
+           and 'WSC1PHRA-78AnalogInput05：C10LCC10BS201XQ01' in br and '與3500量程相同✓' in br and '130432-01' in br and '【推論】' in br, br[-900:])
+        for t_, n_ in (('C10LCC10BS101', 3), ('C10LCC10BS201', 4)):
+            page.goto(ctx['base'] + '/db/#/card/' + t_)
+            page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+            wait_wire(page, '.kks-only .sum-wire')
+            c2 = page.evaluate(CHAIN) or {}
+            h2 = c2.get('heads') or []
+            ck('%s：同一張通道圖（四段、本卡是第 %d 段、段頭標「本卡」）' % (t_, n_), c2.get('inner') == 4 and len(h2) == 4 and '（本卡）' in h2[n_ - 1] and ('本卡是第 %d 段' % n_) in c2.get('sum', '')
+               and sum('（本卡）' in h for h in h2) == 1, (h2, c2.get('sum')))
+        sm, hp, _n = summ('C10LCC10BS001')
+        ck('C10LCC10BS001 摘要：「3500 組態」列（Alert H 4.5、Danger HH 7.1、Rack15 SLOT 13 CH1、打字版 Rev B 與簽名的出廠版逐列相同、延時是秒）、圖紙多組態表那一跳（vcfg）',
+           '3500 組態：' in sm and 'Alert H 4.5、Danger HH 7.1（mm/s pk）' in sm and 'Rack15 SLOT 13 CH1' in sm and 'Rev B' in sm and '簽名的出廠版 Rev -（第 510 頁' in sm
+           and '數值相同' in sm and 'Alert 30、Danger 30.00（秒' in sm and 'vcfg' in hp, sm[-700:])
+        page.goto(ctx['base'] + '/db/#/card/C10LAC50BG009')
+        page.wait_for_selector('.sum-wire', timeout=30000)
+        wait_wire(page, '.sum-wire')
+        c3 = page.evaluate(CHAIN) or {}
+        t3 = (c3.get('txt') or '').replace(' ', '')
+        ck('FWP 推力 C10LAC50BG009 通道圖：Thrust Position、Alert L -0.30／H 0.60、Danger LL -0.60／HH 0.80（mm）、ZPV、正方向 Toward Probe；推力繼電器 BG109 的箭頭寫 LL／HH＋Not OK、註記兩版不同',
+           'ThrustPosition' in t3 and 'Alert：L-0.30、H0.60mm' in t3 and 'Danger：LL-0.60、HH0.80mm' in t3 and 'ZPV' in t3 and '正方向：TowardProbe' in t3
+           and 'LL／HH' in t3 and '＋NotOK' in t3 and '簽名報告多了LL與NotOK' in t3, t3[:700])
+        for t_, want, why in (('C10LAC50BG001', ('≠3500滿量程0～150µmpp⚠', '實際的2倍'), 'FWP 泵端徑向 C10LAC50BG001：Mark VIe 4–20 mA 量程 0～300 µm 與 3500 滿量程 0～150 µm pp 不同，標紅、註記 2 倍，段頭有 ⚠'),
+                              ('C10LAC50BS021', ('H3500rpm（簽名的出廠版劃掉', 'NOSETPOINTSFORTACHOMETER', '照量程比例【推論】'), 'FWP 轉速 C10LAC50BS021：打字版的 Alert H 3500 等三格標紅、註記簽名版劃掉（NO SETPOINTS FOR TACHOMETER）；3500/50 的記錄器量程標推論'),
+                              ('C10LCC10BS021', ('警報值：組態表沒有設定值', '照量程比例【推論】'), 'CEP 鍵相轉速 C10LCC10BS021：沒有警報值的通道寫「沒有設定值」')):
+            page.goto(ctx['base'] + '/db/#/card/' + t_)
+            page.wait_for_selector('.sum-wire', timeout=30000)
+            wait_wire(page, '.sum-wire')
+            c5 = page.evaluate(CHAIN) or {}
+            t5 = (c5.get('txt') or '').replace(' ', '').replace('\u3000', '')
+            ok5 = all(w in t5 for w in want)
+            if t_ == 'C10LAC50BG001':
+                ok5 = ok5 and '⚠' in ((c5.get('heads') or ['', ''])[1]) and '⚠' in c5.get('sum', '')
+            if t_ == 'C10LCC10BS021':   # 鍵相轉速：只有記錄器輸出，三段（感測器、盤內、記錄器）；沒有警報值就不列閂鎖
+                b5 = (c5.get('br') or '').replace(' ', '').replace('\u3000', '')
+                ok5 = ok5 and c5.get('inner') == 3 and '閂鎖：' not in b5 and '③4–20mA記錄器輸出C10LCC10BS221' in ''.join(c5.get('heads') or []).replace(' ', '')
+            ck(why, ok5, ([w for w in want if w not in t5], t5[:500]))
+        page.goto(ctx['base'] + '/db/#/card/C10PHC20BS009')
+        page.wait_for_selector('.sum-wire', timeout=30000)
+        wait_wire(page, '.sum-wire')
+        c4 = page.evaluate(CHAIN) or {}
+        ck('SWP C10PHC20BS009 通道圖：盤內段的感測器進盤端子有照同組補上的 TB1 104', 'TB1104' in (c4.get('txt') or '').replace(' ', ''), (c4.get('txt') or '')[:400])
+        page.goto(ctx['base'] + '/db/#/card/C00QEA11BS611')
+        page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+        wait_wire(page, '.kks-only .sum-wire')
+        ck('空壓機 C00QEA11BS611：沒有 3500 通道圖（那一面盤沒有盤圖）', page.evaluate("() => !document.querySelector('details.wire-chain')"))
+        page.goto(ctx['base'] + '/db/#/card/96AT-TC-1A')
+        page.wait_for_selector('svg.loop-svg', state='attached', timeout=60000)
+        page.wait_for_timeout(800)
+        ck('GE 元件 96AT-TC-1A：沒有 3500 通道圖', page.evaluate("() => !document.querySelector('details.wire-chain')"))
         # ---- v20：CWP 馬達震動（只在端子表上）：傳送器位號、DCDAS I/O 表的編號、GE 的 RDS-PP 碼都開到 1-VI-CW011-n 那張卡
         for q_, dev in (('1-VT-CW011-1AE', '1-VI-CW011-1'), ('C10PAC12BS101', '1-VI-CW011-2'), ('1-vi-cw011-3ad', '1-VI-CW011-3'), ('C10PAC11BS101XQ01', '1-VI-CW011-1')):
             page.goto(ctx['base'] + '/db/#/card/' + q_)
