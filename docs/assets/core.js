@@ -1466,9 +1466,13 @@
       if (c !== e0._c && (e0._al || []).includes(c)) return { i: i0, via: 'alias', sig: '', raw: String(q).trim() };   // v20：其他編號
       return { i: i0, via: c === e0._c ? 'key' : 'signal', sig: c === e0._c ? '' : c, raw: String(q).trim() };
     }
+    if (i0 != null && c !== K.j.entries[i0]._c && (K.j.entries[i0]._al || []).includes(c)) return { i: i0, via: 'alias', sig: '', raw: String(q).trim() };   // v22：其他編號不一定是 13 碼 KKS（泵廠的探頭位號 C10LAC50BG001A）
     if (!m) return null;
     const i = K.keys.get(m[1]);
-    if (i != null && (K.j.entries[i]._al || []).includes(m[1])) return { i, via: 'alias', sig: '', raw: String(q).trim() };   // v20：其他編號加訊號尾碼（C10PAC11BS101XQ01）
+    if (i != null && (K.j.entries[i]._al || []).includes(m[1])) {   // v20：其他編號加訊號尾碼（C10PAC11BS101XQ01，端子表的訊號）
+      if (K.j.entries[i].co || !m[2]) return { i, via: 'alias', sig: '', raw: String(q).trim() };
+      return null;                                                    // v22：泵廠位號＋自己加的訊號尾碼（C10LAC50CZ001XQ01）不是任何接線圖上的訊號
+    }
     return i == null ? null : { i, via: m[2] ? 'signal' : 'key', sig: m[2] ? c : '', raw: String(q).trim() };
   };
   /** 打一半的 KKS → 開頭相符的 KKS 編號卡條目（至少 6 個字元；項目形狀同 IX.suggest） */

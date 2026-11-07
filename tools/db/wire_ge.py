@@ -1525,20 +1525,20 @@ def io_params(path, pairs):
     import sqlite3
     c = sqlite3.connect('file:%s?mode=ro' % path.replace('\\', '/'), uri=True)
     out = {}
-    q = ('select p.signal_type, p.input_type, p.low_value, p.high_value, p.params_json, f.units from io_point p join variable v on v.id = p.var_id '
-         'left join format_spec f on f.name = v.format_spec where p.ctrl = ? and v.name = ?')
+    q = ('select p.signal_type, p.input_type, p.low_value, p.high_value, p.params_json, f.units, m.io_redundancy from io_point p join variable v on v.id = p.var_id '
+         'left join io_module m on m.id = p.module_id left join format_spec f on f.name = v.format_spec where p.ctrl = ? and v.name = ?')
     g = lambda x: '' if x is None else ('%g' % x if isinstance(x, float) else str(x))  # noqa: E731
     for ctrl, var in sorted(pairs):
         row = c.execute(q, (ctrl, var)).fetchone()
         if not row:
             continue
-        stp, it, lo, hi, pj, un = row
+        stp, it, lo, hi, pj, un, red = row
         try:
             pr = json.loads(pj or '{}')
         except ValueError:
             pr = {}
         keep = {k: v for k, v in pr.items() if k in ('Sense', 'SignalInvert', 'SignalFilter', 'SeqOfEvents', 'InputFilter') or re.fullmatch(r'JP\d+[AB]', k)}
-        out[(ctrl, var)] = [stp or '', it or '', g(lo), g(hi), un or '', keep]
+        out[(ctrl, var)] = [stp or '', it or '', g(lo), g(hi), un or '', keep, red or '']   # v22：第 7 欄＝I/O 模組的備援（Simplex／TMR…）
     c.close()
     return out
 
@@ -3044,6 +3044,10 @@ def build(a, log):
         if getattr(a, 'vms_signed', None) and os.path.exists(a.vms_signed):
             with open(a.vms_signed, encoding='utf-8') as f_:
                 vsg = json.load(f_)
+        vvd, vmatched = {}, set()                          # v22：泵廠儀表清單上的探頭與前置器（人工查證；ge_tags_dir 的 vib_vendor.json）
+        if getattr(a, 'vib_vendor', None) and os.path.exists(a.vib_vendor):
+            with open(a.vib_vendor, encoding='utf-8') as f_:
+                vvd = json.load(f_).get('devices') or {}
         vpan = {k_[0] for k_ in vb['lab']}
         chan, vrows = defaultdict(set), []
         for k, plist in recs.items():
@@ -3128,6 +3132,10 @@ def build(a, log):
                         r['notes'].append(['3500 組態表把 %s 寫在 %s 第 %s 通道，盤圖接線頁的標籤是 RACK %s SLOT %s CH%s；卡片照接線頁' % (kk_, mc.get('rk') or '', mc['chan'], rk_, sl_, ch_),
                                            '%s 第 %d 頁；%s 第 %d 頁' % (VMS_BOP_CFG, mc['page'], VMS_BOP_DOC, min(pgs))])
                         st['vms_cfg_ch_conflict'] += 1
+                if side == 'in' and vvd.get(kk_):         # v22：泵廠儀表清單那幾列（探頭、前置器、量程、泵廠設定值、其他位號）
+                    v['vend'] = dict(vvd[kk_])
+                    vmatched.add(kk_)
+                    st['vms_vendor'] += 1
                 r['vms3'] = v
                 vrows.append((k, i, r, kk_))
                 if side == 'in':
@@ -3170,6 +3178,10 @@ def build(a, log):
             if v['side'] == 'in' and outs_of.get(kk_):
                 v['outs'] = sorted(outs_of[kk_])
             st['vms_' + v['side']] += 1
+        um_ = sorted(set(vvd) - vmatched)
+        st['vms_vendor_unmatched'] = len(um_)
+        if um_:
+            log('vib_vendor.json 有 %d 筆對不到 3500 感測器路徑：%s' % (len(um_), '、'.join(um_[:10])))
         mvp = io_params(a.dcdas, {(x[0], x[5]) for _k, _i, r, _kk in vrows if r['vms3']['side'] == 'out' for x in r.get('io') or [] if x[5]})
         for k, i, r, kk_ in vrows:                         # v21：輸出那一條在 Mark VIe 的組態（4–20 mA 的量程、接點輸入的 Sense）
             if r['vms3']['side'] != 'out':
@@ -3403,7 +3415,8 @@ def build(a, log):
                       'devloc_paths': sum(1 for r in allp if r.get('devloc')), 'room_paths': sum(1 for r in allp if r.get('room')),
                       'vms_paths': sum(1 for r in allp if r.get('vms3')), 'vms_relays': sum(1 for r in allp if (r.get('vms3') or {}).get('lg')),
                       'vms_linked': sum(1 for r in allp if (r.get('vms3') or {}).get('src') or (r.get('vms3') or {}).get('outs')),
-                      'vms_cfg': sum(1 for r in allp if (r.get('vms3') or {}).get('mc')), 'vms_mv': sum(1 for r in allp if (r.get('vms3') or {}).get('mv'))})
+                      'vms_cfg': sum(1 for r in allp if (r.get('vms3') or {}).get('mc')), 'vms_mv': sum(1 for r in allp if (r.get('vms3') or {}).get('mv')),
+                      'vms_vendor': sum(1 for r in allp if (r.get('vms3') or {}).get('vend'))})
     out = {'kind': 'wire_kks' if kks else 'wire_ge', 'generated_by': GENERATED_BY, 'version': VERSION,
            'units': list(SITE_UNITS) if not kks else sorted({r['unit'] for r in allp}, key=uord), 'docs': docs_out, 'sheets': sheets_out,
            'by_ge': by_ge, 'paths': paths_out, 'jbs': jbs_out, 'ff': ff_out, 'stats': stats}

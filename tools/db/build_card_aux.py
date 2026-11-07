@@ -2646,6 +2646,8 @@ def ge_wire_loop(r, w, pk, pname, room, where, jls, kks=False):
                    ('RACK %s SLOT %s CH%s' % (alt.get('rack', '?'), alt.get('slot', '?'), alt.get('ch', '?'))) if alt else '', bx.get('g') or '',
                    bx.get('via') or '', re.sub(r'（[^）]*）$', '', bx.get('panel') or ''), bx.get('aw') or '']
     vm = r.get('vms3') or {}
+    if vm.get('side') == 'in' and ((vm.get('vend') or {}).get('probe') or [''])[0]:
+        d['pb'] = vm['vend']['probe'][0]                                  # v22：泵廠的探頭位號（迴路圖圓圈底下；圓圈是接線圖的設備＝前置器那個 KKS）
     if vm.get('side') == 'in' and 'bx' not in d:                        # v20：BOP 震動監測盤：Mark VIe 欄寫 3500 的機架槽通道（card.js 的 rk）
         d['bx'] = ['vms', vm['rack'], vm['slot'], vm['ch'], vm.get('mod') or '3500']
     elif vm.get('side') == 'out':                                         # v20：3500 模組的輸出：元件畫在盤框裡（card.js 當成 md 的 self）；vp＝那一欄是 VMS 盤不是接線箱
@@ -2735,6 +2737,35 @@ def ge_vms_cfg_parts(mc, mod=''):
     return [(k, v) for k, v in out if v]
 
 
+def ge_vms_vend_txt(vd, mc=None):
+    """v22：泵廠儀表清單那幾列（vms3.vend，ge_tags_dir 的 vib_vendor.json）→ 一句話：探頭與前置器的位號、型號、安裝處，量程、正常值、
+    Min./Max 運轉值、泵廠設定值（後面並列 3500 組態的值，不判定誰對）、失效方向與斷線偵測。原字照抄。"""
+    pb, px = vd.get('probe') or [], vd.get('prox') or []
+    out = []
+    for nm, it in (('探頭', pb), ('前置器', px)):
+        if it:
+            rest = [x for x in it[1:] if x]
+            out.append('%s %s%s' % (nm, it[0], ('（%s）' % '，'.join(rest)) if rest else '') + ('經鎧裝延長線 %s' % vd['ext'] if nm == '探頭' and vd.get('ext') else ''))
+    s = '＋'.join(out)
+    for k, n in (('item', ''), ('range', '量程 '), ('normal', '正常運轉 '), ('mm', 'Min./Max 運轉值 '), ('sp', '泵廠設定 ')):
+        if vd.get(k):
+            s += '；%s%s' % (n, vd[k])
+    if vd.get('sp') and mc:
+        a3 = '、'.join('%s %s' % (VMS_ALARM_ZH[k], mc[k]) for k in ('aL', 'aH', 'dLL', 'dHH') if mc.get(k))
+        if a3:
+            s += '（3500 組態是 %s %s）' % (a3, mc.get('units') or '')
+    fw = '、'.join(x for x in (('失效方向 ' + vd['fail']) if vd.get('fail') else '', ('斷線偵測 ' + vd['wb']) if vd.get('wb') else '') if x)
+    if fw:
+        s += '；' + fw
+    if vd.get('rm'):
+        s += '（泵廠清單自己前後不一：%s）' % vd['rm']
+    ds = vd.get('ds') or {}
+    if ds:                                        # 泵廠資料表 S1226（另一份文件：探頭型號、延長線、插入長度、輸出範圍；與清單不同時兩邊都留）
+        s += '。泵廠資料表 S1226 第 %s 頁：%s探頭 %s、延長線 %s、插入長度 %s、輸出 %s' % (
+            ds.get('page'), ('位號 %s、' % ds['tag']) if ds.get('tag') else '（只印 C10LAC50 的位號）', ds.get('model'), ds.get('cable'), ds.get('ins'), ds.get('out'))
+    return s
+
+
 def ge_vms_rows(vm, tag, sheets, hops):
     """v20：BOP 震動監測盤（Bently 3500）那一跳的摘要列：[跳, 內容, lvl, 出處]…（wire_kks.json 路徑的 vms3）。
     v21：感測器那一條多「3500 組態」（組態表上這個通道那一列；vms3.mc）。"""
@@ -2743,6 +2774,9 @@ def ge_vms_rows(vm, tag, sheets, hops):
     rows = [['Bently 3500', 'RACK %s SLOT %s CH%s：%s；盤端子 %s%s' % (vm['rack'], vm['slot'], vm['ch'], ge_vms_mod(vm.get('mod')), ge_vms_pins(vm['fn']), cfg), 'doc', src]]
     dn = vm.get('dn') or ['', '']
     mc = vm.get('mc')
+    vd = vm.get('vend')
+    if vd:                                        # v22：泵廠儀表清單（探頭、前置器、泵廠設定值）
+        rows.append(['泵廠儀表清單', ge_vms_vend_txt(vd, mc), 'doc', '；'.join(x for x in (vd.get('src'), (vd.get('ds') or {}).get('src')) if x)])
     if mc:
         sg = mc.get('sg')
         rows.append(['3500 組態', '；'.join('%s %s' % kv for kv in ge_vms_cfg_parts(mc, vm.get('mod'))) + '（%s SLOT %s CH%s；組態表打字版 Rev B 第 %s 頁%s；現場設定以機架上傳的組態為準）' % (
@@ -2820,6 +2854,16 @@ def ge_vms_chain(paths, cards_of):
             elif v.get('side') == 'out' and v.get('src_at'):
                 grp.setdefault((v['pan'],) + tuple(v['src_at']), []).append((key, pi, r))
     order = {'in': 0, 'relay': 1, 'rec': 2}
+    smod, spack = {}, {}                           # v22：同一片 3500 模組上的通道、同一片 Mark VIe I/O 卡上的 3500 輸出（跨通道）
+    for mem in grp.values():
+        for key, pi, r in mem:
+            v = r['vms3']
+            c = ((cards_of.get(key) or [])[pi:pi + 1] or [None])[0]
+            io_ = (((c or {}).get('d') or {}).get('io') or [[]])[0]
+            if v['side'] == 'in':
+                smod.setdefault((v['pan'], v['rack'], v['slot']), []).append([v['ch'], key.split('|', 1)[-1]])
+            elif len(io_) > 1:
+                spack.setdefault((io_[0], io_[1]), []).append(key.split('|', 1)[-1])
     pnames = {}                                    # 盤 KKS → 盤名：感測器那一條的終點盤名、輸出那一條的接線箱說明（同一面盤的每一條都可以補）
     for mem in grp.values():
         for key, pi, r in mem:
@@ -2836,14 +2880,14 @@ def ge_vms_chain(paths, cards_of):
         cards = [(cards_of.get(m[0]) or [])[m[1]] if m[1] < len(cards_of.get(m[0]) or []) else None for m in mem]
         if any(c is None for c in cards):
             continue
-        b = ge_vms_bridge(mem, cards, pnames)
+        b = ge_vms_bridge(mem, cards, pnames, smod, spack)
         legs = [[m[0].split('|', 1)[-1], m[2]['vms3'].get('kind') or '', ge_wire_slim(c)] for m, c in zip(mem, cards)]
         for j, m in enumerate(mem):
             out[(m[0], m[1])] = {'me': j, 'L': [x if i != j else x[:2] + [0] for i, x in enumerate(legs)], 'b': b}
     return out
 
 
-def ge_vms_bridge(mem, cards, pnames=None):
+def ge_vms_bridge(mem, cards, pnames=None, smod=None, spack=None):
     """v21：通道圖「盤內那一段」的資料（card.js vmsBridgeSvg）：pan／pn＝VMS 盤與盤名、rk／sl／ch／mod＝監測器的機架槽通道與料號、cfg＝組態報告的機架名、
     fn＝感測器進盤的端子與功能、mc＝組態表那一列（vms3.mc）、o＝各輸出 {k, kd, rk, sl, ch, mod, fn, lg（Relay Logic）, mv（Mark VIe 組態）, ne（簽名報告的常態）,
     io（Mark VIe 第一個點 [控制器, 模組, 板位, 板名, 點, 變數]）, to（[盤, 盤名, 幹線]）}；sr＝[[跳, 圖名, 頁]…]（各段 3500 那幾跳的圖，去重）。"""
@@ -2852,6 +2896,12 @@ def ge_vms_bridge(mem, cards, pnames=None):
          'cfg': vi.get('cfg') or (vi.get('mc') or {}).get('rk') or '', 'fn': vi['fn'], 'dn': vi.get('dn') or []}
     if vi.get('mc'):
         b['mc'] = vi['mc']
+    if vi.get('vend'):
+        b['vd'] = vi['vend']                      # v22：盤內段左欄印探頭與前置器
+    me_ = mem[0][0].split('|', 1)[-1]
+    shm = sorted(x for x in (smod or {}).get((vi['pan'], vi['rack'], vi['slot']), []) if x[1][:8] != me_[:8])
+    if shm:
+        b['shm'] = shm                            # v22：同一片監測器還帶別台設備的通道（FWP1／FWP2 推力共用 SLOT 15）
     if (vi.get('mod') or '').startswith('3500/42M'):
         b['m42'] = 1                              # 監測器是 3500/42M：記錄器量程、延時單位有手冊明文（VMS_REF）
     b['rf'] = VMS_REF
@@ -2868,6 +2918,13 @@ def ge_vms_bridge(mem, cards, pnames=None):
             e['ne'] = ne
         if d.get('io'):
             e['io'] = d['io'][0][:6]
+            oth = sorted(k for k in (spack or {}).get((d['io'][0][0], d['io'][0][1]), []) if k != e['k'])
+            if oth:                               # v22：同一片 Mark VIe I/O 卡上還有幾個 3500 輸出（照設備分），卡的備援方式（Simplex…）
+                cnt = {}
+                for k in oth:
+                    cnt[k[:8]] = cnt.get(k[:8], 0) + 1
+                red = ((v.get('mv') or {}).get(d['io'][0][5]) or [''] * 7)
+                e['sh'] = [d['io'][0][1], red[6] if len(red) > 6 else '', len(oth), [[p, n] for p, n in sorted(cnt.items())]]
         o.append(e)
     b['o'] = o
     sr = []
@@ -3406,6 +3463,12 @@ def kks_wire_build(pm, tag_of, aliases, hm=None):
         e = {'t': tag, 'u': p0.get('unit') or tag[:3], 'ds': ds[:160], 'lc': 1}
         if p0.get('ctl'):
             e['ct'] = p0['ctl']
+        vd_ = (p0.get('vms3') or {}).get('vend') or {}
+        if vd_.get('al'):                         # v22：泵廠儀表清單的位號（推力 CZ001、鍵相 CS021、探頭 …A）也開這張卡
+            e['al'] = list(vd_['al'])
+            e['aln'] = vd_.get('aln') or '泵廠儀表清單的位號'
+            if vd_.get('alp'):
+                e['alp'] = list(vd_['alp'])           # 這幾個別名是探頭（另一台儀器），不是同一台的另一個編號
         o = dict(o)
         pd = pid_rows(pmp, tag) if pmp else []
         if pd:

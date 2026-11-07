@@ -16,7 +16,9 @@ v20：BOP 震動監測盤（Bently 3500）那一跳——CEP 感測器 C10LCC10B
 迴路圖把繼電器畫在盤框裡；FWP 的機架叫 Rack13；SWP 兩台共用的 SLOT 15；端子排名漏印的芯照同組補上並註記；空壓機的繼電器有註記；CWP 傳送器的其他編號查得到。
 v21：Bently 3500 通道圖——C10LCC10BS001 的卡上一張圖畫完感測器 → 盤內 3500（監測器、組態表那一列、繼電器模組與 Relay Logic、記錄器 4–20 mA）
 → 繼電器接點 → WSC1 PDIA-42、4–20 mA → WSC1 PHRA-78（四段、預設展開，本卡那一段標「本卡」，單條迴路圖收合）；繼電器、記錄器的卡是同一張圖；
-FWP 推力（BG009）寫 Alert L／H、Danger LL／HH 與 ZPV；SWP BS009 補上的 TB1 104 也在盤內段；空壓機與 GE 卡沒有這張圖；摘要多「3500 組態」列與組態表那一跳（vcfg）。"""
+FWP 推力（BG009）寫 Alert L／H、Danger LL／HH 與 ZPV；SWP BS009 補上的 TB1 104 也在盤內段；空壓機與 GE 卡沒有這張圖；摘要多「3500 組態」列與組態表那一跳（vcfg）。
+v22：FWP 泵廠文件——打泵廠位號（C10LAC50CZ001、C10LAC60CS021A、C10LAC70BG005A）開到接線圖那張卡、狀態列說是另一個編號；摘要多「泵廠儀表清單」列；
+①那一段把前置器畫在接線箱裡（探頭經同軸／延長線）；盤內段印探頭與前置器；推力卡的註記寫三份設定值不同與 CZ001。"""
 from e2e_common import Checks, browser, login, load_card, shot
 
 AMS_TAG = 'G12HAP70BT001'
@@ -378,6 +380,54 @@ def run(ctx):
         page.wait_for_selector('svg.loop-svg', state='attached', timeout=60000)
         page.wait_for_timeout(800)
         ck('GE 元件 96AT-TC-1A：沒有 3500 通道圖', page.evaluate("() => !document.querySelector('details.wire-chain')"))
+        # ---- v22：FWP 泵廠文件（A1221 儀表清單、D1212 泵廠接線圖）
+        for q_, dev, word in (('C10LAC50CZ001', 'C10LAC50BG009', '另一個編號'), ('C10LAC60CS021A', 'C10LAC60BS021', '這個通道的探頭'), ('c10lac70bg005a', 'C10LAC70BG005', '這個通道的探頭'),
+                              ('C10LAC70CS021', 'C10LAC70BS021', '另一個編號'), ('C10LAC50BG009A', 'C10LAC50BG009', '這個通道的探頭')):
+            page.goto(ctx['base'] + '/db/#/card/' + q_)
+            page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+            wait_wire(page, '.kks-only .sum-wire')
+            st = page.evaluate("() => document.querySelector('.cq-status').textContent")
+            ck('%s：開 %s 的卡，狀態列說「%s」（泵廠儀表清單的位號）' % (q_, dev, word),
+               page.evaluate("() => document.querySelector('.kks-only .sum-tagtext').textContent") == dev and word in st and '泵廠' in st, st[:200])
+        page.goto(ctx['base'] + '/db/#/card/C10LAC50CZ001XQ01')
+        page.wait_for_timeout(2500)
+        ck('泵廠位號加上自己編的訊號尾碼（C10LAC50CZ001XQ01）不開卡', page.evaluate("() => !document.querySelector('.kks-only')"))
+        sm, hp, nt = summ('C10LAC50BG001')
+        ck('C10LAC50BG001 摘要：「泵廠儀表清單」列（探頭 BG001A 與型號、經延長線 C10LAC-1-0007、前置器 330180-51-TW 在接線箱 UC102、0-150、H 72.3／HH 96.4 與 3500 的 72／96 並列）',
+           '泵廠儀表清單：探頭 C10LAC50BG001A（Bently Nevada 21000-A28-B05-C15-D060-E04-F01' in sm and '經鎧裝延長線 C10LAC-1-0007' in sm and '330180-51-TW' in sm
+           and 'C10LAC50UC102' in sm and 'H =72.3 μmpp / HH = 96.4 μmpp（3500 組態是 Alert H 72、Danger HH 96' in sm
+           and '泵廠資料表 S1226 第 40 頁：位號 C10LAC50BG001A' in sm and '330130-045-01-TW，4.5 m' in sm, sm[:1200])
+        ck('C10LAC50BG001 註記：接線箱裡的接法兩份圖不同（D1003 端子 7／8／9、泵廠圖客戶電纜直接接前置器）', any('接線箱 C10LAC50UC102 裡的接法兩份圖不同' in n and '7／8／9' in n for n in nt), nt[-2:])
+        page.goto(ctx['base'] + '/db/#/card/C10LAC50BG001')
+        page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+        wait_wire(page, '.kks-only .sum-wire')
+        own = page.evaluate("() => [...document.querySelectorAll('details.wire-loop svg.loop-svg text')].map((t) => t.getAttribute('data-full') || t.textContent).join(' ')").replace(' ', '')
+        geo = page.evaluate("""() => { const s = document.querySelector('details.wire-loop svg.loop-svg'); if (!s) return null;
+          const n = (q) => [...s.querySelectorAll(q)];
+          const px = n('rect.lp-px').map((r) => +r.getAttribute('x')); const cx = n('line.lp-coax').map((l) => [+l.getAttribute('x1'), +l.getAttribute('x2')]);
+          const bub = s.querySelector('circle.lp-bub'); const cap = n('text').find((t) => /^探頭 /.test(t.textContent));
+          return { px, cx, bub: bub ? +bub.getAttribute('cx') : null, cap: cap ? cap.textContent : '', capx: cap ? +cap.getAttribute('x') : null }; }""") or {}
+        c6 = page.evaluate(CHAIN) or {}
+        b6 = (c6.get('br') or '').replace(' ', '')
+        ck('C10LAC50BG001 ①迴路圖：接線箱框裡有前置器的灰底框（x 在接線箱區 250～500）、圓圈到前置器是一條同軸線、圓圈底下寫「探頭 C10LAC50BG001A」；前置器說明有型號與延長線；盤內段左欄印「感測器（泵廠儀表清單）」',
+           any(190 <= x <= 300 for x in geo.get('px') or []) and any(a <= 100 and b >= 190 for a, b in geo.get('cx') or []) and geo.get('cap') == '探頭 C10LAC50BG001A'
+           and 'C10LAC50BG001：BentlyNevada330180-51-TW' in own and '鎧裝延長線C10LAC-1-0007' in own and '感測器（泵廠儀表清單）' in b6 and '探頭C10LAC50BG001A' in b6, (geo, own[:300], b6[:200]))
+        page.goto(ctx['base'] + '/db/#/card/C10LAC50BG009')
+        page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+        wait_wire(page, '.kks-only .sum-wire')
+        b7 = ((page.evaluate(CHAIN) or {}).get('br') or '').replace(' ', '')
+        ck('C10LAC50BG009 盤內段：同一片監測器（SLOT 15）還帶 FWP2 的推力 CH3 C10LAC60BG009', '同一片監測器還帶別台設備的通道：CH3C10LAC60BG009' in b7, b7[:600])
+        page.goto(ctx['base'] + '/db/#/card/C10LAC50BG104')
+        page.wait_for_selector('.kks-only .sum-wire', timeout=30000)
+        wait_wire(page, '.kks-only .sum-wire')
+        b8 = ((page.evaluate(CHAIN) or {}).get('br') or '').replace(' ', '')
+        ck('C10LAC50BG104 盤內段：同一片 PDIA-22（Simplex）還接三台泵的其他 3500 輸出', '同一片PDIA-22（Simplex）還接' in b8 and 'C10LAC60' in b8 and 'C10LAC70' in b8, b8[-700:])
+        _s, _h, nt = summ('C10LAC70BG009')
+        ck('C10LAC70BG009 註記：推力設定值（泵廠與 Mark VIe 相同、3500 負方向較早，Variables.xml:18216～18223）與泵廠位號 CZ001',
+           any('兩份相同' in n and '負方向較早' in n for n in nt) and any('C10LAC70CZ001' in n for n in nt), nt[-3:])
+        _s, _h, nt = summ('C10LAC50BG201')
+        ck('C10LAC50BG201 註記：Mark VIe 警報常數 H 72.3／HH 96.4（0～300 µm）對 3500 滿量程 150：實際的 2 倍、約 36.1／48.2 µm pp',
+           any('H 72.3、HH 96.4' in n and '實際的 2 倍' in n and '36.1／48.2' in n for n in nt), nt[-2:])
         # ---- v20：CWP 馬達震動（只在端子表上）：傳送器位號、DCDAS I/O 表的編號、GE 的 RDS-PP 碼都開到 1-VI-CW011-n 那張卡
         for q_, dev in (('1-VT-CW011-1AE', '1-VI-CW011-1'), ('C10PAC12BS101', '1-VI-CW011-2'), ('1-vi-cw011-3ad', '1-VI-CW011-3'), ('C10PAC11BS101XQ01', '1-VI-CW011-1')):
             page.goto(ctx['base'] + '/db/#/card/' + q_)

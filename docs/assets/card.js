@@ -743,7 +743,10 @@
     kksLookup(q, res, kh) {
       const e = AMS.kkstag.K.j.entries[kh.i];
       res.kks = kh; res.notfound = true; res.key = AMS.index.norm(q);
-      res.status = e.co && kh.via === 'alias' ? `「${AMS.index.norm(q)}」列在端子表元件 ${e.t}${e.ds ? '（' + e.ds + '）' : ''} 的其他編號裡（同一台設備的傳送器位號、I/O 表編號或 GE 文件的碼，不一定是接進 DCS 的那一顆，見下方說明）；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`   // v20
+      const qa = AMS.index.norm(q); const isProbe = (e.alp || []).some((a) => AMS.index.compact(a) === AMS.index.compact(qa));
+      res.status = !e.co && kh.via === 'alias' ? (isProbe ? `「${qa}」是 ${e.t}${e.ds ? '（' + e.ds + '）' : ''} 這個通道的探頭（泵廠儀表清單的位號；接線圖上的 ${e.t} 是它的前置器，見下方「泵廠儀表清單」）；以下是接線圖的接線路徑。`
+        : `「${qa}」是 ${e.t}${e.ds ? '（' + e.ds + '）' : ''} 的另一個編號（${e.aln || '其他文件上的位號'}${e.aln ? '，見下方「泵廠儀表清單」' : ''}）；AMS 資料庫沒有這個設備，以下是接線圖的接線路徑。`)   // v22
+        : e.co && kh.via === 'alias' ? `「${AMS.index.norm(q)}」列在端子表元件 ${e.t}${e.ds ? '（' + e.ds + '）' : ''} 的其他編號裡（同一台設備的傳送器位號、I/O 表編號或 GE 文件的碼，不一定是接進 DCS 的那一顆，見下方說明）；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`   // v20
         : e.co ? `「${AMS.index.norm(q)}」在 DCS 端子表上${e.ds ? '（' + e.ds + '）' : ''}；接線路徑沒有這個元件，以下是端子表的盤端子與原因。`
         : `「${AMS.index.norm(q)}」是接線圖上的${kh.via === 'signal' ? '訊號 KKS，設備是 ' + e.t : ' KKS'}${e.ds ? '（' + e.ds + '）' : ''}`
         + '；AMS 資料庫沒有這個設備、也沒有 GE 編號，以下是接線圖的接線路徑。';
@@ -1378,12 +1381,21 @@
         const td = [['Alert', mc.tA], ['Danger', mc.tD]].filter((x) => x[1]).map((x) => x[0] + ' ' + x[1]).join('、');
         if (has) row('警報延時', td ? td + (m42 ? '（秒）' : '（秒【推論】）') : '');
         row('ZPV（零位電壓）', mc.zpv);
+        if ((b.shm || []).length) monL.push(...lines(`同一片監測器還帶別台設備的通道：${b.shm.map((x) => `CH${x[0]} ${x[1]}`).join('、')}（拔這片卡兩邊的通道都一起拿掉）`, MB1 - MB0 - 12, FS, 'lp-n'));
         monL.push(...lines(`出處：組態表 ${dn[1] || ''} p.${mc.page}（打字 Rev B）` + (mc.sg ? `、p.${mc.sg[0]}（簽名 Rev -，${mc.sg[1]}）` : '') + `；${mc.rk || ''} SLOT ${b.sl} CH${mc.chan || '?'}`,
           MB1 - MB0 - 12, FS, 'lp-d'));
       }
       // ---- 感測器進盤的端子
       const fin = [...(b.fn || [])].sort((p, q) => (+p[1] || 0) - (+q[1] || 0));
       const yin = fin.map((_f, i) => Y0 + 40 + 24 * i);
+      // ---- v22：感測器本身（泵廠儀表清單）：探頭、前置器、量程與泵廠設定值，寫在進盤端子底下
+      const vd = b.vd || null;
+      const vdL = !vd ? [] : lines('感測器（泵廠儀表清單）', 180, FB, 'lp-b').concat(
+        (vd.probe || []).length ? lines(`探頭 ${vd.probe[0]}${vd.probe[1] ? '：' + vd.probe[1] : ''}`, 180, FS, 'lp-s') : [],
+        (vd.prox || []).length ? lines(`前置器 ${vd.prox[0]}${vd.prox[1] ? '：' + vd.prox[1] : ''}${vd.prox[2] ? '（' + vd.prox[2] + '）' : ''}`, 180, FS, 'lp-s') : [],
+        vd.range ? lines(`量程 ${vd.range}`, 180, FS, 'lp-s') : [], vd.sp ? lines(`泵廠設定 ${vd.sp}`, 180, FS, 'lp-s') : [],
+        (vd.srs || vd.src) ? lines(`出處：${vd.srs || vd.src}`, 180, FS, 'lp-d') : []);
+      const vdY = (yin.length ? yin[yin.length - 1] : Y0 + 20) + 26;
       // ---- 各輸出一帶：3500 那一側（繼電器框或記錄器說明）、輸出端子、右欄（接到第幾段、Mark VIe 那個點與組態）
       const ORD = { ARM: 0, REC: 0, NO: 1, NC: 2, COM: 3 };
       const notes = [];
@@ -1421,14 +1433,16 @@
         const [mvT, mvC] = mvLine(e);
         const rt = lines(`${CIR[j + 2] || ''} ${e.k}${leg.me ? '（本卡）' : ''}`, DW, FB, 'lp-b')
           .concat(lines(`${e.kd === 'relay' ? '繼電器接點' : e.kd === 'rec' ? '4–20 mA' : '輸出'} → 幹線 ${to[2] || '?'} → ${to[0] || '?'}${to[1] ? ' ' + to[1] : ''}`, DW, FS, 'lp-s'),
-            io.length ? lines(`${io[0]} ${io[1]} ${io[4]}：${io[5]}`, DW, FXS, 'lp-m xs') : [], lines(mvT, DW, FS, mvC));
+            io.length ? lines(`${io[0]} ${io[1]} ${io[4]}：${io[5]}`, DW, FXS, 'lp-m xs') : [], lines(mvT, DW, FS, mvC),
+            e.sh ? lines(`同一片 ${e.sh[0]}${e.sh[1] ? '（' + e.sh[1] + '）' : ''} 還接 ${e.sh[2]} 個 3500 輸出：${e.sh[3].map((x) => `${x[0]} ${x[1]} 個`).join('、')}`, DW, FS, e.sh[3].length > 1 ? 'lp-n' : 'lp-s') : []);
         const tH = hOf(lt);
         const yw = fo.map((_f, k) => yb + 14 + tH + 12 + 22 * k);
         const h = Math.max((yw.length ? yw[yw.length - 1] : yb + tH) - yb + 18, hOf(rt) + 16, 64);
         bands.push({ e, fo, lt, rt, yb, yw, h, me: !!leg.me, as });
         yb += h + 10;
       });
-      const monBot = Math.max(Y0 + 10 + hOf(monL) + 4, yin.length ? yin[yin.length - 1] + 18 : 0, bands.length ? bands[bands.length - 1].yb + bands[bands.length - 1].h : 0);
+      const monBot = Math.max(Y0 + 10 + hOf(monL) + 4, yin.length ? yin[yin.length - 1] + 18 : 0, bands.length ? bands[bands.length - 1].yb + bands[bands.length - 1].h : 0,
+        vdL.length ? vdY + hOf(vdL) - 4 : 0);
       const bodyBot = monBot + 14;
       // ---- 頁尾：出處、註記（文件互相矛盾、劃掉的值、讀法與它的出處）、圖例
       const srcM = new Map();
@@ -1504,6 +1518,7 @@
         g += T(168, y - 3, f[2], 'lp-m xs');
       });
       if (!fin.length) g += T(12, Y0 + 30, '盤圖上沒有讀到感測器進盤的端子', 'lp-n');
+      if (vdL.length) g += put(10, vdY, vdL);
       // ---- 各輸出
       bands.forEach(({ e, fo, lt, rt, yb: y0, yw, as }) => {
         const cy = yw.length > 1 ? (yw[0] + yw[1]) / 2 : yw.length ? yw[0] : y0 + 32;
@@ -1985,6 +2000,7 @@
         const tl = tagL(tag);
         tl.forEach((x, i) => { g += T(cx, cy + 4 + (i - (tl.length - 1) / 2) * 13, x, tl.length > 1 || vw(x) > 6 ? 'lp-tag sm' : 'lp-tag', 10, 'middle', tag); });
         if (!nf) g += T(Math.max(cx, vw(d.kk) * 3.1 + (inBox ? 20 : 8)), cy + cr + 14, d.kk, 'lp-m sm', 30, 'middle');   // FF 元件的 KKS 寫在下面（圓圈旁是端子）
+        if (!nf && !d.kk && d.pb) g += T(Math.max(cx, vw('探頭 ' + d.pb) * 3.1 + 8), cy + cr + 14, '探頭 ' + d.pb, 'lp-m sm', 30, 'middle');   // v22：圓圈是探頭，KKS 是接線箱裡的前置器
       }
       // ---- 現場 → 接線箱（或直拉到盤）
       const cab = (x, ya, yb) => `<ellipse cx="${x}" cy="${(ya + yb) / 2}" rx="5" ry="${(yb - ya) / 2 + 9}" class="lp-cab"/>`;
