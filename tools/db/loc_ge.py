@@ -72,6 +72,8 @@ GE 標籤的寫法展開、清單欄判定），本檔只加位置圖特有的�
 
 == 已知限制 ==
   * 只讀 PDF 文字層，不跑 OCR：普查清單點名、找得到檔的位置圖都有完整文字層（TZD01 的 NX 線條字上疊一層不可見文字，位置一致）。
+    例外（v24）：GE 維護手冊插圖上的點陣字標註由 tools/db/loc_image.py 明列、離線 OCR 確認後寫成 <ge_tags_dir>/loc_image.json，
+    本檔只讀它的結果（image_records；how='ocr'、排在位置圖之後），本身仍不跑 OCR。
     GE 圖的圖框分區號是線條、不是文字，所以位置圖沒有「圖框分區」。
   * 框是標籤字，不是箭頭端：引線指的常是取壓點／根閥（M0144、M0163 的變送器本體在 JB 架上），疊寫與逗號接續的一個標籤管好幾支。
     壓力量測配置圖（TAP_TITLE_RE）的圖紙帶 tap＝1，卡上講明「引線有的指傳送器本體，有的指取壓點、根閥或導壓管」。
@@ -717,6 +719,78 @@ def overlap(a, b):
     return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
 
 
+# ================================================================ 手冊插圖的圖片字（v24）
+IMAGE_FILE = 'loc_image.json'
+
+
+def image_records(a, lib, rec, pages_info, n_pages, ents, log):
+    """<ge_tags_dir>/loc_image.json（tools/db/loc_image.py：GE 維護手冊插圖上明列的標註，OCR 確認過的字框）→ rec 加 how='ocr' 的記錄、
+    pages_info 加手冊那幾頁（sheets 照同一套算法出圖）。回傳 stats（'_docs'＝用到的手冊，給 docs_out）。
+    來源 PDF 的 size／mtime 與文件庫現況不同（換了檔）→ 那份手冊整份不用（doc_stale）；檔不在 → doc_missing；檔案不在 → 整段略過。
+    記錄一律 note 0、via 'ge'、listed 0（不是 GE 清單點名的位置圖）、how 'ocr'；排序在位置圖之後（build 的 rs.sort）。"""
+    st = Counter()
+    path = a.loc_image
+    if not path or not os.path.exists(path):
+        log('位置圖：沒有 %s（手冊插圖的圖片字，tools/db/loc_image.py 產生），略過' % IMAGE_FILE)
+        return {'file': 0}
+    with open(path, encoding='utf-8') as f:
+        j = json.load(f)
+    if j.get('kind') != 'loc_image' or not isinstance(j.get('pages'), list):
+        sys.exit('%s 格式不對（kind／pages）：%s' % (IMAGE_FILE, path))
+    have = {rel: (size, mtime) for rel, size, mtime in lib}
+    ok_docs = {}
+    for no, d in sorted((j.get('docs') or {}).items()):
+        cur = have.get(d['rel'])
+        if cur is None:
+            st['doc_missing'] += 1
+            log('!! 位置圖：手冊 %s 不在文件庫（%s），它的插圖標註不用' % (no, d['rel']))
+        elif (cur[0], cur[1]) != (d['size'], d['mtime']):
+            st['doc_stale'] += 1
+            log('!! 位置圖：手冊 %s 的 PDF 換過（size／mtime 不同），重跑 tools/db/loc_image.py；這次不用它的插圖標註' % no)
+        else:
+            ok_docs[no] = d
+    files = sorted({(d['rel'], d['size'], d['mtime']) for d in ok_docs.values()})
+    if files:
+        L.ensure_text(a.library, files, a.text_cache, a.jobs, log)
+    texts = {}
+    for p in j['pages']:
+        d = ok_docs.get(p['doc'])
+        if not d:
+            st['pages_skipped'] += 1
+            continue
+        if d['rel'] not in texts:
+            texts[d['rel']] = L.load_text(a.library, d['rel'], d['size'], d['mtime'], a.text_cache)
+            n_pages[d['rel']] = texts[d['rel']]['pages']
+        tx = texts[d['rel']]
+        if not 1 <= p['page'] <= len(tx['pg']):
+            sys.exit('%s：%s 沒有第 %s 頁' % (IMAGE_FILE, p['doc'], p['page']))
+        pg = tx['pg'][p['page'] - 1]
+        info = L.upright_rotation_info(pg)
+        if info['R'] not in (None, 0):
+            st['pages_rotated'] += 1                     # loc_image 的框是未轉向的頁面比例；轉向的頁不收
+            continue
+        skey = (d['rel'], p['page'])
+        doc = {'doc': d['doc'], 'rel': d['rel'], 'rev': d.get('rev') or '', 'title': d.get('title') or '', 'size': d['size'], 'mtime': d['mtime'],
+               'scope': d.get('scope')}
+        pages_info[skey] = {'rel': d['rel'], 'page': p['page'], 'pg': pg, 'R': 0, 'rot_method': info['method'] or 'default', 'ocr': None, 'ge_ocr': None,
+                            'nos': [p['doc']], 'no0': p['doc'], 'doc': doc, 'sig': page_sig(pg), 'manual': 1, 'figure': p.get('figure') or '',
+                            'view': p.get('view') or ''}
+        st['pages'] += 1
+        for h in p['hits']:
+            e = ents.get(h['key'])
+            if not e or not e['scope'] or (doc['scope'] and e['scope'] != doc['scope']):
+                st['hits_unknown_or_offscope'] += 1
+                continue
+            rec[h['key']].append({'key': h['key'], 'box': tuple(h['box']), 'label': h['label'], 'form': h['form'], 'note': 0, 'via': 'ge',
+                                  'units': GE_SITE_UNITS[e['scope']], 'sheet_key': skey, 'listed': 0, 'how': 'ocr', 'conf': h['conf'],
+                                  'phrase': h.get('phrase') or '', 'pt': h.get('pt') or '', 'why': h.get('why') or ''})
+            st['hits'] += 1
+    out = {k: int(v) for k, v in sorted(st.items())}
+    out.update(file=1, generated_by=j.get('generated_by') or '', engine=j.get('engine') or {}, _docs=ok_docs)
+    log('位置圖：手冊插圖 %d 頁、%d 處（%s）' % (st['pages'], st['hits'], '、'.join(sorted(ok_docs)) or '—'))
+    return out
+
+
 # ================================================================ 組裝
 def build(a, log):
     t0 = time.time()
@@ -851,6 +925,9 @@ def build(a, log):
                         rec[k].append(dict(r, key=k, form=form, via='kks', shared=[ents[y]['tag']], listed=1 if mine_sheet else 0))
                         st[form + '_hits'] += 1
 
+    # ---- 手冊插圖的圖片字（v24，loc_image.py → <ge_tags_dir>/loc_image.json）：放在借位置之後（別名、主設備不借插圖的框）
+    img_st = image_records(a, lib, rec, pages_info, n_pages, ents, log)
+
     # ---- 每條目：同一處 GE 與 KKS 只留 GE、有標註就不發布表格列、排序、上限
     drops = Counter(dict.fromkeys(('same_place_kks', 'table_with_callout', 'same_box', 'copy_of_other_sheet', 'sheets_over_cap', 'hits_over_cap'), 0))
     out_sel = {}
@@ -867,7 +944,8 @@ def build(a, log):
             n0 = len(rs)
             rs = [r for r in rs if r['note'] != NOTE_TABLE]
             drops['table_with_callout'] += n0 - len(rs)
-        rs.sort(key=lambda r: (0 if r['listed'] else 1, 1 if r['note'] else 0, 1 if r['form'] in ('body', 'alias', 'text-lookalike') else 0, pages_info[r['sheet_key']]['doc']['doc'],
+        rs.sort(key=lambda r: (0 if r['listed'] else 1, 1 if r['note'] else 0, 1 if r.get('how') == 'ocr' else 0,      # 手冊插圖（OCR）排在位置圖之後
+                               1 if r['form'] in ('body', 'alias', 'text-lookalike', 'image-untagged') else 0, pages_info[r['sheet_key']]['doc']['doc'],
                                r['sheet_key'][0], r['sheet_key'][1], 0 if r['via'] == 'ge' else 1, round(r['box'][1], 5), round(r['box'][0], 5), r['label']))
         uniq, seen = [], set()
         # 別份 PDF 裡同一張圖的影本（GID01-D0009 p22～31 合訂了 M0144／M0163／M0104／M0170／D0008；EGJ01 與 EGK01 的同一張發電機輔機圖）：
@@ -924,17 +1002,24 @@ def build(a, log):
             'rel': d['rel'], 'file': d['rel'].rsplit('/', 1)[-1], 'doc': d['doc'], 'rev': d['rev'], 'title': d['title'],
             'page': k[1], 'pages': tx_pages, 'rot': R, 'rot_method': sh['rot_method'],
             'w_pt': round(w_pt, 1), 'h_pt': round(h_pt, 1), 'label_pt': L.label_height_pt(pg['words']), 'grid': grid,
-            'words': len(pg['words']), 'ocr': False, 'tags': tags_on[k], 'src': {'size': d['size'], 'mtime': d['mtime']}, 'kind': 'loc'}
+            'words': len(pg['words']), 'ocr': bool(sh.get('manual')), 'tags': tags_on[k], 'src': {'size': d['size'], 'mtime': d['mtime']}, 'kind': 'loc'}
         if TAP_TITLE_RE.search(d['title'] or ''):
             sheets_out[slug_of[k]]['tap'] = 1
+        if sh.get('manual'):                      # v24：GE 維護手冊的插圖（不是位置圖），圖名與視角給卡片說明
+            sheets_out[slug_of[k]].update(manual=1, figure=sh['figure'], view=sh.get('view') or '')
     by_ge = {}
     for ek, lst2 in out_sel.items():
         ents_out = []
         for r in lst2:
             b = r['box']
             e = {'sheet': slug_of[r['sheet_key']], 'x': r5(b[0]), 'y': r5(b[1]), 'w': r5(b[2] - b[0]), 'h': r5(b[3] - b[1]),
-                 'label': r['label'], 'rel': 'neutral', 'drawn_as': '', 'how': 'text', 'form': r['form'], 'note': r['note'],
+                 'label': r['label'], 'rel': 'neutral', 'drawn_as': '', 'how': r.get('how') or 'text', 'form': r['form'], 'note': r['note'],
                  'via': r['via'], 'units': sorted(r['units']), 'listed': r['listed']}
+            if r.get('how') == 'ocr':                # v24：手冊插圖的圖片字——辨識信心、整則標註、引線指著什麼、（沒寫編號的）推論理由
+                e['conf'] = r['conf']
+                for k2 in ('phrase', 'pt', 'why'):
+                    if r.get(k2):
+                        e[k2] = r[k2]
             if r.get('shared'):
                 e['shared'] = list(r['shared'])
             if r.get('stack'):
@@ -953,6 +1038,10 @@ def build(a, log):
     for no, d in docs.items():
         docs_out[no] = ({k: d[k] for k in ('doc', 'rel', 'rev', 'title', 'scope', 'alts', 'fallback_copy', 'via_title', 'extra') if k in d and d[k]} if d.get('rel')
                         else {'why': d['why']})
+    for no, d in (img_st.pop('_docs', None) or {}).items():   # v24：手冊（不是 GE 清單點名的位置圖；ldn 不看它）
+        if no not in docs_out:
+            docs_out[no] = {k: d[k] for k in ('doc', 'rel', 'rev', 'title', 'scope', 'alts') if d.get(k)}
+            docs_out[no]['manual'] = 1
     stats = {
         'entries': est, 'kks': dict(sorted(kst.items())), 'paren_aliases': n_alias,
         'docs_wanted': len(wanted), 'docs_found': len(found), 'docs_missing': sorted(no for no in wanted if no not in found),
@@ -971,6 +1060,9 @@ def build(a, log):
         'limits': {'sheets_per_entry': LIMIT_SHEETS, 'hits_per_sheet': LIMIT_HITS, 'col_min': PG.COL_MIN, 'comma_gap': COMMA_GAP,
                    'shared_max_nosub': GE_SHARED_MAX},
         'text_extracted': n_new, 'text_errors': len(errs),
+        'image': img_st,
+        'entries_located_image': sum(1 for v in by_ge.values() if any(e['how'] == 'ocr' for e in v)),
+        'hits_image': sum(1 for v in by_ge.values() for e in v if e['how'] == 'ocr'),
     }
     out = {'kind': 'loc_ge', 'generated_by': GENERATED_BY, 'version': VERSION, 'docs': docs_out, 'sheets': sheets_out, 'by_ge': by_ge, 'stats': stats}
     return out, {'elapsed': time.time() - t0, 'pages': pages_info}
@@ -1011,6 +1103,7 @@ def main():
     ap.add_argument('--text-cache', default=paths.PID_TEXT_CACHE, help='文字層字框快取目錄（預設 paths.PID_TEXT_CACHE，與 P&ID 共用）')
     ap.add_argument('--jobs', type=int, default=min(8, os.cpu_count() or 1), help='抽文字層用幾個行程（只有快取要補時才用到）')
     ap.add_argument('--out', default=os.path.join(paths.CARDWORK, 'loc_ge.json'), help='輸出（預設 <CARDWORK>\\loc_ge.json）')
+    ap.add_argument('--loc-image', default=None, help='手冊插圖的圖片字（tools/db/loc_image.py 的輸出；預設 GE 對照表同資料夾的 loc_image.json，不在就略過）')
     ap.add_argument('--verify', metavar='KEY', nargs='+', help='另印這些條目（"GT|CT-DA-2"）的命中並畫疊框圖')
     ap.add_argument('--verify-dir', default=os.path.join(paths.AMS_LOCAL, 'locverify_ge'), help='疊框圖輸出目錄')
     a = ap.parse_args()
@@ -1018,6 +1111,7 @@ def main():
         sys.exit('找不到文件庫：%s' % a.library)
     if not a.ge_tags or not os.path.exists(a.ge_tags):
         sys.exit('找不到 GE 編號對照表：%s' % a.ge_tags)
+    a.loc_image = a.loc_image or os.path.join(os.path.dirname(os.path.abspath(a.ge_tags)), IMAGE_FILE)
     t0 = time.time()
     out, ctx = build(a, print)
     n = PI.write_json(a.out, out, 'loc_ge.json')

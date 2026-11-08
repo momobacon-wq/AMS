@@ -326,7 +326,54 @@ LD_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'
     locLinks: cf ? [...cf.querySelectorAll('.cf-v a.doclk')].map((a) => [a.textContent, a.href]) : null, locText: cf ? cf.querySelector('.cf-v').textContent : null }; }"""
 
 
+# v24：GE 維護手冊插圖（loc_image.py 明列標註＋OCR 確認 → loc_ge.py，how='ocr'、manual）——39VS-22 的位置圖 ① 仍是清單點名的 GZD01-M0140，
+# 之後才是 GEK121811 p.19 Figure 10（封板）與 p.20 Figure 11（照片：cabling 標註＋兩則沒寫編號的 'Proximity probe' 推論）；
+# 45FT-20A、BT-J2-1、39V-2A 也有手冊插圖；EGV-1 在 GEK121808 p.14（IGV 致動器配置示意）；90EGV-1（定位器方塊是示意）不收
+LD24_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
+  const at = (t) => by[String(E.findIndex((e) => e.t === t && e.sc === 'G'))] || {};
+  const heads = (rows) => (rows || []).filter((r) => r[4] && r[4].marks);
+  const grp = (rows, g, k) => (rows || []).filter((r) => r[4] && r[4].g === g && r[0] === k).map((r) => String(r[1])).join('');
+  const man = (t) => heads(at(t).ld).filter((r) => r[4].manual).map((r) => ({ p: r[4].p, lvl: r[2], how: r[4].how, n: (r[4].marks || []).length,
+    conf: r[4].conf, name: String(r[1]), lab: grp(at(t).ld, r[4].g, '圖上標示'), hw: grp(at(t).ld, r[4].g, '對應方式') }));
+  const vs = heads(at('39VS-22').ld);
+  return { nMan: E.filter((e, k) => heads((by[String(k)] || {}).ld).some((r) => r[4].manual)).length,
+    vsFirst: vs.length ? String(vs[0][1]) + '|' + !!vs[0][4].manual : '', vs: man('39VS-22'), ft: man('45FT-20A'), bt: man('BT-J2-1'), v2a: man('39V-2A'),
+    egv: man('EGV-1'), p90: man('90EGV-1').length }; }"""
+
+
+def ge_ld24(page, ctx, ck):
+    v = page.evaluate(LD24_JS)
+    vs = (v or {}).get('vs') or []
+    ck('v24 manual figures: 14 GE entries have a GE maintenance-manual figure position', bool(v) and v['nMan'] == 14, v and v['nMan'])
+    ck('39VS-22: 位置圖 ① is still the listed GZD01-M0140; the manual figures come after it', bool(v) and 'GZD01-M0140' in v['vsFirst'] and v['vsFirst'].endswith('|false'),
+       v and v['vsFirst'])
+    ck('39VS-22: GEK121811 p.19 Figure 10 and p.20 Figure 11, OCR (how ocr), level inferred, with confidence',
+       [x['p'] for x in vs] == [19, 20] and all('GEK121811' in x['name'] and x['how'] == 'ocr' and x['lvl'] == 'inferred' and isinstance(x['conf'], (int, float)) for x in vs)
+       and 'Figure 10' in vs[0]['name'] and 'Figure 11' in vs[1]['name'], [(x['p'], x['name'][:60], x['how'], x['lvl']) for x in vs])
+    ck('39VS-22 p.20: cabling callout first, then two untagged "Proximity probe" callouts marked as inference; 對應方式 says OCR 讀圖 / not a 位置圖',
+       len(vs) == 2 and vs[1]['n'] == 3 and 'Proximity Probes cabling (39VS-21/22)' in vs[1]['lab'].split('②')[0] and vs[1]['lab'].count('沒有寫編號，屬推論') == 2
+       and 'OCR 讀圖' in vs[1]['hw'] and '不是 GE 清單「位置圖」欄列的圖' in vs[1]['hw'], vs[1:] and (vs[1]['n'], vs[1]['lab'][:200]))
+    ck('45FT-20A / BT-J2-1 / 39V-2A: GEK121811 p.19 and p.20; EGV-1: GEK121808 p.14; 90EGV-1 (positioner block) not published',
+       bool(v) and [x['p'] for x in v['ft']] == [19, 20] and [x['p'] for x in v['bt']] == [19, 20] and [x['p'] for x in v['v2a']] == [19, 20]
+       and [x['p'] for x in v['egv']] == [14] and 'GEK121808' in v['egv'][0]['name'] and v['p90'] == 0,
+       v and ([x['p'] for x in v['ft']], [x['p'] for x in v['bt']], [x['p'] for x in v['v2a']], [(x['p'], x['name'][:30]) for x in v['egv']], v['p90']))
+    ge_query(page, ctx, '39VS-22')
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-loc .ge-ld'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    page.evaluate("document.querySelector('.ge-loc .ge-ld').scrollIntoView({ block: 'center' })")
+    page.wait_for_function("document.querySelector('.ge-loc .ge-ld img')", timeout=60000)
+    st = page.evaluate("""() => { const l = document.querySelector('.ge-loc .ge-ld');
+      return { heads: [...l.querySelectorAll('.pid-sheet')].map((b) => (b.querySelector('.pid-head') || b).textContent), img: l.querySelectorAll('img').length,
+        title: ((l.previousElementSibling || {}).textContent || '') }; }""")
+    hs = (st or {}).get('heads') or []
+    ck('39VS-22 card: 位置圖 part shows M0140 first, then the two GEK121811 figures headed「※ GE 維護手冊插圖」with OCR wording; title mentions 維護手冊插圖',
+       len(hs) >= 3 and 'GZD01-M0140' in hs[0] and '維護手冊插圖' not in hs[0]
+       and sum(1 for h in hs if 'GEK121811' in h and '※ GE 維護手冊插圖' in h and 'OCR' in h) == 2 and '維護手冊插圖' in st['title'] and st['img'] >= 1,
+       st and ([h[:90] for h in hs], st['img'], st['title'][:40]))
+    shot(page, ctx, 'getag_ld24')
+
+
 def ge_ld(page, ctx, ck):
+    ge_ld24(page, ctx, ck)
     v = page.evaluate(LD_JS)
     ck('v12 location drawings: ≥ 1000 GE entries have a 位置圖 position', bool(v) and v['n'] >= 1000, v and v['n'])
     ck('CT-DA-2: 位置圖 ① is GZD01-M0147 (first on its list), M0166 p.3 callout is listed, M0166 p.4 table row is not published',
@@ -584,7 +631,7 @@ def ge_loc(page, ctx, ck):
     page.wait_for_timeout(800)
     st = page.evaluate(LOC_STATE)
     ck('%s: location block has P&ID, HMI, location-drawing and (v14) wiring-path parts, placed before the spec blocks' % SPEC_TAG,
-       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置', '位置圖位置（GE 配置／電纜槽／外型圖）', '接線路徑（現場 → 接線箱 → 電子室盤）'] and st['before'],
+       bool(st) and st['heads'] == ['P&ID 圖面位置', '圖控 HMI 畫面位置', '位置圖位置（GE 配置／電纜槽／外型圖；維護手冊插圖）', '接線路徑（現場 → 接線箱 → 電子室盤）'] and st['before'],
        st and (st['heads'], st['before']))
     ck('%s: P&ID sheet header names GFD01-D0005 Rev.3, PDF p.7, zone A-3, with a Drive link and a loaded image with marks' % SPEC_TAG,
        bool(st) and st['sheets'] and 'HT0-1-GFD01-D0005' in st['sheets'][0] and '第 7' in st['sheets'][0] and 'A-3' in st['sheets'][0]

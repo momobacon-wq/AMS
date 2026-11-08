@@ -1038,7 +1038,7 @@
       };
       const gp = part('P&ID 圖面位置', 'ge-pid');
       const gh = part('圖控 HMI 畫面位置', 'ge-hmi');
-      const gl = part('位置圖位置（GE 配置／電纜槽／外型圖）', 'ge-ld');
+      const gl = part('位置圖位置（GE 配置／電纜槽／外型圖；維護手冊插圖）', 'ge-ld');
       const none = (el, text) => { el.innerHTML = ''; el.appendChild(U.h('p', { class: 'muted cl-empty' }, text)); };
       const res = this.res;
       Promise.all([D.loadAuxIndex(this.spec.aux && this.spec.aux.index), G.j.loc && ids.some((i) => G.j.entries[i] && G.j.entries[i].lc) ? D.fetchJSON(G.j.loc) : null]).then(([aix, lj]) => {
@@ -3286,6 +3286,8 @@
             `※ 共用 KKS（也是 ${ex.shared.slice(0, 3).join('、')}${ex.shared.length > 3 ? ' 等' : ''} 的 KKS）`) : null,
           ex.gu && ex.gu.length ? U.h('span', { class: 'hmi-unit', title: '這張圖分別畫各機組，這一處是這幾部機的' }, ex.gu.join('／')) : null,
           ex.on_body ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip }, '※ 框的是主設備（本編號是它的附屬件，圖上沒有單獨畫）') : null,
+          // v24：GE 維護手冊插圖（照片／示意圖上的點陣字，OCR 讀圖）——不是 GE 清單點名的位置圖，排在位置圖之後
+          ex.manual ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip }, '※ GE 維護手冊插圖（不是位置圖；看實物在哪一側）') : null,
           cap.ref ? U.h('span', { class: 'hmi-cap pid-ref', title: capTip }, cap.ref) : null,
           cap.how ? U.h('span', { class: 'hmi-cap pid-how' + (this.pidLowConf(ex) ? ' warn' : ''), title: capTip }, cap.how) : null,
           fold ? U.h('span', { class: 'hmi-exp', 'aria-hidden': 'true' }) : null));

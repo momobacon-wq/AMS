@@ -1752,6 +1752,7 @@ def pid_doc_keys(pm):
             key = 'pid|%s|' % hashlib.sha1(rel.encode('utf-8')).hexdigest()[:12]
         folder, _, base = rel.rpartition('/')
         what = ('接線路徑（接線圖、接線箱位置圖、盤面配置、3500 盤圖）' if all(s in (pm.get('_wire') or ()) for s in by_rel[rel])
+                else 'GE 維護手冊插圖（位置圖位置的補充，OCR 讀圖）' if all(pm['sheets'][s].get('manual') for s in by_rel[rel])
                 else '位置圖位置（GE 配置／電纜槽／導管／外型圖）' if all(s in (pm.get('_loc') or ()) for s in by_rel[rel]) else 'P&ID 圖面位置')
         docs[key] = {'title': base, 'folder': folder or '.',
                      'why': '%s：圖上的位置讀自這一份 PDF（%s文件庫裡這份圖的現行最高版次）；連結只開這一份檔本身，'
@@ -2308,12 +2309,52 @@ GE_HMI_MAX = 6   # 每個 GE 條目、每部機組最多列幾張圖控畫面（
 GE_HMI_SIL = re.compile(r'_SIL_', re.I)   # SIL 畫面排在製程畫面之後（同一個面板在十幾張 SIL 畫面重複）
 GE_LOC_RULE = ('GE 原廠編號的位置：P&ID 取自工程文件庫現行 GE 示意圖／P&ID（PDF 文字層＋離線 OCR；括號裡的 GE 編號標籤與對照表 KKS 的球泡，'
                '同一處併成一個標記）；圖控取自 Screens 根目錄的 .cim（物件引用這個編號的 Mark VIe I/O 訊號，或畫面上寫著這個編號）；'
-               '位置圖取自 GE 清單「位置圖」欄列的圖（配置／電纜槽／導管／外型圖，文件庫現行最高版次的 PDF 文字層：圖上的 GE 編號或 KKS）')
+               '位置圖取自 GE 清單「位置圖」欄列的圖（配置／電纜槽／導管／外型圖，文件庫現行最高版次的 PDF 文字層：圖上的 GE 編號或 KKS）；'
+               'v24 起另收 GE 維護手冊插圖上的標註（照片、示意圖的點陣字：每一則先看圖明列，再以離線 OCR 在窗內確認寫著這個編號；排在位置圖之後，等級推論）')
 GE_LD_VIA_TEXT = {'ge': '圖上寫的 GE 編號', 'kks': '圖上只寫 KKS（不帶機組）、沒寫 GE 編號，依對照表的 KKS 對到這個編號'}
 GE_LD_FORM_TEXT = {'text-slash': '斜線合寫的編號（例 96PG-5A/B/C）展開後對上', 'text-comma': '逗號接續的編號（例「TT-WR-3A,3B,3C」）展開後對上',
                    'text-lookalike': '圖上的字與清單寫法差一個形近字（I／1、O／0，例 TT-WSIF1-2＝TT-WS1FI-2、F0-2921＝FO-2921）；全範圍只對到這一個編號才收'}
 GE_LD_STATE = {'nofile': '文件庫裡找不到這份圖', 'noscope': '這份圖的範圍（燃機／汽機）與這個編號不同，沒有比對',
                'miss': '圖上（PDF 文字層）沒有讀到這個編號或它的 KKS', 'hit': '有位置', 'cap': '有位置，但超過每個編號的張數上限沒有列出'}
+# v24：GE 維護手冊插圖上的標註（tools/db/loc_image.py 明列每一則、OCR 在窗內確認；loc_ge.py 併進 ld，how='ocr'、排在位置圖之後）
+GE_LD_IMAGE_FORM = {'image': '', 'image-slash': '斜線合寫的編號（例 39VS-21/22）展開後對上',
+                    'image-untagged': '圖上這則標註沒有寫編號，依同一張圖別則標註與手冊內文推論是這個編號'}
+_CIRC = '①②③④⑤⑥⑦⑧⑨⑩'
+
+
+def ge_ld_conf(c):
+    return ('%.3f' % c) if (c < PID_CONF_LOW <= float('%.2f' % c)) else ('%.2f' % c)
+
+
+def ge_ld_manual_label(use):
+    """手冊插圖的「圖上標示」：每一處（①②…）的整則標註原文、引線指著什麼；沒寫編號的那處講明推論與理由。"""
+    out = []
+    for i, x in enumerate(use):
+        ph = x.get('phrase') or pid_label_clean(x.get('label')) or '（圖上的字沒有記錄）'
+        bits = ['「%s」' % ph]
+        if x.get('pt'):
+            bits.append(x['pt'] if x['pt'].startswith('沒有引線') else '引線指著' + x['pt'])
+        if x.get('form') == 'image-untagged':
+            bits.append('這則標註沒有寫編號，屬推論：' + (x.get('why') or GE_LD_IMAGE_FORM['image-untagged']))
+        elif GE_LD_IMAGE_FORM.get(x.get('form') or ''):
+            bits.append(GE_LD_IMAGE_FORM[x['form']])
+        if isinstance(x.get('conf'), (int, float)):
+            bits.append('OCR 讀到「%s」，信心 %s' % (pid_label_clean(x.get('label')), ge_ld_conf(x['conf'])))
+        out.append(('%s ' % _CIRC[i] if len(use) > 1 and i < len(_CIRC) else '') + '；'.join(bits))
+    return '　'.join(out)
+
+
+def ge_ld_manual_how(use, sh):
+    """手冊插圖的「對應方式」：哪一份手冊、哪一張圖、怎麼讀到的、與位置圖的關係。"""
+    cs = [x.get('conf') for x in use if isinstance(x.get('conf'), (int, float))]
+    t = ('OCR 讀圖：GE 維護手冊 %s%s 的插圖 %s%s；標註是插圖（3D 圖、照片、示意圖的點陣圖）的一部分，PDF 沒有文字層——每一則標註先看圖明列'
+         '（原文、搜尋窗），再由 OCR 在窗內確認圖上寫著這個編號才收' % (
+             sh.get('doc') or '', (' Rev.%s' % sh['rev']) if sh.get('rev') else '', sh.get('figure') or '',
+             ('（%s）' % sh['view']) if sh.get('view') else ''))
+    if cs:
+        t += '，辨識信心 %s' % '／'.join(ge_ld_conf(c) for c in cs)
+    t += '；這份不是 GE 清單「位置圖」欄列的圖，元件位置以清單點名的位置圖為準，插圖幫你看現場實物在哪一側、長什麼樣'
+    return t
 
 
 def ge_loc_key(e):
@@ -2431,7 +2472,16 @@ def ge_ld_rows(pm, ents, scope, kks=()):
         if isinstance(sh.get('pages'), int):
             first['n'] = sh['pages']
         lab = pid_label_clean(e.get('label'))
+        manual = bool(sh.get('manual'))   # v24：GE 維護手冊的插圖（loc_image.py；OCR 讀圖），不是 GE 清單點名的位置圖
         first.update(img=True, marks=marks, drawn=lab, unit='', rel=e['rel'], how=e['how'], via=e.get('via'), listed=1 if listed else 0)
+        if manual:
+            first['manual'] = 1
+        confs = [x['conf'] if (x.get('how') == 'ocr' and isinstance(x.get('conf'), (int, float)) and not isinstance(x.get('conf'), bool)) else None for x in use]
+        if confs[0] is not None:
+            first['conf'] = confs[0]
+        if any(c is not None for c in confs):
+            first['conf_min'] = min(c for c in confs if c is not None)
+            first['confs'] = confs
         if e.get('shared') and not body:
             first['shared'] = e['shared'][:8]
         if body:
@@ -2455,19 +2505,27 @@ def ge_ld_rows(pm, ents, scope, kks=()):
         if e.get('shared') and not body and e.get('form') != 'alias':
             why.append('這個 KKS 也是 %s 的 KKS，標的是共用的那個位置，屬推論' % ('、'.join(e['shared'][:6]) + (' 等' if len(e['shared']) > 6 else '')))
         lab_t = '%s（%s）' % (lab or '（圖上的字沒有記錄）', '；'.join(w for w in why if w))
+        if manual:
+            lab_t = ge_ld_manual_label(use)
         c = pid_note(e)
         if c:
             lab_t += '；' + PID_NOTE_TEXT.get(c, PID_NOTE_OTHER[1]).replace('這支位號', '這個編號')
             lab_t += '；圖上指著元件的標註在另一張位置圖' if has_callout else '；這次比對（PDF 文字層）沒有讀到指著元件的引線標註，請開 PDF 看設備表所屬的視圖'
         how = 'PDF 文字層'
         ft = GE_LD_FORM_TEXT.get(e.get('form') or '')
-        if ft:
-            how += '（%s）' % ft
-        how += ('；GE 清單的「位置圖」欄列了這份圖（%s）' % (sh.get('doc') or '') if listed
-                else '；GE 清單的「位置圖」欄沒有列這份圖（%s），圖上寫著這個編號' % (sh.get('doc') or ''))
+        if manual:
+            how = ge_ld_manual_how(use, sh)
+        else:
+            if ft:
+                how += '（%s）' % ft
+            how += ('；GE 清單的「位置圖」欄列了這份圖（%s）' % (sh.get('doc') or '') if listed
+                    else '；GE 清單的「位置圖」欄沒有列這份圖（%s），圖上寫著這個編號' % (sh.get('doc') or ''))
         if sh.get('tap'):
             how += '；這是壓力量測的配置圖：引線有的指傳送器本體，有的指取壓點、根閥或導壓管，請對照圖面'
-        rows.append(['位置圖', pid_sheet_name(sh), lvl, src, first])
+        name = pid_sheet_name(sh)
+        if manual:
+            name += '（GE 維護手冊插圖：%s）' % (sh.get('figure') or '')
+        rows.append(['位置圖', name, lvl, src, first])
         rows.append(['圖面頁次', 'PDF 第 %s 頁%s' % (sh['page'], ('（共 %s 頁）' % sh['pages']) if isinstance(sh.get('pages'), int) else ''), lvl, src, dict(base)])
         rows.append(['所在位置', pid_pos_text(use, marks).replace('這支位號', '這個編號'), lvl, src, dict(base)])
         rows.append(['圖上標示', lab_t, lvl, src, dict(base)])
