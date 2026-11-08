@@ -203,7 +203,7 @@ def crosswalk(valves, s03, s04, overrides):
             for kind, al in keys.get(e, []):
                 got.setdefault(al, {'unit': u, 'alias': al, 'how': 'KKS 位號＝AMS ' + re.sub(r'^\d+\s*', '', kind.split('(')[0]).strip() + '「' + e + '」'})
             if u.startswith('G'):
-                for g in re.findall(r'\b[A-Z]{1,5}\d*[A-Z]?(?:-\d+[A-Z]?)+\b', str(v['legacy'] or '').upper()):
+                for g in re.findall(r'\b[A-Z]{1,5}\d*[A-Z]?(?:-[A-Z]{2,5}(?=-\d))?(?:-\d+[A-Z]?)+\b', str(v['legacy'] or '').upper()):   # VA-HDAS-1 整串（v2.6.3）
                     k = '%s_90%s' % (u, g)
                     for kind, al in keys.get(k, []):
                         got.setdefault(al, {'unit': u, 'alias': al, 'how': 'GE 舊位號＝AMS「%s」' % k})
@@ -473,6 +473,7 @@ def run(a, data):
     # 搜尋用識別碼（pneuvalve_keys）：index＝{compact 鍵: [[sid, 列], …]}（同一鍵可對多列：LCV-3461、VA46-1A）；
     # weak＝只當建議的廠商代號；vlist＝自動完成／查無頁建議用的 [sid, 列, 位號, [別名…], 中文名, 英文名]
     list_cores = {compact(pneuvalve_keys.core_of(v['tag'])) for v in valves}
+    list_legacy = {compact(t) for v in valves for t, f in pneuvalve_keys.legacy_keys(v['legacy']) if f in ('ge-dev', 'mk6e-dev')}
     merged = collections.defaultdict(list)
     xh, xrows = wbx['v2.6刪除紀錄']
     if '併入列' in xh and '類別' in xh:
@@ -512,7 +513,7 @@ def run(a, data):
             if tag:
                 rowd = {h: ('' if v is None else str(v)) for h, v in zip(hdr0, r)}
                 als = []
-                for k, fam in pneuvalve_keys.valve_keys(rowd, list_cores, merged.get(tag, ())):
+                for k, fam in pneuvalve_keys.valve_keys(rowd, list_cores, merged.get(tag, ()), list_legacy):
                     fam_stats[fam] += 1
                     tgt = valve_weak if fam in pneuvalve_keys.WEAK else valve_index
                     lst_k = tgt.setdefault(compact(k), [])
@@ -546,7 +547,9 @@ def run(a, data):
                  '經多代理逐筆驗證。沒有 AMS 設備＝開關閥（SOV 直控）、非 HART/FF 定位器，或該機組不在本 AMS 資料庫（本庫只有 1 號機：G11、G12、S10、C10）。' % n_amslinked,
                  '「定位器比對」：清單定位器欄與 AMS 製造商＋型號比廠牌家族（Fisher DVC、Masoneilan SVI、Flowserve Logix…）；不符者請以現場銘牌為準。',
                  '來源等級（2026-10-15 裁定）：AMS 一號機裝置自報的製造商／型號算一份一手來源（只對 AMS 有的那幾台；其他機組的值標 [同構]）；AMS 定位器序號換過就會變，只當旁證。'
-                 '控制器 I/O（Mark VIe）與原廠出貨文件不一致時以 Mark VIe 為準。定位器欄 v2.6.2 已依此全表重核：逐列結果見試算表分頁「v2.6.2定位器核對」，改過的格與依據見「v2.6.2修正紀錄」。']
+                 '控制器 I/O（Mark VIe）與原廠出貨文件不一致時以 Mark VIe 為準。定位器欄 v2.6.2 已依此全表重核：逐列結果見試算表分頁「v2.6.2定位器核對」，改過的格與依據見「v2.6.2修正紀錄」。',
+                 'v2.6.3（2026-11-08）：補列漏掉的 GT 氣動閥（VA41-2、VA-HDAS-1／2、VAST-11／12、GT 側 DCV-2996A／B），VA32-1／2 由 G11 擴為六台；'
+                 'SOV／極限開關欄寫上附件的 GE 編號（打電磁閥、極限開關的 GE 編號也找得到這一列）；閥體品牌原本查無的列重查。新增列與改過的格、依據見試算表分頁「v2.6.3修正紀錄」。']
         tj = table_json(sid, short, sh, hdr, out_rows, notes, ui_extra={'presets': [{'label': '有 AMS 設備', 'col': ti + 1, 'nonempty': True}]}, bands=band_list(hdr))
         tj['valve_src'] = src
         entries.append({'id': sid, 'name': '%s_%s' % (sid, short), 'short': short, 'tj': tj, 'rows': len(out_rows), 'cols': len(hdr),

@@ -677,7 +677,7 @@ def ge_entries(tag, ge):
                 rr = ge_rel_rows(e, key)
                 if rr:
                     extra.append({'h': '%s %s（GE 文件）' % (e['tag'], what), 'lvl': 'doc' if all(r[3] == 'doc' for r in rr) else 'inferred',
-                                  'rule': 'KKS 子件尾碼、閥清單 Solenoid Tag 欄、P&ID 腔室邊界讀出的關係；說明欄寫明的對應是推論',
+                                  'rule': 'KKS 子件尾碼（閥的 KKS 也看舊版欄）、閥清單 Solenoid Tag 欄、儀器清單備註寫明它動作的閥、P&ID 腔室邊界讀出的關係；說明欄寫明的對應與 GE 編號慣例（20 電磁閥／33 極限開關／90 定位器／96 位置回授＋閥編號）是推論',
                                   'rows': [[what, '%s〔%s〕%s%s' % (r[0], r[1], r[2], '（推論）' if r[3] == 'inferred' else '') + ('（%s）' % r[4] if r[4] else '')] for r in rr],
                                   'src': '%s · GE 原廠編號對照表的關係欄' % SRC_DEFS['doc']['label']})
             for key, what in (('pos', '所在腔室／管段'), ('pos_in', '邊界的腔室／管段'), ('prot', '參與的保護功能'), ('prot_in', '會動作這顆閥的保護功能')):

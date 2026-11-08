@@ -226,6 +226,15 @@ def ge_spec(page, ctx, ck):
       const r = [...g.querySelectorAll('.ge-rel')].find((x) => /^相關儀器/.test((x.firstElementChild || {}).textContent || ''));
       return r ? [...r.querySelectorAll('a.chip-btn')].map((a) => decodeURIComponent(a.getAttribute('href')).split('?')[0]) : []; }""")
     ck('%s valve card: 相關儀器 lists its limit switch 33VG-8 (KKS -BG02)' % SPEC_VALVE, bool(vi) and '#/card/33VG-8' in vi, vi)
+    # v23（2026-11-08）：附件與它的閥 KKS 本體不同時也連上——儀器清單備註寫明（20VA41-2）、閥的 KKS 只在舊版欄（90VA41-3）、GE 編號慣例（96VAS-3，推論）
+    rv = page.evaluate("""async () => { const G = await AMS.getag.load(); const E = G.j.entries; const at = (t) => E.find((e) => e.t === t) || {};
+      const pick = (e, k) => (e[k] || []).map((r) => [r[0], r[1], r[3]]);
+      return { s: pick(at('20VA41-2'), 'vl'), v: pick(at('VA41-2'), 'vi'), p: pick(at('90VA41-3'), 'vl'), f: pick(at('96VAS-3'), 'vl'), w: pick(at('20VW-HDAS-1'), 'vl') }; }""")
+    ck('v23: 20VA41-2 → 相關閥 VA41-2（電磁閥，文件：儀器清單備註）', ['VA41-2', '電磁閥', 'doc'] in rv['s'], rv['s'])
+    ck('v23: VA41-2 → 相關儀器 20VA41-2 與定位器 90VA41-2', {'20VA41-2', '90VA41-2'} <= {r[0] for r in rv['v']}, rv['v'])
+    ck('v23: 90VA41-3 → VA41-3（閥的 KKS 只在舊版欄，子件尾碼規則）', any(r[0] == 'VA41-3' and r[2] == 'doc' for r in rv['p']), rv['p'])
+    ck('v23: 96VAS-3 → VAS-3（GE 編號慣例，推論）', ['VAS-3', '位置回授', 'inferred'] in rv['f'], rv['f'])
+    ck('v23: 20VW-HDAS-1 → VW-HDAS-1', any(r[0] == 'VW-HDAS-1' for r in rv['w']), rv['w'])
     # AMS 設備卡：完整資料區的 GE 原廠編號段也有規格塊
     if pk and pk.get('amsAlias'):
         load_card(page, ctx, quote(pk['amsAlias']))

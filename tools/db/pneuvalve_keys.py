@@ -9,6 +9,8 @@ valve_keys(row, list_cores, merged_alias) → [(顯示字串, family)]，row＝{
   mk6e-dev／mk6e-stem／mk6e-name   Mark VIe 器件名（20SSV-3B → SSV-3B；HPEV）
   ge-kks／ge-kks-core   標了 (GE KKS) 的 11LBF54AA004 與去機組碼 LBF54AA004
   acc-dev／acc-isa／acc-kks／acc-drift   SOV／LS／定位器欄裡屬於這顆閥的附件位號（20VG8、LY-3461、先導 SOV 專屬位號…）
+  acc-ge          SOV／LS／定位器／其他附件欄裡的 GE 附件編號（20VA41-2、33VG-11H、96VAS-3、20VS4-4）：前綴 20／33／90／96／65＋本列 GE 編號，
+                  或寫在「GE 編號」標記後面的；前綴後面是**別列**的 GE 編號時不收（E 尾碼三通閥的定位器欄寫主閥的 90VA51-1）
   vendor-tag／alias   出廠 tag、刪除紀錄裡併入本列的別名位號
   vendor          V1～V4／IGV／UVT：多列共用的廠商代號 → 只當建議，不當精確命中（WEAK）
 機組前綴的寫法（G11_90VA13-25、G11_VA13-25、S10_LCV-3461）不存：前端去掉 <機組>(_)(90) 後再查同一張索引。
@@ -48,7 +50,7 @@ def core_of(tag):             # GxxMBP70QN222 / G11/G12HSD11QM001 / C00GBN77QM06
 
 
 # ---------------------------------------------------------------- token shapes
-RE_VTAG = re.compile(r'V[A-Z]{0,3}\d{0,2}[A-Z]?-\d{1,2}[A-Z]?$')            # VA13-25 VA13T-1 VS4-4 VAS-10 VGST-2 VA46-1A VA2-1
+RE_VTAG = re.compile(r'V[A-Z]{0,3}\d{0,2}[A-Z]?-(?:[A-Z]{2,5}-)?\d{1,2}[A-Z]?$')   # VA13-25 VA13T-1 VS4-4 VAS-10 VGST-2 VA46-1A VA2-1 VA-HDAS-1
 RE_LOOP = re.compile(r'[A-Z]{2,3}-\d{2,4}[A-Z]?$')                          # LCV-3461 DCV-2996B TCV-260 FV-81
 RE_EV = re.compile(r'[A-Z]{2,5}\d?$')                                       # EV1 EV2 HPEV IGV UVT (classified below)
 RE_MK6DEV = re.compile(r'(\d{2})([A-Z]{2,5}(?:-\d{1,2}[A-Z]?)?)$')          # 20SSV-3B 33SSV-3B 20HABV 20WSV
@@ -60,6 +62,8 @@ RE_SOVKKS = re.compile(r'SOV\s*=?\s*(?:專屬位號|獨立位號|獨立tag)?\s*=
                        r'|SOV [^;；()]{0,60}\(=(' + KKS_FULL + r')\)')
 RE_DRIFT = re.compile(r'(?<![A-Z0-9])([A-Z]{3}\d{2}[A-Z]{2}\d{3})-(?:KH|MB|BG)\d\d')   # A0102 XDT01QN001-KH01 (儀器清單位號漂移)
 NEG_HEAD = re.compile(r'^\s*(查無|待查|N/?A|N\.A\.|無\(|—|-+$|$)')
+RE_GEACC = re.compile(r'(?<![A-Z0-9\-])((?:20|33|90|96|65)[A-Z]{1,6}\d{0,3}[A-Z]?(?:-[A-Z0-9]{1,6}){0,2})(?![A-Z0-9])')
+RE_GEMARK = re.compile(r'GE\s*編號')
 VENDOR = {'IGV', 'UVT'}
 
 
@@ -79,7 +83,11 @@ def legacy_keys(cell):
             out.append((m.group(1), 'mk6e-name'))
         return out
     if '(GE KKS)' in s:                                               # 11LBF55AA001 … (row1879 / ALF01 / G11/G21 never match)
-        return [(a + b, 'ge-kks') for a, b in RE_GEKKS.findall(s)]
+        out = [(a + b, 'ge-kks') for a, b in RE_GEKKS.findall(s)]
+        m = re.search(r'GE 燃機側編號\s*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)', s)   # GxxEKT50QM001：GE 燃機側編號 VW-HDAS-1（v2.6.3）
+        if m and RE_VTAG.match(m.group(1)):
+            out.append((m.group(1), 'ge-dev'))
+        return out
     if '出廠tag' in s:
         m = re.match(r'([A-Z]{3}\d{2}[A-Z]{2}\d{3})', s)
         return [(m.group(1), 'vendor-tag')] if m else []
@@ -132,7 +140,24 @@ def accessory_keys(row):
     return out
 
 
-def valve_keys(row, list_cores=frozenset(), merged_alias=()):
+def ge_accessory_keys(row, own, list_legacy=frozenset()):
+    """→ [(GE 附件編號, 'acc-ge')]；own＝本列 GE 編號（compact），list_legacy＝全清單各列的 GE 編號（compact）"""
+    out = []
+    for col in (SOV, LS, POS, ACC):
+        txt = str(row.get(col) or '').upper()
+        if re.match(r'^\s*(查無|待查)', txt):
+            continue
+        marked = set()
+        for m in RE_GEMARK.finditer(txt):
+            marked.update(RE_GEACC.findall(re.split(r'[;；。]', txt[m.end():], maxsplit=1)[0]))   # 到下一個分號為止（括號裡的開／關、KKS 不切）
+        for t in RE_GEACC.findall(txt):
+            stem = compact(t[2:])
+            if stem in own or (t in marked and stem not in list_legacy):
+                out.append((t, 'acc-ge'))
+    return out
+
+
+def valve_keys(row, list_cores=frozenset(), merged_alias=(), list_legacy=frozenset()):
     """-> ordered, de-duplicated [(key_display, family)] for one valve row.
     list_cores: compact cores of ALL list tags (an alias equal to another row's own tag is dropped -> 'see also', not a key).
     merged_alias: tags from sheet v2.6刪除紀錄 (類別 含『別名』) whose 併入列 == this row's tag."""
@@ -177,6 +202,10 @@ def valve_keys(row, list_cores=frozenset(), merged_alias=()):
             keys.append((t, fam))
             keys += [(u + t, fam) for u in ulist]
         else:
+            keys.append((t, fam))
+    own = {compact(t) for t, f in legacy_keys(row.get(LEG)) if f in ('ge-dev', 'mk6e-dev')}
+    for t, fam in ge_accessory_keys(row, own, list_legacy):
+        if compact(t) not in list_cores:
             keys.append((t, fam))
     for a in merged_alias:
         keys.append((a, 'alias'))

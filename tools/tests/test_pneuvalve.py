@@ -125,6 +125,36 @@ def run(ctx):
                 ck('autocomplete %r lists 氣動閥清單 items' % typed, ok)
                 page.keyboard.press('Escape')
             page.fill('#global-search', '')
+        # ---- v2.6.3（2026-11-08，使用者：「把 20VA41-2 補進去 VA41-2 這顆閥的資料，相關的閥沒補到的都補，閥體的廠牌型號也補」）：
+        #      補列的閥、附件 GE 編號（電磁閥／極限開關）→ 那顆閥的閥資料；GE 卡的接線路徑與迴路圖仍在下面
+        V263 = (('20VA41-2', 'GxxMBP01QM237', ('Quadax Valves KNA 801500', '20VA41-2', 'G11_90VA41-2'), 'LP-G11-20VA41-2'),
+                ('VA41-2', 'GxxMBP01QM237', ('Quadax Valves KNA 801500', 'RCIO88-SR80'), None),
+                ('20VA41-21', 'GxxMBP01QM238', ('20VA41-21', 'Quadax Valves KNA 801594'), 'LP-G11-20VA41-21'),
+                ('33VG-11L', 'GxxMBP70QN230', ('33VG-11L',), None),
+                ('20VS4-4', 'GxxMBP68QN210', ('33VS4-4H＝BG01',), 'LP-G11-20VS4-4'),
+                ('VA-HDAS-1', 'GxxMBH10QN203', ('KNA 805174', 'G11_90VA-HDAS-1'), None),
+                ('VAST-12', 'GxxMBP80QN211', ('VAST-12',), None),
+                ('VW-HDAS-1', 'GxxEKT50QM001', ('20VW-HDAS-1',), None),
+                ('G11MKG52QN202', 'GxxMKG52QN202', ('XOMOX', 'DCV-2996A'), None))
+        for q, want, words, loop in V263:
+            page.goto(ctx['base'] + '/db/#/card/' + quote(q))
+            page.wait_for_function(VALVE_READY, timeout=60000); page.wait_for_timeout(300)
+            t = page.evaluate("(() => { const g = document.querySelector('.sum-valve'); return (g ? g.innerText : '') + '\\n' + ((document.querySelector('.valve-only') || {}).innerText || ''); })()")
+            ck('v2.6.3: %s → valve data of %s %s' % (q, want, words), want in t and all(w in t for w in words), [w for w in (want,) + words if w not in t] or t[:120])
+            if loop:
+                try:
+                    page.wait_for_function('(s) => document.body.textContent.includes(s)', arg=loop, timeout=40000); ok = True
+                except Exception:
+                    ok = False
+                ck('v2.6.3: %s keeps its GE wiring path / loop diagram %s' % (q, loop), ok)
+        shot(page, ctx, 'pneu_v263_solenoid')
+        for q, want in (('G11_90VA41-2', 'GxxMBP01QM237'), ('G12_90LT-1', 'GxxMBE01QN200'), ('G12_90VA-HDAS-2', 'GxxMBH10QN204'), ('G11_90VAST-11', 'GxxMBP80QN209')):
+            load_card(page, ctx, q)
+            page.wait_for_function(VALVE_READY, timeout=30000)
+            t = page.evaluate("document.querySelector('.sum-valve').innerText")
+            ck('v2.6.3: AMS device %s has the 氣動閥 group of %s, positioner ✓' % (q, want), want in t and '一致' in t, t[:160])
+        ck('v2.6.3: G11MBE01QN200 (old single-unit tag) no longer a list row', page.evaluate("""async () => { const V = await AMS.valves.load();
+          return !V.list.some((it) => it[2] === 'G11MBE01QN200') && V.list.some((it) => it[2] === 'GxxMBE01QN200'); }"""))
         # ---- 以下用 JS 直接問 AMS.valves（資料相依的挑選都在這裡；挑不到就記一筆 FAIL，不默默略過）
         probe = page.evaluate("""async () => {
           const V = await AMS.valves.load(); const IX = AMS.index; const VS = AMS.valves; const o = {};
