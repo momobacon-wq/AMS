@@ -40,10 +40,12 @@ cd tools/stock/worker && npx wrangler d1 execute ams-stock --remote --file min_q
 3. `npx wrangler d1 create ams-stock` → 把印出的 `database_id = "…"` 貼到 `wrangler.toml` 取代 `REPLACE_WITH_ID_FROM_wrangler_d1_create`。
 4. 建表與匯入：`npx wrangler d1 execute ams-stock --remote --file schema.sql` → `npx wrangler d1 execute ams-stock --remote --file import.sql`。
 5. 機密：`npx wrangler secret put AUTH_SECRET`（貼登入閘門 Apps Script「專案設定 → 指令碼屬性」的 `AUTH_SECRET`）、`npx wrangler secret put STOCK_TOKEN`（貼 `py tools/stock/print_token.py` 的輸出）。
+   Transmitter 站有自己的密語（與 AMS 站分開，設定在 Transmitter repo 的 `src/services/siteKey.js`）：它的 token 放 `npx wrangler secret put STOCK_TOKEN_TRANSMITTER`；
+   Worker 兩個都認，沒設 `STOCK_TOKEN_TRANSMITTER` 就只認 `STOCK_TOKEN`（Transmitter 會全部回「未授權（密語不符）」）。
 6. `npx wrangler deploy` → 印出 `https://ams-stock.<子網域>.workers.dev`；瀏覽器開它應回 `{"ok":true,"service":"ams-stock","backend":"d1"}`。
 7. 網址填到 `docs/db/stock-config.json` 的 `endpoint` → `py tools/stamp_assets.py docs`、`extract_db.stamp`（見根 README「資料加密」）→ `py tools/verify_encrypted.py` → push。
    `docs/db/index.html` CSP `connect-src` 已含 `https://*.workers.dev`。
-8. 之後改 `src/index.js` 只要 `npx wrangler deploy`；換密語 → 用根目錄的 `py tools/rotate_passphrase.py`（結尾直接印新 token）或重跑 `print_token.py`，再 `npx wrangler secret put STOCK_TOKEN`（忘了的話 E2E `test_stock` 會以「未授權」抓到）。
+8. 之後改 `src/index.js` 只要 `npx wrangler deploy`；換密語 → 用根目錄的 `py tools/rotate_passphrase.py`（結尾直接印新 token）或重跑 `print_token.py`，再 `npx wrangler secret put STOCK_TOKEN`（忘了的話 E2E `test_stock` 會以「未授權」抓到）。AMS 換密語**不要動** `STOCK_TOKEN_TRANSMITTER`（Transmitter 的密語不跟著換）。
 
 常用查詢（`npm run d1:status`／`npm run d1:ledger`，或）：
 ```bash

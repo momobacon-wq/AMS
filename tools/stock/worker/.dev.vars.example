@@ -3,3 +3,5 @@
 AUTH_SECRET=mock-secret
 # py tools/stock/print_token.py 的輸出
 STOCK_TOKEN=
+# Transmitter 站自己的密語導出的 token（選用；沒設就只認 STOCK_TOKEN）
+STOCK_TOKEN_TRANSMITTER=

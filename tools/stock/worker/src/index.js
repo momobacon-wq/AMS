@@ -11,7 +11,8 @@
  *   clientlog {kind, msg, stack?, path?, page?, site?, build?, app?, ua?} → {ok, dropped?}   前端錯誤回報（docs/assets/report.js）；只驗登入 token、不需 stockToken；寫 client_log
  *                                   每人每分鐘最多 10 筆，超過回 {ok:true, dropped:true} 不寫
  *   （盤點 adjust 已移除：數量調整用 wrangler d1 execute 同時 UPDATE items ＋ INSERT ledger STOCKTAKE，見 tools/stock/README.md）
- * 驗證：stockToken === env.STOCK_TOKEN（站台密語導出）＋ AMS 登入 token（HMAC-SHA256，密鑰 env.AUTH_SECRET，與登入閘門相同）
+ * 驗證：stockToken === env.STOCK_TOKEN（AMS 站密語導出）或 env.STOCK_TOKEN_TRANSMITTER（Transmitter 站自己的密語導出；沒設就只認前者）
+ *   ＋ AMS 登入 token（HMAC-SHA256，密鑰 env.AUTH_SECRET，與登入閘門相同）
  *   ＋ D1 表 revoked 沒有該員工代號（停權：INSERT INTO revoked 即時生效，clientlog 也擋）
  *   失敗 → {ok:false, auth:true, error}；伺服器錯誤 → {ok:false, transient:true, error}（固定文案，原文只進 console）
  * 限速：wrangler.toml 的 ratelimit binding env.RL（每 IP 每分鐘 60 次 POST；沒有 binding 就不限），超限回 HTTP 429 {ok:false, transient:true}
@@ -59,7 +60,11 @@ export default {
 async function auth(body, env) {
   const st = String(body.stockToken || '');
   if (!env.STOCK_TOKEN || !env.AUTH_SECRET) return { ok: false, error: '站台設定不完整（STOCK_TOKEN／AUTH_SECRET 未設定）' };
-  if (!st || !safeEq(st, env.STOCK_TOKEN)) return { ok: false, error: '未授權（密語不符）' };
+  // 兩站各有自己的密語：AMS 站送 STOCK_TOKEN，Transmitter 站送 STOCK_TOKEN_TRANSMITTER（選用，沒設就只認 STOCK_TOKEN）。
+  // 兩個都比（不短路），錯誤文案不要改：Transmitter 前端靠「密語／站台設定」字樣判斷只重問密語。
+  const okAms = safeEq(st, env.STOCK_TOKEN);
+  const okTx = !!env.STOCK_TOKEN_TRANSMITTER && safeEq(st, env.STOCK_TOKEN_TRANSMITTER);
+  if (!st || !(okAms || okTx)) return { ok: false, error: '未授權（密語不符）' };
   const id = canon(body.id);
   const v = await verify(id, String(body.token || ''), env.AUTH_SECRET);
   if (!v.ok) return { ok: false, error: v.error };

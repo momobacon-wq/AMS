@@ -1110,7 +1110,7 @@ GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只�
   前端 `S.openTxn` 開窗時產生一次 `txnId`（`S.newTxnId`），同一視窗重送沿用同一 txnId（`S.txn(o)` 有 `o.txnId` 就用它）；連線逾時／fetch 失敗只提示「可能已寫入，重按不重扣」，不自動重送；回應 `replay` 為真時 toast 加「先前已寫入，未重扣」。
   失敗：`{ok:false, auth:true}` 未授權（含 `revoked` 表命中：「此員工代號已停用」，`clientlog` 同樣擋）、`{ok:false, transient:true}` 伺服器錯誤（固定文案「伺服器暫時無法服務，請稍後再試」，D1 原文只進 Worker console）、HTTP 429 `{ok:false, transient:true}` 每 IP 每分鐘 60 次 POST 超限（`wrangler.toml` `[[ratelimits]]` binding `RL`；沒有 binding 時不限）；`clientlog` 每人每分鐘 10 筆，超過回 `{ok:true, dropped:true}` 不寫（索引 `client_log_emp_ts`）。
   停權：`revoked(emp_id PK, ts)`，`auth()` 與 `clientlog` 在 token 驗證通過後查一次；`INSERT OR IGNORE INTO revoked` 即時生效，離職 SOP 見 `tools/stock/README.md`。
-- `STOCK_TOKEN`＝`hex(SHA-256("ams-stock:" + base64(AES 原始金鑰)))`：瀏覽器由解鎖後的 `D.key` 算（明文模式送 `plain`，只有 mock 接受）；建置端 `tools/stock/print_token.py`。換密語／salt → `npx wrangler secret put STOCK_TOKEN` 重貼。
+- `STOCK_TOKEN`＝`hex(SHA-256("ams-stock:" + base64(AES 原始金鑰)))`：瀏覽器由解鎖後的 `D.key` 算（明文模式送 `plain`，只有 mock 接受）；建置端 `tools/stock/print_token.py`。換密語／salt → `npx wrangler secret put STOCK_TOKEN` 重貼。Transmitter 站自 2026-11-13 起用自己的密語（設定在它 repo 的 `src/services/siteKey.js`，不讀本站 `meta.json`），token 放 Worker 的 `STOCK_TOKEN_TRANSMITTER`；Worker 兩個都認，本站換密語不動它。
 - 對照規則（`AMS.Stock.match`；`contracts_to_inventory.py` 的 FAMILY_RULES 同步維護）：正規化＝大寫、去空白／-／_／／；E+H 取 `+` 前段；本體碼＝`3051|2051|2088|214C|5408|8732E` 開頭者取前 12 碼，其餘整段。
   第一層「同型號」＝本體碼相同；第二層「同系列」＝系列鍵相同（`3051S`、`3051[CLT]X`、`2051[CT]X`、`2088[AG]`、`644`、`848T`、`5408`、`8732E`、`214C`、`PMD75`、`PMP71`、`TMT82`）。
   設備端候選碼：card aux 儀器清單「完整型號碼」、EOMR「出廠型號」（`/` 後的歧管碼去掉）；兩者皆無時才用 AMS 型號的家族（`3051`→`3051*` 全系列、`iTEMP TMT82`→`TMT82`、`Deltabar S`→`PMD75`、`Cerabar S`→`PMP71`…）。

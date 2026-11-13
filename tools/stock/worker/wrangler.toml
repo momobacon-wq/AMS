@@ -19,5 +19,6 @@ name = "RL"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
 
-# 機密（不在此檔）：npx wrangler secret put AUTH_SECRET（登入閘門同一值）、npx wrangler secret put STOCK_TOKEN（py tools/stock/print_token.py）
+# 機密（不在此檔）：npx wrangler secret put AUTH_SECRET（登入閘門同一值）、npx wrangler secret put STOCK_TOKEN（py tools/stock/print_token.py）、
+#   npx wrangler secret put STOCK_TOKEN_TRANSMITTER（Transmitter 站自己的密語導出的 token；AMS 換密語時不要動它）
 # 本機 wrangler dev 用 .dev.vars（見 .dev.vars.example）
