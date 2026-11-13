@@ -281,14 +281,17 @@ LOC_FIX_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.en
 
 # v11（2026-10-25）：圖控轉手鏈（71GS-1B 的 a_71gs1b →MOVE_STATUS→ F71SCR3DR；PT-270C 由設計標題升成 63QT3）、
 # P&ID 括號線條字 GE 標籤（VA13-15、汽機 FV-24 只有線條字）
+# v25（2026-11-13）：signal-atlas schema 16 起加密程式的方塊依列印邏輯圖建進索引——96GG-1V 的 ai_dvar 經 S1 ANALOG_IN 的 AI_25（圖面方塊）轉成 dvar，
+# 卡上要引圖頁 S1_P.pdf 第 73 頁、講明程式 XML 加密
 LOC_V11_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {};
   const lo = (sys, t) => by[String(E.findIndex((e) => e.t === t && e.sys === sys))] || {};
   const firsts = (rows) => (rows || []).filter((r) => r[4] && r[4].marks).map((r) => r[4]);
   const how = (rows) => (rows || []).filter((r) => r[0] === '對應方式').map((r) => String(r[1])).join('｜');
   const lvls = (rows) => (rows || []).filter((r) => r[0] === '對應方式').map((r) => r[2]);
-  const gs = lo('燃機', '71GS-1B').hm; const pt = lo('汽機', 'PT-270C').hm;
+  const gs = lo('燃機', '71GS-1B').hm; const pt = lo('汽機', 'PT-270C').hm; const gg = lo('汽機', '96GG-1V').hm;
   const va = firsts(lo('燃機', 'VA13-15').pd); const fv = firsts(lo('汽機', 'FV-24').pd);
   return { gsHow: how(gs).slice(0, 400), gsN: firsts(gs).length, ptHow: how(pt).slice(0, 400), ptLvl: lvls(pt),
+    ggHow: how(gg).slice(0, 500), ggN: firsts(gg).length, ggLvl: lvls(gg),
     va: va.map((x) => x.s + '|' + x.p), fv: fv.map((x) => x.s + '|' + x.p),
     chainN: E.filter((e, k) => (how((by[String(k)] || {}).hm) || '').includes('一對一的搬移')).length }; }"""
 
@@ -599,6 +602,9 @@ def ge_loc(page, ctx, ck):
     v11 = page.evaluate(LOC_V11_JS)
     ck('71GS-1B: HMI position via the one-to-one MOVE chain a_71gs1b → F71SCR3DR (card names the block)',
        bool(v11) and v11['gsN'] >= 1 and 'F71SCR3DR' in v11['gsHow'] and 'a_71gs1b' in v11['gsHow'] and 'MOVE' in v11['gsHow'], v11 and v11['gsHow'][:160])
+    ck('96GG-1V (v25): HMI via ai_dvar → AI_25 drawn on the printed sheet of the encrypted S1 program; card cites S1_P.pdf p.73 A08 and says the XML is encrypted',
+       bool(v11) and v11['ggN'] >= 1 and 'ai_dvar' in v11['ggHow'] and 'AI_25' in v11['ggHow'] and 'S1_P.pdf 第 73 頁 A08 格' in v11['ggHow']
+       and '加密' in v11['ggHow'] and 'hmi' in v11['ggLvl'], v11 and (v11['ggN'], v11['ggHow'][:200], v11['ggLvl']))
     ck('PT-270C: ST SIL lube oil panel now located through 63QT3 (chain), level not inferred',
        bool(v11) and '63QT3' in v11['ptHow'] and 'hmi' in v11['ptLvl'], v11 and (v11['ptHow'][:120], v11['ptLvl']))
     ck('VA13-15: P&ID on GFD01-D0005-3 p.7 from the bracketed line-text label (OCR, GE-only table)',

@@ -524,7 +524,10 @@ def load_dcdas_screens(dcdas_path, resolve_screen, tagset, stats):
     con = sqlite3.connect('file:%s?mode=ro' % dcdas_path.replace('\\', '/'), uri=True)
     has_hmi_point = bool(con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hmi_point'").fetchone())
     if has_hmi_point:
-        rows = con.execute("SELECT full_point, COALESCE(unit_prefix, ''), screen FROM hmi_point WHERE source = 'display_screen'").fetchall()
+        # 依點名排序：同一個位號在同一張畫面有好幾個點（.FAULT、.MN_REJ_A…）時，卡上「依據」取第一個——不排序就隨索引的列順序走，
+        # signal-atlas 每重建一次就換一個（2026-11-13 換 11 月 checkout 時 KKS 卡 34 個跟著換）；排序後只跟點名有關
+        rows = con.execute("SELECT full_point, COALESCE(unit_prefix, ''), screen FROM hmi_point WHERE source = 'display_screen' "
+                           "ORDER BY screen, full_point, unit_prefix").fetchall()
         con.close()
         for fp, up, scr in rows:
             fn = resolve_screen(scr)
@@ -538,6 +541,7 @@ def load_dcdas_screens(dcdas_path, resolve_screen, tagset, stats):
         SELECT v.display_screen, v.name, COALESCE(v.description, ''), COALESCE(p.device_tag, ''), COALESCE(p.connection, '')
         FROM variable v LEFT JOIN io_point p ON p.var_id = v.id
         WHERE COALESCE(v.display_screen, '') <> ''
+        ORDER BY v.display_screen, v.ctrl, v.name, p.device_tag
     """).fetchall()
     con.close()
     for scr, name, desc, dtag, conn in rows:

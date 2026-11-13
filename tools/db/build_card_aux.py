@@ -3606,6 +3606,19 @@ def ge_chain_text(chain):
     return chain[0][2] + ''.join(' →%s（%s）→ %s' % (GE_CHAIN_BLOCK.get(bt, bt), path, out) for bt, path, _i, out in chain)
 
 
+def ge_chain_drawn(chain, pcs):
+    """hmi_ge 的 chain_pc（[[步序, pdf, 頁, 格], …]：鏈上經過「依列印邏輯圖建的方塊」的那幾步，signal-atlas schema 16）→ 卡上的補充說明。
+    那幾支程式的 XML 加密、沒有方塊可引，signal-atlas 依組態工具列印的邏輯圖建索引列；照 dcdas 的規矩引圖頁、講明不是 XML。"""
+    bits = []
+    for i, pdf, page, cell in pcs or []:
+        if not chain or i >= len(chain):
+            continue
+        blk = chain[i][1].rsplit('/', 1)[-1]
+        where = ('%s 第 %s 頁 %s 格' % (pdf, page, cell)) if pdf and page else '（圖頁未定位）'
+        bits.append('%s 這一步所在的程式 XML 加密，方塊取自組態工具列印的邏輯圖 %s' % (blk, where))
+    return ('；' + '；'.join(bits)) if bits else ''
+
+
 def ge_hmi_how(ents):
     """GE 卡圖控「對應方式」：這一組（畫面, 機組）裡各處是怎麼對到的（I/O 訊號／畫面文字／姊妹機同名訊號），同樣的只講一次。"""
     bits = []
@@ -3621,8 +3634,8 @@ def ge_hmi_how(ents):
         elif e.get('via') == 'derived':
             b = '物件引用 %s.%s：這支熱電偶經 AI 與排氣溫度補償巨集逐通道轉手後的值（與這個編號一對一）' % (e.get('ctrl'), e.get('var'))
         elif e.get('via') == 'chain':
-            b = ('物件引用 %s.%s：這是本編號的 I/O 訊號經一對一的搬移／類比輸入方塊轉手後的變數（%s；signal-atlas 控制器索引）'
-                 % (e.get('ctrl'), e.get('var'), ge_chain_text(e.get('chain'))))
+            b = ('物件引用 %s.%s：這是本編號的 I/O 訊號經一對一的搬移／類比輸入方塊轉手後的變數（%s；signal-atlas 控制器索引%s）'
+                 % (e.get('ctrl'), e.get('var'), ge_chain_text(e.get('chain')), ge_chain_drawn(e.get('chain'), e.get('chain_pc'))))
             if e.get('sib'):
                 b += '；起點是 G12 的同名訊號（對照表只列 G11，比照 G11 推論）'
             if e.get('cap'):

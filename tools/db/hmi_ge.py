@@ -244,8 +244,9 @@ def load_ge_index(path, sibling_index=None):
 
 
 def build_chain(index_path, ge, io, sibio):
-    """轉手鏈（見 CHAIN_PINS 的說明）→ ({(CTRL, 變數大寫): [(條目鍵, 控制器, 變數原名, 鏈, 推論起點)]}, 計數)。
-    鏈＝[[方塊型別, 方塊路徑, 進, 出], …]；推論起點＝起點是 --sibling 補進來的 G12 同名訊號（卡上照 sibling 標推論）。
+    """轉手鏈（見 CHAIN_PINS 的說明）→ ({(CTRL, 變數大寫): [(條目鍵, 控制器, 變數原名, 鏈, 推論起點)]}, 計數, 圖面出處)。
+    鏈＝[[方塊型別, 方塊路徑, 進, 出], …]；推論起點＝起點是 --sibling 補進來的 G12 同名訊號（卡上照 sibling 標推論）；
+    圖面出處＝{(CTRL, 方塊路徑): [pdf, 頁, 格]}，只收鏈上用到的、依列印邏輯圖建的方塊（加密程式，schema 16；見 chain_cites）。
     丟掉：寫入者不只一個的變數（chain_multi_writer）、本身就在任何條目 logic／related 裡的變數（chain_own_logic：那是該條目自己的 io）、
     變數名去分隔符後等於**別的**條目寫法的（chain_other_form：96HGT8A 這種本身就是另一個 GE 編號的名字）。"""
     import sqlite3
@@ -259,8 +260,26 @@ def build_chain(index_path, ge, io, sibio):
     writers = Counter(dict(con.execute("SELECT var_id, COUNT(*) FROM pin WHERE direction = 'O' AND var_id IS NOT NULL GROUP BY var_id")))
     qm = ','.join('?' * len(CHAIN_PINS))
     blocks = {}
-    for bid, bt, path in con.execute('SELECT id, block_type, path FROM block WHERE block_type IN (%s)' % qm, tuple(CHAIN_PINS)):
+    # signal-atlas schema 16 起：加密程式的方塊依組態工具列印的邏輯圖建成索引列（block.drawn=1、腳位方向來源 G、出處在 block_cite）。
+    # 圖面是組態工具自己的圖、不是推斷（CHAIN_DIR_OK 本來就收 G），照樣走；但那一步沒有 XML 方塊，卡上要引圖頁（chain_pc，見 chain_cites）。
+    # 圖上沒印腳名的腳是佔位名 in~N／out~N（不是真實腳名）：對不到 CHAIN_PINS 的 SRC／DEST，不改寫、不走（計數 chain_drawn_placeholder）。
+    has_drawn = 'drawn' in {r[1] for r in con.execute('PRAGMA table_info(block)')}
+    has_cite = bool(con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'block_cite'").fetchone())
+    pcmap = {}
+    q = ('SELECT b.id, b.block_type, b.path, b.ctrl, %s, %s FROM block b %s WHERE b.block_type IN (%s) ORDER BY b.id%s'
+         % ('b.drawn' if has_drawn else '0', 'c.pdf, c.page, c.cell' if has_cite else 'NULL, NULL, NULL',
+            'LEFT JOIN block_cite c ON c.block_id = b.id' if has_cite else '', qm, ', c.page, c.cell' if has_cite else ''))
+    for bid, bt, path, bctrl, dr, pdf, page, cell in con.execute(q, tuple(CHAIN_PINS)):
+        if bid in blocks:
+            continue
         blocks[bid] = (bt, path, None, [])
+        if dr:
+            pcmap[(bctrl.upper(), path)] = [pdf, page, cell] if pdf else [None, None, None]
+    if has_drawn:
+        st['chain_drawn_blocks'] = len(pcmap)
+        st['chain_drawn_placeholder'] = con.execute(
+            "SELECT COUNT(DISTINCT p.block_id) FROM pin p JOIN block b ON b.id = p.block_id WHERE b.drawn = 1 AND b.block_type IN (%s) "
+            "AND p.var_id IS NOT NULL AND p.name LIKE '%%~%%'" % qm, tuple(CHAIN_PINS)).fetchone()[0]
     reads = defaultdict(list)
     for bid, name, d, ds, var in con.execute('SELECT p.block_id, p.name, p.direction, p.dir_source, p.var_id FROM pin p JOIN block b ON b.id = p.block_id '
                                             'WHERE b.block_type IN (%s) AND p.var_id IS NOT NULL ORDER BY p.block_id, p.name' % qm, tuple(CHAIN_PINS)):
@@ -329,7 +348,15 @@ def build_chain(index_path, ge, io, sibio):
         out[k] = [best[key][1] for key in sorted(best)]
     st['chain_vars'] = len(out)
     st['chain_entries'] = len({x[0] for v in out.values() for x in v})
-    return out, st
+    used = {(k[0], s[1]) for k, v in out.items() for x in v for s in x[3]}
+    st['chain_drawn_used'] = sum(1 for k in pcmap if k in used)
+    return out, st, {k: v for k, v in pcmap.items() if k in used}
+
+
+def chain_cites(ctrl, step, pcmap):
+    """轉手鏈裡經過「依列印邏輯圖建的方塊」（加密程式，schema 16）的那幾步 → [[步序, pdf, 頁, 格], …]；沒有就 []。"""
+    cu = (ctrl or '').upper()
+    return [[i] + pcmap[(cu, s[1])] for i, s in enumerate(step) if (cu, s[1]) in pcmap]
 
 
 # ---------------------------------------------------------------- .cim：屬性段、連結外框、重複外框、靜態文字
@@ -666,6 +693,9 @@ def scan_screen(fn, path, ne, idx, stats):
                                      via='chain', chain=step)
                             if sb:
                                 h['sib'] = 1
+                            pc = chain_cites(cc, step, idx.get('chain_pc') or {})
+                            if pc:
+                                h['chain_pc'] = pc                 # 這幾步的方塊取自列印邏輯圖（加密程式）
                             own = {BCA.ge_cmp(f) for f in idx['forms'].get(key, ())}
                             cap = next((lres.strip() for _lk, _lv, lres, lg, _hd in labels
                                         if CAP_OTHER_RE.match(lres.strip()) and not any(lg in o or o in lg for o in own)), None)
@@ -793,6 +823,8 @@ def reduce_hits(hits, stats):
                     by_ge[key][-1]['cap'] = h['cap']
                 if h.get('sib'):
                     by_ge[key][-1]['sib'] = 1
+                if h.get('chain_pc'):
+                    by_ge[key][-1]['chain_pc'] = h['chain_pc']
             stats['rect_src'][h['rect_src']] += 1
             stats['kept'].append(h)
     for v in by_ge.values():
@@ -825,7 +857,7 @@ def main():
     if a.chain:
         if not os.path.exists(a.chain):
             sys.exit('--chain 需要 signal-atlas 索引：%s' % a.chain)
-        idx['chain'], chain_st = build_chain(a.chain, ge, idx['io'], idx['sibio'])
+        idx['chain'], chain_st, idx['chain_pc'] = build_chain(a.chain, ge, idx['io'], idx['sibio'])
         print('轉手鏈：%d 個變數（%d 個條目）；丟掉 多寫入者 %d、本身是條目訊號 %d、名稱是別的編號 %d、多輸出方塊 %d' % (
             chain_st['chain_vars'], chain_st['chain_entries'], chain_st['chain_multi_writer'], chain_st['chain_own_logic'],
             chain_st['chain_other_form'], chain_st['chain_multi_out']))

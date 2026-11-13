@@ -1065,6 +1065,16 @@ v8 的 GE 編號卡只有對照（編號、說明、KKS、訊號）；查 `96FG-
 - **反方驗證**（7 組，核對紀錄在 claude/GE手冊插圖位置_2026-11-08/）：每頁幾何／文字與引線語意兩個鏡頭——23 則的框與編號全部正確，改了 1 個框（p.20 左上「(45FT-21A/B)」右緣多框進圖面 0.008）、1 句推論理由（「同一張照片右側」→ 右圖）、把 Figure 11 從「照片」改稱 3D 剖視圖，並依兩個鏡頭寫 `pt`（Figure 10 的引線全部指封板上的穿出點，不是元件本體）；GEK121811 64 張點陣插圖逐張目視：只有 p.19／p.20 寫著 GE 編號（#1 軸承 Figure 26～28 沒有 39VS-11／12、96VC 的標註；p.66／67「4-EGV」是第 4 級到出口導葉，不是 IGV 致動器）；其餘 16 份 GEK 手冊整頁 OCR＋嵌入圖高解析複核：只有 HMI 截圖（GEK121243、GEK121624）與系統示意（IBH、冷卻封氣）上的閥名，沒有位置。
 - **已知限制**：Figure 10 沒寫是由前往後還是由後往前看，卡上的鐘點以圖面上方為 12 點；Figure 10 的引線指封板上的穿出孔／接頭（不是軸承蓋上的感測器本體）；Figure 11 兩張是剖視圖，看不出元件在機組近側還是遠側；一則斜線合寫（45FT-21A/B、39VS-21/22、BT-J2-1/2）的 A／B、21／22 圖上分不出；GEK121808 是系統示意圖（非比例），只看得出致動器在環的哪一側。
 
+## v25：signal-atlas 索引換 11 月 checkout、加密程式的方塊取自列印邏輯圖（2026-11-13）
+
+使用者 2026-11-13：「最近程式有做修改，相關的變動這邊也要調整」。signal-atlas 2026-11-10～13 三筆：換 11 月的 checkout 重建 10 台控制器（AGC1、BOPM1A／B、G11、G12、H11、H12、S1、SAMP1、WSC1，checkout 2026-11-06／07）、列印圖 gate 改讀合併匯出的每一張邏輯圖、**schema 16**：程式 XML 加密的方塊依組態工具列印的邏輯圖建成索引列（`block.drawn=1`、腳位方向來源 `G`、出處在 `block_cite`〔pdf, page, cell〕；圖上沒印腳名的腳是佔位名 `in~N`／`out~N`）。AMS 上一次發布用的是 2026-10-05 的索引（WSC1／BOPM1A checkout 2026-07-23）。**程式碼只改兩處**（轉手鏈引圖頁、圖控「依據」排序），其餘是同一套產生器讀新索引重跑。
+
+- **重跑順序**：hst-docsearch `build_ge_tags.py`（對照表連 Mark VIe 訊號，docstring 規定索引重建後要重跑）→ `hmi_index.py`（AMS 設備的圖控，讀控制器 `display_screen`）→ `rebuild.py --skip-docsearch --skip-hmi --skip-pid --e2e`。對照表 3,954 個條目、1,375 個連到訊號，**逐條與 11-08 相同**（只有 `built_at` 不同）→ 沿用 11-08 的檔，signal-atlas 的 `device_xref`（網頁的設備對照）不必重匯出。
+- **`hmi_ge.build_chain`**：圖面方塊照走（`CHAIN_DIR_OK` 本來就收 `G`：組態工具自己的圖、不是推斷）；鏈上經過圖面方塊的那一處另帶 `chain_pc`＝[[步序, pdf, 頁, 格], …]（`chain_cites`；舊索引沒有 `drawn` 欄就不帶），`build_card_aux.ge_chain_drawn` 在「對應方式」補「AI_25 這一步所在的程式 XML 加密，方塊取自組態工具列印的邏輯圖 S1_P.pdf 第 73 頁 A08 格」。結果只多 1 個編號：**ST 96GG-1V**（S1.ai_dvar →AI_25→ dvar，ST_Gen_Exciter_UX 畫面），其餘 747 個編號的圖控位置逐筆不變。`stats.chain` 多 `chain_drawn_blocks`（圖面上的 MOVE／AI 方塊 1,803）、`chain_drawn_used`（鏈上用到的 17）、`chain_drawn_placeholder`（腳名是佔位名而不走的 1,429）。**佔位腳不改寫成 SRC／DEST**（dcdas 的規矩）：量過若把圖面 MOVE 的 `in~1`→`out~1` 當成搬移，會多 3 個編號 13 處（30DRYFAULT、52L2/AUX、52L3/AUX），其中 `di_l52lx2 → l52gx2` 名稱換了一個字母，不收。
+- **`hmi_index.load_dcdas_screens`**：`hmi_point` 依（畫面, 點名）排序。同一個位號在同一張畫面有好幾個點（`.FAULT`、`.MN_REJ_A`…）時卡上「依據」取第一個；以前隨索引的列順序走，換索引時 KKS 卡 34 個（SAMP1 取樣閥、BOPM1A 的 G1xEKT55QM002）跟著換，畫面與位置都沒變。改成排序後，與 v24 發布的比是 51 個 KKS 卡的「依據」點名不同（一次性；之後只有點名本身改了才會變）。AMS 設備的 `hmi.json` 870 台逐台不變。
+- **資料變動（與 v24 發布的比）**：AMS 設備卡 1,320 個控制器來源字串只換 checkout／索引日期（`sec.dcdas`、比對基準 1,286 處、DCS 寫入事件那句 26 處）；**一號機 LP 汽包水位 6 支（G11／G12HAD60BL001～003，H11／H12 PHRA 的 AnalogInput）控制器 AI High Value 由 14.22 改成 14.13 kPag**，與 DCS 端子表相同了（端子表比對 mismatch → ok；AMS 現值仍與控制器不同）；端子表比對（`wire_cov`）CWP 馬達震動 1-VI-CW011-1／2／3 的控制器變數改名 `…AXQ01`；接線路徑（`wire_ge` 1,343、`wire_kks` 2,921）、P&ID、位置圖逐筆不變（`docs` 的 `alts` 多 1：文件庫多了副本）。ge_tags_dir 的 `wire_notes_kks.json` 三則 FWP 註記「現行控制器組態（2026-09 的 checkout）」改成 2026-11 的 checkout（新索引 C10LAC50／60／70BG201～208 仍是 0～300，查過）。
+- **測試**：`test_getag.py` v11 那組加 1 項：96GG-1V 的圖控經 AI_25、卡上寫 S1_P.pdf 第 73 頁 A08 格與「加密」、等級不是推論。
+
 ## 加密與封裝（tools/encrypt_data.py；兩站共用）
 
 GitHub Pages 是公開靜態站，`docs/*/data` 一律以**密文**發布，只有 `data/meta.json` 是明文；瀏覽器在員工代號登入後再輸入**密語**解密（與 momobacon-wq/signal-atlas 同一套作法）。
