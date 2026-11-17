@@ -2,5 +2,7 @@
  "AMS_SERVER": "<AMS 伺服器的電腦名稱>",
  "AMS_SQL_INSTANCE": "<AMS 伺服器的 SQL Server 執行個體，主機\\執行個體>",
  "DRIVE_ROOT_ID": "<工程文件庫 Google 雲端硬碟資料夾的 ID>",
- "PNEUVALVE_SHEET_ID": "<全廠氣動閥清單 Google 試算表的 ID>"
+ "PNEUVALVE_SHEET_ID": "<全廠氣動閥清單 Google 試算表的 ID>",
+ "MOV_LIST_ID": "<AUMA 電動閥 MOV LIST（雲端硬碟上的 xlsx，以試算表開啟）的檔案 ID>",
+ "DENY_STRINGS": "<不可出貨的字串（人名等），以 | 分隔；verify_encrypted 解密後逐檔檢查>"
 }

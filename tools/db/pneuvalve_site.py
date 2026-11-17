@@ -160,9 +160,13 @@ def read_xlsx(path):
     return out
 
 
+# 2020 年林口電廠 MOV LIST 的寫法「MOV LIST 2020(<整理者>)」帶人名：換成中性的說法（2026-11-17 驗證發現 61 刪除紀錄有一處；人名不寫進程式）
+TRAIN_NAME_RE = re.compile(r'(MOV LIST 2020)\s*[(（][^()（）\s]{1,6}[)）]')
+
+
 def scrub_local(s):
-    """本機路徑三道：文件庫根 → 相對、家目錄 → ~、其餘還帶本機痕跡的 → 只剩檔名。"""
-    return scrub_paths(HOME_RE.sub('~', LOCAL_PREFIX_RE.sub('', s)))
+    """本機路徑三道：文件庫根 → 相對、家目錄 → ~、其餘還帶本機痕跡的 → 只剩檔名；另把林口 MOV LIST 的整理者名字換掉。"""
+    return TRAIN_NAME_RE.sub(r'\1（林口電廠備品清單）', scrub_paths(HOME_RE.sub('~', LOCAL_PREFIX_RE.sub('', s))))
 
 
 # ------------------------------------------------------------------ AMS 對照

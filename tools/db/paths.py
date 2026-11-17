@@ -17,6 +17,8 @@
                     預設 ~\\.claude\\skills\\notebooklm-batch5-Research\\data\\興達全廠氣動閥LIST_v2.6.xlsx
   AMS_GE_TAGS       GE 原廠設備編號對照表 ge_tags.json（hst-docsearch 的 build_ge_tags.py 產生；build_card_aux --ge-tags）
                     預設 hst-docsearch config.json 的 ge_tags_dir 下的 ge_tags.json
+  AMS_MOV_XLSX      AUMA 電動閥 MOV LIST xlsx（mov_site.py 的輸入，v26）                    預設 <LIBRARY_ROOT>\\claude\\AUMA_MOV\\ 版次最高的 *MOV_LIST_v<版次>_*.xlsx（列目錄比檔名，不讀檔）
+  AMS_DCDAS_INDEX_U2  二號機的 signal-atlas 索引（mov_site 的訊號連結）                   預設 %LOCALAPPDATA%\\dcdas\\u2\\index.sqlite
 
   py tools/db/paths.py     # 印出目前解析到的每個路徑與是否存在（接手新機器時先跑這個）
 
@@ -24,6 +26,7 @@
 """
 import json
 import os
+import re
 
 _LOCAL = os.environ.get('LOCALAPPDATA') or os.path.join(os.path.expanduser('~'), 'AppData', 'Local')
 AMS_LOCAL = os.path.join(_LOCAL, 'AMS')
@@ -103,12 +106,29 @@ PID_OCR_CACHE = os.path.join(AMS_LOCAL, 'pidocr')                  # pid_ocr：�
 PID_OCR_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pid_ocr_map.json')  # pid_ocr 蒸餾後的位號字框（進 repo；pid_index 只讀它）
 PID_OCR_GE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pid_ocr_ge.json')    # pid_ocr --distill-ge：括號裡的線條字 GE 標籤（只給 pid_ge；不進 repo）
 
+
+def _mov_default():
+    """文件庫 claude/AUMA_MOV/ 底下版次最高的 *MOV_LIST_v<版次>_*.xlsx（檔名的版次數字比大小，不看修改時間；只列目錄、不讀檔）。"""
+    import glob
+    best = None
+    for p in glob.glob(os.path.join(LIBRARY_ROOT, 'claude', 'AUMA_MOV', '*MOV_LIST_v*.xlsx')):
+        m = re.search(r'_v(\d+(?:\.\d+)*)_', os.path.basename(p))
+        if m:
+            v = tuple(int(x) for x in m.group(1).split('.'))
+            if best is None or v > best[0]:
+                best = (v, p)
+    return best[1] if best else os.path.join(LIBRARY_ROOT, 'claude', 'AUMA_MOV', 'MOV_LIST.xlsx')
+
+
+MOV_XLSX = _env('AMS_MOV_XLSX', _mov_default())   # AUMA 電動閥 MOV LIST（mov_site.py 的輸入；v26）
+DCDAS_INDEX_U2 = _env('AMS_DCDAS_INDEX_U2', os.path.join(_LOCAL, 'dcdas', 'u2', 'index.sqlite'))   # 二號機 signal-atlas 索引（mov_site 的訊號連結）
+
 ALL = [('AMS_SQLITE', AMS_SQLITE), ('CARDWORK', CARDWORK), ('PDFTXT_CACHE', PDFTXT_CACHE), ('LIBRARY_ROOT', LIBRARY_ROOT),
        ('PREV_XLSX', PREV_XLSX), ('BUILD_DIR', BUILD_DIR), ('SHEETS_CACHE', SHEETS_CACHE), ('SHEETS_FINAL', SHEETS_FINAL),
        ('DCDAS_INDEX', DCDAS_INDEX), ('DRIVE_MAP', DRIVE_MAP), ('DOCSEARCH_JSON', DOCSEARCH_JSON), ('FTS_DB', FTS_DB),
        ('PNEUVALVE_XLSX', PNEUVALVE_XLSX), ('HMI_SCREENS', HMI_SCREENS), ('HMI_JSON', HMI_JSON), ('HMI_SHOTS', HMI_SHOTS),
        ('PID_JSON', PID_JSON), ('PID_SHOTS', PID_SHOTS), ('PID_TEXT_CACHE', PID_TEXT_CACHE), ('PID_OCR_CACHE', PID_OCR_CACHE),
-       ('PID_OCR_MAP', PID_OCR_MAP), ('PID_OCR_GE', PID_OCR_GE), ('GE_TAGS', GE_TAGS)]
+       ('PID_OCR_MAP', PID_OCR_MAP), ('PID_OCR_GE', PID_OCR_GE), ('GE_TAGS', GE_TAGS), ('MOV_XLSX', MOV_XLSX), ('DCDAS_INDEX_U2', DCDAS_INDEX_U2)]
 
 
 def report():

@@ -331,6 +331,14 @@
               // 清單有命中、或有「開頭相符」的候選：保留原字串，由查詢卡 lookup() 決定（開 AMS 設備、閥卡，或列兩邊候選）
               try { const V = await AMS.valves.load(); vx = !!AMS.valves.hit(V, t, AMS.valves.amsLen(rs)) || AMS.valves.suggest(V, t, 12).some((x) => x.m === 'pre'); } catch (e) { /* 規格載入失敗 → 照舊 */ }
             }
+            if (!vx && !numc && AMS.movs) {
+              // v26：電動閥清單（G21LBC32QN001 不可被 HostTag 32QN001 改寫成 G12LAF32QN001）；「推論」等級的別名不擋
+              try {
+                const M = await AMS.movs.load(); const mh = M ? AMS.movs.hit(M, t) : null;
+                vx = (!!mh && mh.via !== 'weak') || (!!M && !!M.out && !!M.out[IX.compact(t)])   // 清單特意沒收的位號：查詢卡說明理由
+                  || (!!M && (rs.how === 'suggest' || rs.how === 'contain') && AMS.movs.suggest(M, t, 12).some((x) => x.m === 'pre' && !IX.compactMap.has(IX.compact(x.key))));
+              } catch (e) { /* 規格載入失敗 → 照舊 */ }
+            }
           }
           if (rs.key && !vx) key = rs.key;
         } catch (e) { /* 索引載入失敗 → 照原字串查詢 */ }

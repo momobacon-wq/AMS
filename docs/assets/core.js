@@ -1263,6 +1263,80 @@
     }
     return out;
   };
+  /* ---------- 電動閥清單（02.json mov＋card/mov-NN.json；tools/db/mov_site.py，CONTRACT.md「v26」）----------
+   * mov.index＝{位號（去分隔符）: 列}；mov.alias＝{文件寫法不同的同一顆閥: [[列, 等級, 說明], …]}（等級「推論」的只當弱命中）；
+   * mov.list＝[列, 位號, 中文名, 分塊號]；mov.out＝{清單沒收的位號: 說明}；mov.ge＝{GE 編號: [列…]}。
+   * 比對一律整串相等：位號、別名；去訊號尾碼（XB61、XQ01、AXG52）、子件尾碼（-BG001、-MA01、-KH01）、「.腳位」再比；只打本體（LBA11QM004）列出各機組。 */
+  const MV = (AMS.movs = {});
+  MV.load = function () {
+    if (!MV._p) {
+      const cm = (D.sheets || []).find((x) => x.mode === 'card');
+      if (!cm) return Promise.resolve(null);
+      MV._p = (async () => { const sp = await D.loadSheet(cm.id); MV.M = (sp && sp.mov) || null; return MV.M; })().catch(() => { MV._p = null; return null; });
+    }
+    return MV._p;
+  };
+  MV.byCore = function (M) {
+    if (!M._core) {
+      M._core = new Map();
+      const add = (k, i) => { if (!M._core.has(k)) M._core.set(k, []); if (!M._core.get(k).includes(i)) M._core.get(k).push(i); };
+      for (const it of M.list || []) add(it[1].slice(3), it[0]);
+      // 別名的本體也收（控制器用的寫法 HBK11QM001、LAE60QM001 打成不帶機組碼時也列各機組）；本身就是清單本體的不動
+      const own = new Set((M.list || []).map((it) => it[1].slice(3)));
+      for (const [k, list] of Object.entries(M.alias || {})) { const c = k.slice(3); if (/^[A-Z]{3}\d\d[A-Z]{2}\d{3}$/.test(c) && !own.has(c)) for (const x of list) add(c, x[0]); }
+    }
+    return M._core;
+  };
+  const MV_SUF = /^([CGS]\d\d[A-Z]{3}\d\d[A-Z]{2}\d{3})(?:[A-Z]?X[A-Z]\d\d|BG\d{3}|MA\d\d|KH\d\d)$/;
+  /** 輸入字串 → { rows:[列…], via:'key'|'suffix'|'alias'|'weak'|'core', k, c, al:[[列, 等級, 說明]]? } | null */
+  MV.hit = function (M, q) {
+    if (!M || !M.index) return null;
+    const s = String(q == null ? '' : q).trim();
+    const c = IX.compact(s);
+    if (c.length < 6) return null;
+    const forms = [[c, '']];
+    const m = MV_SUF.exec(c); if (m) forms.push([m[1], 'suffix']);
+    const dot = s.indexOf('.');
+    if (dot > 0) { const c2 = IX.compact(s.slice(0, dot)); if (c2 && c2 !== c) forms.push([c2, 'suffix']); }
+    for (const [k, suf] of forms) {
+      if (M.index[k] != null) return { rows: [M.index[k]], via: suf || 'key', k, c };
+      const al = M.alias && M.alias[k];
+      if (al && al.length) return { rows: al.map((x) => x[0]), via: al.every((x) => x[1] === '推論') ? 'weak' : 'alias', k, c, al };
+    }
+    if (/^[A-Z]{3}\d\d[A-Z]{2}\d{3}$/.test(c)) { const rs = MV.byCore(M).get(c); if (rs && rs.length) return { rows: rs.slice(), via: 'core', k: c, c }; }
+    return null;
+  };
+  /** 同一個位置在其他機組的那幾列：本體相同、而且同一族（G 機組之間；C10／C20／C30 之間；C00 自成一族——C00LBG10QM412 與 C10LBG10QM412 是兩顆不同的閥） */
+  MV.siblings = function (M, i) {
+    const t = M.list[i][1]; const fam = (x) => (x[0] === 'G' ? 'G' : x.slice(0, 3) === 'C00' ? 'C00' : 'C');
+    return (MV.byCore(M).get(t.slice(3)) || []).filter((j) => j !== i && fam(M.list[j][1]) === fam(t));
+  };
+  /** 打一半 → 清單裡相近的閥：{key, src:'電動閥清單', alias:<中文名>, tag:'', m:'pre'|'sub'|'name', mov:列} */
+  MV.suggest = function (M, q, limit) {
+    limit = limit || 8;
+    const out = []; if (!M || !M.list) return out;
+    const n = IX.norm(q); const c = IX.compact(q);
+    if (n.length < 2) return out;
+    const cjk = /[^\x00-\x7F]/.test(n);
+    const pre = []; const sub = [];
+    for (const it of M.list) {
+      const T = IX.compact(it[1]);
+      const mk = (m) => ({ key: it[1], src: '電動閥清單', alias: it[2] || '', tag: '', m, mov: it[0] });
+      if (!cjk && c.length >= 4 && T.startsWith(c)) pre.push(mk('pre'));
+      else if (!cjk && c.length >= 4 && T.slice(3).startsWith(c)) pre.push(mk('pre'));
+      else if (!cjk && c.length >= 6 && T.includes(c)) sub.push(mk('sub'));
+      else if (cjk && it[2] && n.split(/\s+/).filter(Boolean).every((x) => it[2].toUpperCase().includes(x))) sub.push(mk('name'));
+      if (pre.length >= limit) break;
+    }
+    return pre.concat(sub).slice(0, limit);
+  };
+  /** 列 → 那一列的卡片資料（card/mov-NN.json，開卡才載；D.fetchJSON 有快取）：{ j, r } */
+  MV.loadRow = async function (M, i) {
+    const it = M.list[i]; const f = it && M.files ? M.files[it[3]] : null;
+    if (!f) return { j: null, r: null };
+    const j = await D.fetchJSON(f);
+    return { j, r: (j.by_i || {})[String(i)] || null };
+  };
   /* ---------- GE 原廠編號卡（card/getag.json；tools/db/build_card_aux.py ge_card_data，CONTRACT.md「v8」）----------
    * 整份 GE 原廠編號對照表（約 4 千個編號）：AMS 沒有的元件（熱電偶 CT-DA-1、開關、閥本體…）打 GE 編號、Mark VIe 訊號名或 KKS
    * 也查得到是哪個元件。只在 db 站（card/index.json 有 getag）；查詢卡開啟、搜尋框聚焦時開始抓，抓完建四個索引：
@@ -1607,15 +1681,17 @@
    *  再給 GE（兩邊都有時 GE 至少拿到一半，用不完的還給清單）；都沒有時列打錯字的相近鍵。GE 對照表還在下載時不等它：先列 AMS 與清單，
    *  陣列掛 later，載完由 Autocomplete 重查一次 */
   AMS.searchSuggestSource = {
-    prepare: () => { VS.load(); GE.load(); return IX.load().catch(() => {}); },
+    prepare: () => { VS.load(); MV.load(); GE.load(); return IX.load().catch(() => {}); },
     fetch: async (q) => {
-      const [, V] = await Promise.all([IX.load(), VS.load()]);
+      const [, V, M] = await Promise.all([IX.load(), VS.load(), MV.load()]);
       const later = GE.pending() ? GE.load() : null;
       const done = (items) => { if (later) items.later = later; return items; };
       const a = IX.suggest(q, 12);
       const have = new Set(a.map((x) => IX.compact(x.key)));
+      // 氣動閥清單與電動閥清單（v26）共用「清單」的名額：氣動閥在前
       const v = VS.suggest(V, q, 12).filter((x) => !have.has(IX.compact(x.key)));
       for (const x of v) have.add(IX.compact(x.key));
+      for (const x of MV.suggest(M, q, 12)) { if (!have.has(IX.compact(x.key))) { v.push(x); have.add(IX.compact(x.key)); } }
       const g = GE.suggest(q, 12).filter((x) => !have.has(IX.compact(x.key))); // 對到 AMS 的 GE 編號已在 04（來源類型 8），不重列
       if (!a.length && !v.length && !g.length) {
         const rs = IX.resolve(q); // 去分隔符／帶前後綴就對得到（G12-HAP70-BT001、….PV）：列 Enter 會開的那一個，不列相近鍵
@@ -1623,12 +1699,12 @@
         const gh = GE.hit(q); // Mark VIe 訊號名、KKS：列它對到的 GE 編號（Enter 會開 GE 編號卡）
         if (gh) return done(GE.merge(gh.ids.map((i) => ({ key: gh.unit ? gh.unit + '_' + GE.G.j.entries[i].t : GE.G.j.entries[i].t, src: 'GE 原廠編號', alias: GE.label([GE.G.j.entries[i]]), tag: '', m: 'pre', ge: i })), 12));
         if (rs.key) return done(IX.suggest(rs.key, 1));
-        if (VS.hit(V, q, 0)) return done([]);
+        if (VS.hit(V, q, 0) || MV.hit(M, q)) return done([]);
         return done(AMS.fuzzy(V, q, 6)); // 都沒有：列打錯字的相近鍵（只列出，不自動開）
       }
       const room = 12 - Math.min(a.length, 8);
       const ng0 = Math.min(g.length, Math.floor(room / 2));
-      const nv = Math.min(v.length, 6, room - ng0);
+      const nv = Math.min(v.length, a.length || g.length ? 6 : 12, room - ng0);   // AMS、GE 都沒有時名額全給清單（二、三號機的電動閥只在清單）
       const ng = Math.min(g.length, room - nv);
       return done(a.slice(0, 12 - nv - ng).concat(v.slice(0, nv), g.slice(0, ng)));
     },

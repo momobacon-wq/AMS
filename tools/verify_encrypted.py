@@ -35,6 +35,17 @@ CHECK_TEXT = b"ams-ok"
 ERRORS = []
 
 
+def _deny_strings():
+    """本機 site_terms.json（%LOCALAPPDATA%\\AMS\\site_terms.json 或 AMS_SITE_TERMS）的 DENY_STRINGS（| 分隔）→ list；沒有檔或沒有這個鍵 → None。"""
+    p = os.environ.get("AMS_SITE_TERMS") or os.path.join(os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local"), "AMS", "site_terms.json")
+    try:
+        with open(p, encoding="utf-8-sig") as f:
+            v = json.load(f).get("DENY_STRINGS")
+    except (OSError, ValueError):
+        return None
+    return [s for s in str(v).split("|") if s.strip()] if v else None
+
+
 def err(m):
     ERRORS.append(m); print("ERR  " + m)
 
@@ -121,6 +132,14 @@ def verify_site(docs, pw):
                     refs.add(f)
             for f in ((ix.get("kkstag") or {}).get("files")) or []:
                 refs.add(f)
+    # v26：電動閥清單的查詢卡分塊（card/mov-NN.json）登記在 02.json 的 mov.files（tools/db/mov_site.py）
+    if "sheets/02.json" in texts:
+        try:
+            s02 = json.loads(texts["sheets/02.json"].decode("utf-8"))
+        except ValueError:
+            s02 = {}
+        for f in ((s02.get("mov") or {}).get("files")) or []:
+            refs.add(f)
     missing = sorted(r for r in refs if r not in texts)
     orphan = sorted(r for r in texts if r != "manifest.json" and r not in refs)
     (ok if not missing else err)(f"{len(missing)} referenced files missing" + (": " + ", ".join(missing[:5]) if missing else ""))
@@ -170,6 +189,17 @@ def verify_site(docs, pw):
         drive += len(ABS_RE.findall(t))
     if not bad:
         ok(f"no build-machine local paths in plaintext ({drive} drive-letter paths inside the data itself, e.g. AMS server paths)")
+    # 不可出貨的字串（人名等）：清單放在本機 site_terms.json 的 DENY_STRINGS（以 | 分隔；不進 repo）。沒有本機檔（CI）就略過
+    deny = _deny_strings()
+    if deny is None:
+        ok("deny-string check skipped (no local site_terms.json DENY_STRINGS)")
+    else:
+        hits = [(rel, s) for rel, b in texts.items() for s in deny if s in b.decode("utf-8", "replace")]
+        if hits:
+            for rel, s in hits[:5]:
+                err(f"deny-listed string in {rel} (DENY_STRINGS entry #{deny.index(s) + 1})")
+        else:
+            ok(f"0 deny-listed strings ({len(deny)} entries) in {len(texts)} decrypted files")
     if 'name="robots"' not in html:
         err("index.html lacks <meta name=\"robots\" content=\"noindex, nofollow\">")
 

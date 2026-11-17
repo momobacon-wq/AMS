@@ -12,8 +12,10 @@
   py tools/db/rebuild.py --skip-drive-map   # 不重讀 Google 雲端硬碟中繼資料
   py tools/db/rebuild.py --cardwork DIR     # 有各產生器輸出時做完整建置（build_card_aux DIR），而不是 --recompare
   py tools/db/rebuild.py --only-stamp       # 只改了前端程式：兩站重新戳記＋驗證
-  py tools/db/rebuild.py --only-pneuvalve   # 只重新併入氣動閥清單（試算表改了）：pneuvalve_site → 戳記 → 驗證
+  py tools/db/rebuild.py --only-pneuvalve   # 只重新併入氣動閥清單（試算表改了）：pneuvalve_site → mov_site → 戳記 → 驗證
                                             # （兩條完整路徑最後也都會跑 pneuvalve_site；--skip-pneuvalve 略過）
+  py tools/db/rebuild.py --only-mov         # 只重新併入電動閥清單（AUMA MOV LIST xlsx 改了，v26）：mov_site → 戳記 → 驗證
+                                            # （兩條完整路徑與 --only-pneuvalve 最後都會跑 mov_site：它的 00 目錄列、側欄群組接在氣動閥清單之後；--skip-mov 略過）
   py tools/db/rebuild.py --only-stamp --e2e # push 前關卡：戳記＋驗證＋端對端測試（tools/tests/run_e2e.py），結尾印 git status --short docs/
   py tools/db/rebuild.py --sqlite <AmsDb.sqlite> [--backup-date 2026-09-12]
                                             # 一條龍（拿到新的 .ams_bckup、tools/db/restore.sh 倒出 SQLite 之後）：
@@ -81,6 +83,7 @@ def verify_and_finish(a, t0, label):
 
 
 PNEU = '氣動閥清單（pneuvalve_site：%s → 57～61 分頁、查詢卡「氣動閥」組；自行解密／加密）'
+MOVL = '電動閥清單（mov_site：%s → 62～68 分頁、查詢卡「電動閥」組與 card/mov-NN.json；自行解密／加密）'
 
 def hmi_flags(a):
     """build_card_aux 的圖控旗標：cardwork 有 hmi.json 就明指路徑與縮圖目錄；連 hmi.json 都沒有才 --no-hmi
@@ -326,6 +329,14 @@ def run_pneuvalve(a):
     run(PNEU % paths.PNEUVALVE_XLSX, PY, os.path.join('tools', 'db', 'pneuvalve_site.py'), DATA)
 
 
+def run_mov(a):
+    """v26：電動閥清單。排在 pneuvalve_site 之後（00 目錄列、側欄群組接在氣動閥清單後面；pneuvalve_site 重跑會把它的列插在最後，所以它之後一定要再跑這支）。
+    讀 signal-atlas 一、二號機索引（訊號連結）與 GE 對照表（GE 編號、S 機組碼別名）；輸入有問題時在動資料之前就中止。"""
+    if a.skip_mov:
+        print('\n== 略過電動閥清單（--skip-mov）：沿用上一次併入的 62～68 與查詢卡資料（完整重建 --sqlite 會清掉 sheets/，此時不要用） ==', flush=True); return
+    run(MOVL % paths.MOV_XLSX, PY, os.path.join('tools', 'db', 'mov_site.py'), DATA)
+
+
 def rebuild_from_sqlite(a, t0):
     """--sqlite：README「重建」步驟表的全部步驟。每步先印輸入／輸出路徑；任一步失敗就停（明文會先加密回去）。"""
     sqlite = os.path.abspath(a.sqlite)
@@ -366,6 +377,7 @@ def rebuild_from_sqlite(a, t0):
         run('查詢卡附加資料（build_card_aux 完整：%s → card/*.json，加密、戳記）' % cardwork, PY, os.path.join(db, 'build_card_aux.py'), cardwork, DATA,
             '--dcdas', paths.DCDAS_INDEX, '--docsearch', paths.DOCSEARCH_JSON, '--drive-map', paths.DRIVE_MAP, *hmi_flags(a), *pid_flags(a), *ge_flags(a))
         run_pneuvalve(a)
+        run_mov(a)
     except BaseException:
         if is_plaintext():
             print('\n!! 建置失敗，資料仍是明文 → 先原地加密回去（不留明文）', flush=True)
@@ -392,18 +404,22 @@ def main():
     ap.add_argument('--backup-date', default='2026-09-12', help='備份日（card_ams_extra 的「距備份 N 天」基準；--sqlite 用）')
     ap.add_argument('--skip-workbook', action='store_true', help='--sqlite 時略過 build_workbook（沿用 paths.SHEETS_FINAL）')
     ap.add_argument('--skip-pneuvalve', action='store_true', help='略過氣動閥清單（pneuvalve_site.py；57～61 分頁與查詢卡氣動閥組會消失）')
-    ap.add_argument('--only-pneuvalve', action='store_true', help='只重新併入氣動閥清單（試算表改了、AMS 資料沒變）→ 戳記 → 驗證')
+    ap.add_argument('--only-pneuvalve', action='store_true', help='只重新併入氣動閥清單（試算表改了、AMS 資料沒變）→ 電動閥清單 → 戳記 → 驗證')
+    ap.add_argument('--skip-mov', action='store_true', help='略過電動閥清單（mov_site.py；沿用上一次併入的 62～68）')
+    ap.add_argument('--only-mov', action='store_true', help='只重新併入電動閥清單（MOV LIST xlsx 改了、AMS 資料沒變）→ 戳記 → 驗證')
     a = ap.parse_args()
     t0 = time.time()
-    if a.only_pneuvalve:
+    if a.only_pneuvalve or a.only_mov:
         try:
-            run_pneuvalve(a)
+            if a.only_pneuvalve:
+                run_pneuvalve(a)
+            run_mov(a)      # --only-pneuvalve 之後也要：pneuvalve_site 把它的目錄列插在最後，電動閥清單的列要重排回後面
         except BaseException:
             if is_plaintext():
                 subprocess.run([PY, os.path.join('tools', 'encrypt_data.py'), DATA], cwd=ROOT)
             raise
         stamp_both()
-        verify_and_finish(a, t0, '氣動閥清單'); return
+        verify_and_finish(a, t0, '氣動閥清單' if a.only_pneuvalve else '電動閥清單'); return
     if a.only_stamp:
         stamp_both()
         verify_and_finish(a, t0, '只戳記'); return
@@ -439,6 +455,7 @@ def main():
                 PY, os.path.join('tools', 'db', 'build_card_aux.py'), '--recompare', DATA, *aux)
         spec_undo = {}   # build_card_aux 已經用新規格算好 manifest.build 並加密；之後才失敗就不能再換回舊規格
         run_pneuvalve(a)
+        run_mov(a)
     except BaseException:
         if is_plaintext():
             if spec_undo:

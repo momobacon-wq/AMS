@@ -274,7 +274,7 @@
         const loose = rs.key && ((rs.how !== 'exact' && rs.how !== 'compact') || this.numCompact(q, rs));
         const geUnknown = AMS.getag && D.manifest && !AMS.getag.ready(); // 下載中、慢、失敗：還不知道 GE 有沒有這個編號
         const kkUnknown = AMS.kkstag && D.manifest && !AMS.kkstag.ready(); // v17：KKS 編號卡同上
-        if (rs.key && (!loose || (!geUnknown && !kkUnknown && !this.valveBlocksFuzzy(q, rs) && !this.geBlocksFuzzy(q, rs) && !this.kksBlocksFuzzy(q, rs)))) k = rs.key;
+        if (rs.key && (!loose || (!geUnknown && !kkUnknown && !this.valveBlocksFuzzy(q, rs) && !this.geBlocksFuzzy(q, rs) && !this.kksBlocksFuzzy(q, rs) && !this.movBlocksFuzzy(q, rs)))) k = rs.key;
       } catch (e) { /* 索引未載 → 照原字串 */ }
       const h = '#/card/' + encodeURIComponent(k);
       if (location.hash === h) this.run(k); else AMS.router.go(h);
@@ -320,7 +320,21 @@
           if (AMS.kkstag && AMS.kkstag.pending()) { res.kkPending = true; res.notfound = true; res.key = IX.norm(q); res.status = '查詢中：KKS 編號（接線圖）下載中…'; return res; }
           const kh = this.kksHit(q);
           if (kh) return this.kksLookup(q, res, kh);
-          fuzzyBlocked = !!rs.key && ((!vh && this.valveBlocksFuzzy(q, rs)) || (!gh && this.geBlocksFuzzy(q, rs)) || this.kksBlocksFuzzy(q, rs));
+          // v26：電動閥清單（AMS、GE、一號機接線圖都沒有的 AUMA 電動閥：二、三號機全部與一號機少數幾台）→ 電動閥卡。
+          // 排在 AMS 的模糊對應之前：G21LBC32QN001 不可被 HostTag「32QN001」拉去開 G12LAF32QN001。「推論」等級的別名只在 AMS 也沒有模糊對應時才開
+          const mh = this.movHit(q);
+          if (mh && (mh.via !== 'weak' || !rs.key)) {
+            // 命中的那一列本身有 KKS 編號卡（打的是訊號尾碼、-BG001、舊號、別名）→ 開那張 KKS 卡（接線路徑、P&ID 都在；電動閥組在最上面）
+            const t0 = mh.via !== 'core' && mh.rows.length === 1 ? this.spec.mov.list[mh.rows[0]][1] : '';
+            const kh0 = t0 ? this.kksHit(t0) : null;
+            if (kh0) {
+              const r = this.kksLookup(t0, res, kh0); r.movVia = mh;
+              r.status = `「${IX.norm(q)}」是電動閥清單 ${t0} ${mh.al ? `的另一種寫法（${mh.al[0][1]}：${mh.al[0][2]}）` : '加訊號／子件尾碼'}；以下是 ${t0} 的接線圖卡。`;
+              return r;
+            }
+            return this.movLookup(q, res, mh);
+          }
+          fuzzyBlocked = !!rs.key && ((!vh && this.valveBlocksFuzzy(q, rs)) || (!gh && this.geBlocksFuzzy(q, rs)) || this.kksBlocksFuzzy(q, rs) || this.movBlocksFuzzy(q, rs));
           // 對照表慢或失敗而這次走 AMS 的模糊對應：狀態列講明，載到後再查一次（可能其實是 GE 編號）
           if (rs.key && !fuzzyBlocked && AMS.getag && D.manifest && !AMS.getag.ready()) res.geLate = true;
         }
@@ -328,6 +342,8 @@
       const i5 = rs.key && !fuzzyBlocked ? IX.first.get(rs.key) : null;
       if (i5 == null) {
         res.status = M.notfound; res.notfound = true; res.sg = rs.suggestions;
+        const mo = this.spec.mov && this.spec.mov.out ? this.spec.mov.out[IX.compact(q)] : null;   // v26：電動閥清單特意沒收的位號（舊號、已刪除、備品、手動閥）
+        if (mo) res.movOut = mo;
         if (fuzzyBlocked) { // AMS 的模糊候選仍列在最前面（只是不自動開）
           const r0 = IX.sheet.rows[IX.first.get(rs.key)];
           const it0 = { key: rs.key, src: U.text(r0[L.src_col]), alias: U.text(r0[L.alias_col]) };
@@ -391,27 +407,31 @@
         rerunWhenLoaded();
       } else if (res.geKey && GEm && !GEm.G && D.manifest && GEm.state !== 'none') { // 冷開 04 的 GE 鍵：載到後補「另一個範圍也有同編號」那一句
         GEm.load().then(() => { if (!this.destroyed && this.res === res) { const n = this.geOtherNote(res.geKey); if (n) { res.status += n; this.root.querySelector('.cq-status').textContent = res.status; } } });
-      } else if (res.notfound && !res.valve && !res.ge && !res.kks) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
+      } else if (res.notfound && !res.valve && !res.ge && !res.kks && !res.mov) { // 有相近位號時，狀態列不再叫人去位號索引搜尋，直接說「以下是相近的」
         if (GEm && (GEm.slow || GEm.state === 'error') && !GEm.G && D.manifest) rerunWhenLoaded();
         if (!Array.isArray(res.sg)) { try { res.sg = AMS.index.suggest(res.q, 12); } catch (e) { res.sg = []; } }
         try { res.vsg = AMS.valves.suggest(this.spec.valve, res.q, 12); } catch (e) { res.vsg = []; }
         try { const have = new Set(res.sg.concat(res.vsg).map((x) => AMS.index.compact(x.key))); res.gsg = GEm ? GEm.suggest(res.q, 12).filter((x) => !have.has(AMS.index.compact(x.key))) : []; } catch (e) { res.gsg = []; }
         try { res.ksg = AMS.kkstag ? AMS.kkstag.suggest(res.q, 12) : []; } catch (e) { res.ksg = []; }
+        try { res.msg = this.spec.mov ? AMS.movs.suggest(this.spec.mov, res.q, 12) : []; } catch (e) { res.msg = []; }
         res.fz = [];
-        if (!res.sg.length && !res.vsg.length && !res.gsg.length && AMS.fuzzy) { try { res.fz = AMS.fuzzy(this.spec.valve || null, res.q, 8); } catch (e) { res.fz = []; } }
+        // v26：只有電動閥清單有相近的閥（二、三號機打一半：G21LBA11）→ 不列打錯字的鄰號，狀態列直接說清單裡有
+        if (!res.sg.length && !res.vsg.length && !res.gsg.length && !res.msg.length && AMS.fuzzy) { try { res.fz = AMS.fuzzy(this.spec.valve || null, res.q, 8); } catch (e) { res.fz = []; } }
         if ((res.sg.length || res.vsg.length || res.gsg.length) && this.spec.lookup.msg.notfound_near) res.status = this.spec.lookup.msg.notfound_near;
+        else if (res.msg.length) res.status = '找不到完全相符的位號；電動閥清單裡開頭相符的閥列在下方（62 可全欄位搜尋）。';
         else if (res.fz.length) res.status = '找不到這個字串，可能打錯字：相近的鍵列在下方。';
         else if (this.spec.valve) res.status += '；氣動閥可到側欄「氣動閥清單」（57／58）搜尋，GE 舊位號在 Legacy/GE Tag 欄';
         if (GEm && (GEm.G || GEm.slow || GEm.state === 'error')) res.status = res.status.replace(/：$/, '。');
         if (GEm && GEm.G) res.status += '（GE 原廠編號對照表也比對過了）';
         else if (GEm && (GEm.slow || GEm.state === 'error')) res.status += '（GE 原廠編號對照表還沒載到，載到後會自動再查一次）';
+        if (res.movOut) res.status = res.movOut + '。' + res.status;
       }
       this.aux = null; this.statsReady = false;
       const root = this.root;
       const L = this.spec.lookup;
       if (this.scrollEl) this.scrollEl.classList.toggle('landing', !!res.empty);
       root.querySelector('.cq-status').textContent = res.status;
-      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve && !res.ge && !res.gePending && !res.kks && !res.kkPending ? ' bad' : '');
+      root.querySelector('.cq-status').className = 'cq-status' + (res.notfound && !res.valve && !res.ge && !res.gePending && !res.kks && !res.kkPending && !res.mov ? ' bad' : '');
       const row = res.i3 != null ? AMS.devices.sheet.rows[res.i3] : null;
       // alias / count
       const countStyle = this.ruleStyleFor('count', row, res);
@@ -463,6 +483,7 @@
       }
       if (res.ge) { body.appendChild(this.renderGeOnly(res)); this.kksWireBlock(body, res, [q]); document.title = String(q) + '（GE 原廠編號） · 設備查詢卡 · AMS'; return; }
       if (res.kks) { body.appendChild(this.renderKksOnly(res)); document.title = String(q) + '（KKS 接線圖） · 設備查詢卡 · AMS'; return; }
+      if (res.mov) { body.appendChild(this.renderMovOnly(res)); document.title = String(q) + '（電動閥清單） · 設備查詢卡 · AMS'; return; }
       if (res.gePending || res.kkPending) { body.appendChild(U.h('p', { class: 'muted cl-empty' }, '載入中…')); return; }
       if (res.notfound) { body.appendChild(this.renderNotFound(res)); document.title = '查無「' + String(q) + '」 · 設備查詢卡 · AMS'; return; }
       if (res.empty) {
@@ -707,6 +728,155 @@
       } catch (err) { console.error(err); grid.innerHTML = `<p class="muted cl-empty">無法載入氣動閥清單：${U.esc(err.message)}</p>`; }
     }
 
+    /* ---------- 電動閥清單（v26，02.json mov＋card/mov-NN.json；core.js AMS.movs；tools/db/mov_site.py） ---------- */
+    movHit(q) { return this.spec && this.spec.mov ? AMS.movs.hit(this.spec.mov, q) : null; }
+    /** 位號索引的模糊對應要不要採用：清單整串命中（不含「推論」等級的別名），或有開頭相符的候選 → 不採用，改列兩邊的候選 */
+    movBlocksFuzzy(q, rs) {
+      const M = this.spec && this.spec.mov; if (!M) return false;
+      const mh = AMS.movs.hit(M, q);
+      if (mh && mh.via !== 'weak') return true;
+      if (M.out && M.out[AMS.index.compact(q)]) return true;   // 清單特意沒收的位號：說明理由，不可被模糊對應開到別台（G11LAB50QM002 ≠ G11LAB50BP001）
+      return !!rs && (rs.how === 'suggest' || rs.how === 'contain') && AMS.movs.suggest(M, q, 12).some((x) => x.m === 'pre' && !AMS.index.compactMap.has(AMS.index.compact(x.key)));
+    }
+    /** 指到清單第 i 列、而且有 KKS 編號卡（接線圖）的別名：[[別名, 等級]]（G11HNE11AA001 在接線圖上寫成 G11HBK11QM001） */
+    movKksAliases(i) {
+      const M = this.spec.mov; const out = [];
+      for (const [k, list] of Object.entries(M.alias || {})) for (const x of list) if (x[0] === i && this.kksHit(k)) out.push([k, x[1]]);
+      return out;
+    }
+    /** AMS、GE、接線圖都沒有、電動閥清單有 → 電動閥卡（res.mov） */
+    movLookup(q, res, mh) {
+      const M = this.spec.mov; const IX = AMS.index;
+      res.mov = mh; res.notfound = true; res.key = IX.norm(q);
+      const t0 = M.list[mh.rows[0]][1];
+      const u = t0.slice(0, 3);
+      const ka = mh.via !== 'core' ? this.movKksAliases(mh.rows[0]) : [];
+      const where = ka.length ? `接線圖上寫成 ${ka.map((x) => x[0] + '（' + x[1] + '）').join('、')}，接線路徑見那一張卡`
+        : /^(G1|C1|C0)/.test(u) ? '一號機接線圖、AMS 資料庫都沒有這一台' : 'AMS 資料庫與接線路徑只收一號機，這一台沒有';
+      if (mh.via === 'core') res.status = `「${IX.norm(q)}」沒有機組碼：電動閥清單裡有 ${mh.rows.length} 台，選一台看規格。`;
+      else if (mh.via === 'alias' || mh.via === 'weak') {
+        const a = mh.al[0];
+        res.status = `「${IX.norm(q)}」是電動閥清單 ${t0} 的另一種寫法（${a[1]}：${a[2]}）；${where}，以下是清單的資料。`;
+      } else res.status = `「${mh.via === 'key' ? t0 : IX.norm(q)}」是電動閥清單的閥${mh.via === 'suffix' ? '（' + t0 + ' 加訊號／子件尾碼）' : ''}；${where}，以下是清單的資料。`;
+      return res;
+    }
+    /** 電動閥卡：位號、機組、名稱，同一位置其他機組的 chips，接著是清單的規格（逐格來源）；只打本體時列各機組 */
+    renderMovOnly(res) {
+      const M = this.spec.mov; const mh = res.mov;
+      const wrap = U.h('section', { class: 'csec sum mov-only' });
+      const hero = U.h('div', { class: 'sum-hero' });
+      const tagChips = (label, rows) => {
+        const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, label));
+        for (const j of rows) { const it = M.list[j]; ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it[1]) }, U.h('span', { class: 'mono' }, it[1]), U.h('span', { class: 'muted small' }, ' ' + it[1].slice(0, 3) + (it[2] ? ' · ' + it[2] : '')))); }
+        return ch;
+      };
+      if (mh.via === 'core') {
+        hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, mh.c)));
+        hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, '電動閥清單（沒有機組碼）'), U.h('span', { class: 'sum-subi' }, mh.rows.length + ' 台')));
+        hero.appendChild(tagChips('選一台：', mh.rows));
+        wrap.appendChild(hero);
+        return wrap;
+      }
+      const i = mh.rows[0]; const it = M.list[i];
+      hero.appendChild(U.h('div', { class: 'sum-tag' }, U.h('span', { class: 'sum-tagtext' }, it[1])));
+      hero.appendChild(U.h('div', { class: 'sum-sub' }, U.h('span', { class: 'sum-subi' }, '電動閥清單（AUMA）'), U.h('span', { class: 'sum-subi', title: '機組（KKS 前三碼）' }, it[1].slice(0, 3)),
+        mh.via === 'alias' || mh.via === 'weak' ? U.h('span', { class: 'sum-subi' }, '打的是 ' + AMS.index.norm(res.q)) : null, U.h('span', { class: 'sum-subi' }, '不在 AMS 資料庫')));
+      if (it[2]) hero.appendChild(U.h('div', { class: 'sum-svc' }, it[2]));
+      const ka = this.movKksAliases(i);
+      if (ka.length) {
+        const ch = U.h('div', { class: 'nf-chips valve-ams' }, U.h('span', { class: 'muted small' }, '接線圖上的寫法（接線路徑、P&ID 在那一張卡）：'));
+        for (const [k, g] of ka) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(k) }, U.h('span', { class: 'mono' }, k), U.h('span', { class: 'muted small' }, ' ' + g)));
+        hero.appendChild(ch);
+      }
+      const sib = AMS.movs.siblings(M, i);
+      if (sib.length) hero.appendChild(tagChips('同一位置的其他機組（一號機的有接線路徑、P&ID）：', sib));
+      wrap.appendChild(hero);
+      const groups = U.h('div', { class: 'sum-groups' });
+      groups.appendChild(this.movSection(mh.rows, res, mh));
+      wrap.appendChild(groups);
+      return wrap;
+    }
+    /** 「電動閥」一組（電動閥卡、KKS 編號卡、GE 編號卡共用）：rows＝清單列；mh＝命中（別名時卡上寫等級與說明） */
+    movSection(rows, res, mh) {
+      const M = this.spec.mov;
+      const sec = U.h('section', { class: 'sum-g sum-mov' }, U.h('h3', { class: 'sum-gh' }, M.label || '電動閥清單'));
+      const grid = U.h('div', { class: 'sum-body' }, U.h('p', { class: 'muted cl-empty' }, '載入中…'));
+      sec.appendChild(grid);
+      if (M.note) sec.appendChild(U.h('p', { class: 'muted small aux-note' }, M.note));
+      this.fillMovGroup(grid, rows, res, mh);
+      return sec;
+    }
+    async fillMovGroup(grid, rows, res, mh) {
+      const M = this.spec.mov; const mode = this.currentMode();
+      try {
+        const got = [];
+        for (const i of rows) got.push(await AMS.movs.loadRow(M, i));
+        if (this.destroyed || this.res !== res) return;
+        grid.innerHTML = '';
+        const sheetName = (M.sheets || {})[M.sheet] || M.sheet;
+        rows.forEach((i, k) => {
+          const { j, r } = got[k]; const it = M.list[i];
+          if (!j || !r) { grid.appendChild(U.h('p', { class: 'muted cl-empty' }, '無法載入 ' + it[1] + ' 的清單資料')); return; }
+          const ix = { docs: j.docs || {} };
+          const box = U.h('div', { class: 'sum-sig' });
+          const head = U.h('div', { class: 'sum-sigh' });
+          if (rows.length > 1) head.appendChild(U.h('span', { class: 'pill plain' }, `閥 ${k + 1}/${rows.length}`));
+          head.appendChild(U.h('span', { class: 'sum-sigi key mono', title: '電動閥清單位號' }, it[1]));
+          head.appendChild(U.h('span', { class: 'sum-sigi', title: '機組' }, it[1].slice(0, 3)));
+          const fi = (lab) => M.fields.findIndex((f) => f[1] === lab);
+          const maint = String(r.v[fi('儀資組維護')] || '');
+          if (maint === '是') head.appendChild(U.h('span', { class: 'pill ok', title: '清單第 71 欄：閉迴路＝儀資組維護' }, '儀資組維護'));
+          if (r.x && r.x.rep) head.appendChild(U.h('span', { class: 'sum-sigi', title: '二、三號機（或同一組另一台）的多數格照這一台的查證值' }, '比照 ' + r.x.rep));
+          const nTwo = r.s.filter((si) => si >= 0 && j.src[si] && j.src[si][3]).length;
+          if (nTwo) head.appendChild(U.h('span', { class: 'pill warn', title: '兩份一手文件讀法不同的格（點來源看另一讀法）' }, `兩讀 ${nTwo} 格`));
+          head.appendChild(U.h('a', { class: 'lk small', href: '#/s/' + encodeURIComponent(M.sheet) + '?r=' + i }, `在 ${sheetName} 開啟此列（全部欄位）›`));
+          box.appendChild(head);
+          const al = mh && mh.al ? mh.al.find((x) => x[0] === i) : null;
+          if (al) box.appendChild(U.h('p', { class: 'small mov-alias' + (al[1] === '推論' || al[1] === '文件互相矛盾' ? ' warn-text' : '') }, `對照（${al[1]}）：${al[2]}`));
+          const sg = U.h('div', { class: 'cfields sumgrid' });
+          let lastG = '';
+          const add = (grp, lab, val, si) => {
+            if (grp !== lastG) { sg.appendChild(U.h('div', { class: 'mov-gh' }, grp)); lastG = grp; }
+            const s = si != null && si >= 0 ? j.src[si] : null;
+            const soft = /^(查無|不適用|N\/A|—|-$)/.test(String(val == null ? '' : val));
+            const detail = s && s[2] ? this.docDetail(ix, s[2], []) : [];
+            const flags = [];
+            if (s && s[3]) { flags.push({ t: '兩讀', cls: 'warn' }); detail.push(['另一讀法', s[3]]); }
+            for (const d of (s && s[4]) || []) detail.push(d);
+            const href = s && s[2] ? this.docHref(ix, s[2]) : null;
+            sg.appendChild(this.fieldEl({ label: lab, val: val == null ? '' : U.cardValue(val), soft, flags, href, hrefTitle: href ? this.docTitle(ix, s[2]) : null,
+              src: s ? { lvl: s[0], text: s[1], detail } : null }, mode));
+          };
+          (M.fields || []).forEach(([grp, lab], q) => add(grp, lab, r.v[q], r.s[q]));
+          for (const x of r.xf || []) add(x[0], x[1], x[2], x[3]);
+          box.appendChild(sg);
+          // 連結：signal-atlas 訊號、GE 編號、氣動閥清單的刪除紀錄、同一位置的其他機組
+          const chips = (label, items) => {
+            if (!items.length) return null;
+            const ch = U.h('div', { class: 'nf-chips ge-links' }, U.h('span', { class: 'muted small' }, label));
+            for (const c of items) ch.appendChild(U.h('a', Object.assign({ class: 'chip-btn', href: c.href, title: c.title || '' }, c.ext ? { target: '_blank', rel: 'noopener noreferrer' } : {}),
+              U.h('span', { class: 'mono' }, c.text), c.sub ? U.h('span', { class: 'muted small' }, ' ' + c.sub) : null));
+            return ch;
+          };
+          const sigs = (r.sig || []).map((g) => ({ text: g[1] + '.' + g[2], sub: g[3] + (g[6] ? '（' + g[6] + '）' : ''), title: (g[5] || '') + '（' + g[4] + '）',
+            href: ((M.sig_base || {})[g[0]] || '') + encodeURIComponent(g[1] + '.' + g[2]), ext: true }));
+          const u = it[1].slice(0, 3);
+          const links = [
+            chips('Mark VIe 訊號（signal-atlas' + ((r.sig || [])[0] && r.sig[0][0] === 'u2' ? '，二號機' : '') + '）：', sigs),
+            chips('GE 原廠編號：', ((r.x && r.x.ge) || []).map((g) => ({ text: g, href: '#/card/' + encodeURIComponent(g), sub: 'GE 編號卡' }))),
+            r.x && r.x.d61 ? chips('氣動閥清單 v2.6 判為電動而刪除：', [{ text: '61 刪除紀錄', href: '#/s/61?r=' + r.x.d61[0], sub: r.x.d61[1] }]) : null,
+            chips('同一位置的其他機組：', AMS.movs.siblings(M, i).map((jj) => ({ text: M.list[jj][1], href: '#/card/' + encodeURIComponent(M.list[jj][1]), sub: M.list[jj][1].slice(0, 3) }))),
+          ].filter(Boolean);
+          if (!sigs.length) links.unshift(U.h('p', { class: 'muted small' }, /^(G3|C3)/.test(u) ? 'Mark VIe 訊號：三號機沒有控制器索引（同一位置的一、二號機見下方）。'
+            : 'Mark VIe 訊號：signal-atlas 索引裡沒有這個位號的 I/O（廠商 PLC／現場控制盤、共用控制器不在索引，或控制器用另一種寫法）。'));
+          if (links.length) box.appendChild(U.h('div', { class: 'ge-linkbox' }, ...links));
+          grid.appendChild(box);
+        });
+        if (M.list_url) grid.appendChild(U.h('p', { class: 'muted small aux-note' }, '正本（可編輯）：', U.h('a', { class: 'lk', href: M.list_url, target: '_blank', rel: 'noopener noreferrer' }, (M.list_name || '電動閥清單') + ' ↗')));
+        this.applyMode();
+      } catch (err) { console.error(err); grid.innerHTML = `<p class="muted cl-empty">無法載入電動閥清單：${U.esc(err.message)}</p>`; }
+    }
+
     /* ---------- KKS 編號卡（v17，card/kkstag.json；core.js AMS.kkstag） ---------- */
     kksHit(q) { return AMS.kkstag && AMS.kkstag.K ? AMS.kkstag.hit(q) : null; }
     /** v19：編號先被氣動閥清單或 GE 對照表接走時到不了 KKS 編號卡：閥卡、GE 卡下面接同一份接線路徑與端子表比對（有路徑時 GE 卡不再寫「查無」）。 */
@@ -765,9 +935,17 @@
       wrap.appendChild(hero);
       const groups = U.h('div', { class: 'sum-groups' });
       const grp = (cls, title) => { const s = U.h('section', { class: 'sum-g ' + cls }, U.h('h3', { class: 'sum-gh' }, title)); const g = U.h('div', { class: 'sum-body' }, U.h('p', { class: 'muted cl-empty' }, '載入中…')); s.appendChild(g); groups.appendChild(s); return g; };
+      // v26：這個 KKS 是電動閥清單的閥（自己的位號，或清單另一種寫法的同一顆）→ 規格與備品排在最前面；
+      // 「推論」等級的別名（G11LAE60QM001 → LAE60QM002：接線圖說明是 SOV，可能是另一顆）排在接線路徑之後；清單特意沒收的位號寫理由
+      const MS = this.spec.mov;
+      const mh = this.movHit(e.t);
+      const mout = MS && MS.out ? MS.out[AMS.index.compact(e.t)] : null;
+      if (mout) hero.appendChild(U.h('p', { class: 'small warn-text mov-alias' }, mout));
+      if (mh && mh.via !== 'core' && mh.via !== 'weak') groups.appendChild(this.movSection(mh.rows, res, mh));
       const gp = e.co ? null : grp('sum-pid', 'P&ID 圖面位置（這個元件畫在哪一張圖、圖上哪裡）');   // 只在端子表上的元件（co）沒有查過 P&ID、圖控，不寫「查無」
       const gh = e.co ? null : grp('sum-hmi', '圖控 HMI 畫面（這個元件畫在哪一頁）');
       const grid = grp('sum-wire', '接線路徑（現場 → 接線箱 → 控制盤；迴路圖）');
+      if (mh && mh.via === 'weak') groups.appendChild(this.movSection(mh.rows, res, mh));
       wrap.appendChild(groups);
       if (K.j.rule && !e.co) wrap.appendChild(U.h('p', { class: 'muted small aux-note' }, K.j.rule));
       AMS.kkstag.loadLoc(kh.i, this.spec.aux && this.spec.aux.index).then(({ ix, lo }) => {
@@ -1010,6 +1188,13 @@
       sec.appendChild(U.h('p', { class: 'muted small aux-note' }, `GE 原廠編號對照表（建於 ${G.j.built_at}，共 ${U.int(G.j.n)} 個編號）：從 GE 各版設備清單、型錄總表、Mark VIe I/O 清單等文件逐列抽出。`
         + 'GE 編號只在一部機台內唯一（燃機、汽機可能各有一顆同編號）；KKS 的 XX／YY 換成本站機組。說明是 GE 文件的英文原文。來源點開可看出處文件與頁次，引用前以原文件為準。'));
       groups.appendChild(sec);
+      // v26：電動閥清單也有這一顆（GE 對照表的 KKS 本體＝清單位號；真空破壞閥 MOV-VBV-1／2）
+      const MS = this.spec.mov;
+      // 打的是清單的寫法（S20MAC10QM021 → C20MAC10QM021，定讞）：只列那一台並寫對照；只打 GE 編號（MOV-VBV-1）才列各機組
+      const mq = MS ? this.movHit(res.q) : null;
+      const mone = mq && mq.via !== 'core' && mq.rows.length === 1 && ents.some((e) => (MS.ge[e.t] || []).includes(mq.rows[0]));
+      const mrows = mone ? mq.rows : MS && MS.ge ? [...new Set(ents.flatMap((e) => MS.ge[e.t] || []))] : [];
+      if (!below && mrows.length) groups.appendChild(this.movSection(mrows, res, mone ? mq : null));
       wrap.appendChild(groups);
       return wrap;
     }
@@ -2237,6 +2422,20 @@
         const ch = U.h('div', { class: 'nf-chips' });
         for (const it of gs) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + (it.alias || ''))));
         blk.appendChild(ch); inner.appendChild(blk);
+      }
+      // v26：電動閥清單裡相近的閥＋到 62 全欄位搜尋
+      const MS = this.spec.mov;
+      if (MS) {
+        const ms = Array.isArray(res.msg) ? res.msg : AMS.movs.suggest(MS, q, 12);
+        if (ms.length) {
+          const blk = U.h('div', { class: 'nf-movs' }, U.h('p', {}, '電動閥清單中相近的閥：'));
+          const ch = U.h('div', { class: 'nf-chips' });
+          for (const it of ms) ch.appendChild(U.h('a', { class: 'chip-btn', href: '#/card/' + encodeURIComponent(it.key) }, U.h('span', { class: 'mono' }, it.key), U.h('span', { class: 'muted small' }, ' ' + (it.alias || ''))));
+          blk.appendChild(ch);
+          // AMS 位號索引沒有候選時（二、三號機的閥只在這份清單）：清單的候選排最前面，不壓在 04／57／58 的搜尋連結後面
+          if (!sg.length) inner.insertBefore(blk, inner.firstChild); else inner.appendChild(blk);
+        }
+        if (MS.sheet) inner.appendChild(U.h('p', {}, U.h('a', { class: 'lk', href: '#/s/' + encodeURIComponent(MS.sheet) + '?q=' + encodeURIComponent(q) }, `在 ${(MS.sheets || {})[MS.sheet] || MS.sheet} 搜尋「${q}」（所有欄位）›`)));
       }
       // v17：接線圖上只有 KKS 的元件（KKS 編號卡）開頭相符的
       const ks = Array.isArray(res.ksg) ? res.ksg : [];

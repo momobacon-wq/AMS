@@ -895,6 +895,12 @@ table.mini.cmp .nocmp { font-weight: 400; }
 .sum-dcs, .sum-ctrl, .sum-draw, .sum-docs, .sum-search, .sum-valve, .sum-hmi, .sum-pid, .sum-wire { grid-column: 1 / -1; border-right: 0 !important; }
 .sum-valve .sum-sigh .lk { margin-left: auto; }
 .valve-only .valve-ams { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+/* v26：電動閥清單（card.js movSection）：整列寬；欄位分組小標佔一整排 */
+.sum-mov { grid-column: 1 / -1; border-right: 0 !important; }
+.sum-mov .sum-sigh .lk { margin-left: auto; }
+.sum-mov .mov-gh { grid-column: 1 / -1; padding: 8px 10px 2px; font-size: 12px; font-weight: 700; color: var(--muted); border-top: 1px solid var(--grid); }
+.sum-mov .mov-alias { margin: 4px 10px; }
+.mov-only .valve-ams { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 /* GE 原廠編號卡（card.js renderGeOnly）：對照組佔整列；機組小標、連結列（signal-atlas／相關裝置／同一 KKS 的其他編號） */
 .sum-ge { grid-column: 1 / -1; border-right: 0 !important; }
 .ge-only .valve-ams { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
