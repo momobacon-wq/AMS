@@ -488,7 +488,7 @@ def load_ge(path, dcdas_path=None):
     return {'entries': j['entries'], 'name': {k: list(v.values()) for k, v in name.items()},
             'body': {k: list(v.values()) for k, v in body.items()}, 'built_at': str(j.get('built_at') or ''),
             'n_rows': j.get('n_rows') or 0, 'n_docs': len(j.get('sources') or []), 'docs': {}, 'vars': vars_, 'own': set(),
-            'spec_fields': j.get('spec_fields') or {}}
+            'spec_fields': j.get('spec_fields') or {}, 'dcdas_path': dcdas_path if vars_ is not None else None}
 
 
 def ge_match(tag, ge):
@@ -730,6 +730,9 @@ def ge_doc(ge, stats):
 GE_CARD_FILE = 'card/getag.json'
 GE_LOC_FILE = 'card/getag-loc.json'   # GE 編號卡的 P&ID／圖控位置（v10）：約 6 MB 明文，另成一檔，開 GE 編號卡才下載（getag.json 在查詢時就要載）
 GE_SITE_UNITS = {'G': ('G11', 'G12'), 'S': ('S10',)}   # 本站（1 號機）的機組：GE 編號卡逐機組列 KKS 與 Mark VIe 訊號
+GE_CB_RULE = ('Mark VIe 控制方塊（v27）：對照表的強連結訊號正好是設備物件方塊（電磁閥 S_O_V_V3、馬達 STARTER_V3、調節 PID_MA_ENH_V2）的裝置名稱輸出腳時，'
+              '列出那顆方塊有接線的腳；腳位意思取自 GE DCS Block Library 腳位表，變數、常數與單位照 signal-atlas 控制器索引（ToolboxST 組態，非即時值）；'
+              '往外只跟著單純搬移（MOVE、只有 IN1 的許可方塊、NOT）追到 I/O 點或 EGD，遇到其他邏輯方塊就停，邏輯本身請到 signal-atlas 看；每台機組用自己控制器的方塊')
 GE_CARD_RULE = 'GE 原廠編號對照表：GE 各版設備清單、型錄總表、Mark VIe I/O 清單等文件逐列抽出（GE 編號 ↔ KKS ↔ 說明），以出處為準'
 GE_UNIT_RULE = 'KKS 前綴換成本台機組（清單印 G11 或 XX／YY）；Mark VIe 訊號只列本台控制器，對照表只列 G11 時要 signal-atlas 索引確認本台有同名變數才列'
 
@@ -815,7 +818,10 @@ def ge_card_data(ge, loc=None, pm=None):
                      ('sig', sig), ('lg', lg), ('kb', sorted(cur)), ('okb', okb), ('sp', sp), ('vl', vl), ('vi', vi), ('pr', pr), ('pi', pi), ('ps', ps), ('pv', pv)):
             if v:
                 o[k] = v
-        lo = {k: v for k, v in ((loc or {}).get(e['_i']) or {}).items() if k in ('pd', 'hm', 'hmx', 'hr', 'hms', 'ld', 'ldn', 'wp', 'wpx', 'wpn', 'wpr') and v}
+        dv = ((ge.get('_ctl') or {}).get('own') or {}).get(e['_i'])
+        if dv:
+            o['dv'] = dv   # v27：本條目是這些 Mark VIe 設備物件方塊的設備本體 [[裝置名, 方塊種類]…]（打裝置名查時排第一）
+        lo = {k: v for k, v in ((loc or {}).get(e['_i']) or {}).items() if k in ('pd', 'hm', 'hmx', 'hr', 'hms', 'ld', 'ldn', 'wp', 'wpx', 'wpn', 'wpr', 'cb') and v}
         if lo:
             o['lc'] = 1   # 這個條目在 getag-loc.json 有位置列（前端沒有這個旗標就不下載那個檔）
             locs[str(len(ents))] = lo
@@ -830,7 +836,13 @@ def ge_card_data(ge, loc=None, pm=None):
             'hmi_max': GE_HMI_MAX, 'entries': ents}
     if locs:
         data['loc'] = GE_LOC_FILE
-    return data, docs, ({'version': 1, 'built_at': ge['built_at'], 'by_i': locs} if locs else None)
+    lj = {'version': 1, 'built_at': ge['built_at'], 'by_i': locs} if locs else None
+    ctl = ge.get('_ctl')
+    if lj is not None and ctl and ctl['cards']:
+        lj['cbs'] = {k: ctl['cards'][k] for k in sorted(ctl['cards'])}   # v27：Mark VIe 控制方塊卡（by_i[…].cb 指向這裡）
+        lj['cb_built'] = ctl['built']
+        lj['cb_rule'] = GE_CB_RULE
+    return data, docs, lj
 
 
 def ge_index_plan(outdir, by_tag):
@@ -3212,6 +3224,21 @@ def ge_wire_card(pm, key, r, pi=0, multi=False, lno='', kks=False):
         via_ = '與'.join(x for x, k_ in (('繼電器接點', 'relay'), ('4–20 mA 記錄器輸出', 'rec')) if k_ in ks_)
         s_rows.append(['Mark VIe', '不進 Mark VIe：接到 Bently 3500 監測盤 %s；%s' % (
             pname or (pk[0] if pk else '') or w['panel'], ('3500 再用%s送控制器（見「3500 輸出」）' % via_) if via_ else '盤圖上沒有對到這個通道送控制器的輸出'), 'doc', wsrc])
+    elif (pm.get('_devio') or {}).get((r.get('unit', 'S10'), ge_cmp(key.split('|', 1)[-1]))) and re.search(r'\bCC[A-Z]\d\dUC2\d\d|\bTCP\b', w['panel'] + ' ' + w['panel_desc']):
+        # v27：接線圖只畫到控制盤裡、控制器 I/O 組態沒有的板（20VGS-1 → CA004-1M5B SSUP），但 I/O 組態有這顆的點：兩邊都列、不選邊
+        un_ = r.get('unit', 'S10')
+        dio = pm['_devio'][(un_, ge_cmp(key.split('|', 1)[-1]))]
+        bd = (pm.get('_devboards') or {}).get(un_) or {'pos': set(), 'names': set()}
+        cps = [m_.groups() for c in live for m_ in [re.match(r'^(CA\d{3})-(\w+)$', c['pos'] or '')] if m_]
+        if cps and not any(cp in bd['pos'] for cp in cps):
+            why_ = '控制器 I/O 組態在 %s 沒有這個板位' % '、'.join(dict.fromkeys('%s %s' % cp for cp in cps))
+        elif not cps and live and not any((c['board'] or '').upper() in bd['names'] for c in live):
+            why_ = '控制器 I/O 組態沒有 %s 這種板' % '、'.join(dict.fromkeys(c['board'] for c in live if c['board']))
+        else:
+            why_ = '盤端子沒有對到控制器組態的螺絲'
+        s_rows.append(['Mark VIe', '接線圖只畫到 %s 的 %s（%s）；控制器 I/O 組態把這顆掛在 %s——盤內這一段配線本站沒有圖，沒有逐螺絲核對'
+                       % (pname or (pk[0] if pk else '') or w['panel'] or '盤', ge_wire_join(' '.join(x for x in (c['pos'], c['board']) if x) for c in live) or '端子', why_,
+                          '；'.join(dio[:4]) + ('（另 %d 點）' % (len(dio) - 4) if len(dio) > 4 else '')), 'ctrl', 'signal-atlas 控制器索引（ToolboxST I/O 組態的 DeviceTag 與板位）'])
     else:
         s_rows.append(['Mark VIe', '不進 Mark VIe：終點是 %s，沒有控制器螺絲可核' % (pname or (pk[0] if pk else '') or w['panel'] or '別的盤'), 'doc', wsrc])
     rk = r.get('rack') if not r.get('vms3') else None
@@ -3741,6 +3768,13 @@ def ge_loc_build(ge, pm, hm, old_card=None):
     if ge is None:
         return loc, pid_used, hmi_used
     lg_docs = (pm or {}).get('_lg_docs') or {}
+    # v27：Mark VIe 控制方塊（設備物件方塊的腳位與接線；ctl_block.py）——每次從 signal-atlas 索引重算（--no-dcdas 時沒有這一塊）
+    import ctl_block
+    ctl = ctl_block.build(ge, ge.get('dcdas_path'), lambda e: GE_SITE_UNITS.get(e['_scope']) or (), lambda e, u: ge_logic(e, u, ge)[0], ge_kks)
+    ge['_ctl'] = ctl
+    if ctl and pm is not None:
+        pm['_devio'] = ctl['devio']   # 接線路徑只畫到 I/O 組態沒有的板時，補一句 I/O 組態把這顆掛在哪（ge_wire_card）
+        pm['_devboards'] = ctl['boards']
     old = {}
     if old_card:
         for x in old_card.get('entries') or []:
@@ -3828,6 +3862,8 @@ def ge_loc_build(ge, pm, hm, old_card=None):
             for k2 in ('hm', 'hmx', 'hr', 'hms'):
                 if old[(scope, e['tag'])].get(k2):
                     o[k2] = old[(scope, e['tag'])][k2]
+        if ctl and e['_i'] in ctl['per']:
+            o['cb'] = ctl['per'][e['_i']]   # [[卡鍵 控制器.裝置名, 本條目是設備本體 0/1]…]；卡本身在位置檔頂層 cbs
         if o:
             loc[e['_i']] = o
     if pm is not None:

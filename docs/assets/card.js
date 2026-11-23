@@ -86,6 +86,11 @@
     3: '這一處是空氣分配圖上的用氣點，不是閥在製程管線上的位置', 4: '這一處在迴路詳圖（TYPICAL 小圖）裡，不是主流程圖上的位置',
     5: '這一處是位置圖設備表的一列，不是圖上指著元件的位置' };   // 5：GE 編號卡的位置圖（v12，loc_ge.py）
   const PID_REF_NAME = { 1: '註記／表格裡的文字', 2: '跨圖訊號旗標', 3: '用氣點', 4: '迴路詳圖裡的標籤', 5: '設備表的一列' };
+  // GE 編號卡「Mark VIe 控制方塊」（v27，ctl_block.py）：設備物件方塊的種類（getag-loc.json 的 cbs[鍵].typ；getag.json 條目的 dv）
+  const CB_TYPE = { S_O_V_V3: '電磁閥控制方塊 S_O_V_V3', STARTER_V3: '馬達啟停控制方塊 STARTER_V3', PID_MA_ENH_V2: '調節控制方塊 PID_MA_ENH_V2' };
+  const ATLAS = 'https://momobacon-wq.github.io/signal-atlas/#/';
+  const atlasV = (n) => ATLAS + 'v/' + encodeURIComponent(n);
+  const atlasB = (c, p) => ATLAS + 'b/' + encodeURIComponent(c) + '/' + String(p).split('/').map(encodeURIComponent).join('/');
   // GE 編號卡「位置圖」：GE 清單列的位置圖各自的狀態（getag-loc.json 的 ldn；build_card_aux GE_LD_STATE）
   const GE_LD_STATE = { nofile: '文件庫裡找不到這份圖', noscope: '圖的範圍（燃機／汽機）與這個編號不同，沒有比對', miss: '圖上沒有讀到這個編號或它的 KKS',
     hit: '有位置', cap: '有位置（超過張數上限沒有列出）' };
@@ -1010,9 +1015,18 @@
         let r2; try { r2 = this.lookup(mine[0].alias); } finally { this._inGe = false; }
         if (r2 && !r2.notfound) { r2.status = `「${qq}」是${what}，對應 GE 編號 ${mine[0].ge}＝AMS 設備 ${mine[0].tag}。` + r2.status; return r2; }
       }
-      const names = [...new Set(ents.map((e) => { const x = [ents.length > 1 ? e.sys : '', e.svc].filter(Boolean).join('：'); return e.t + (x ? '（' + x + '）' : ''); }))].join('、');
+      const nm = (e) => { const x = [ents.length > 1 ? e.sys : '', e.svc].filter(Boolean).join('：'); return e.t + (x ? '（' + x + '）' : ''); };
+      const names = [...new Set(ents.map(nm))].join('、');
       res.ge = gh; res.geAms = ams; res.geTw = tw; res.notfound = true; res.key = IX.norm(q);
+      // v27：訊號是 Mark VIe 設備物件方塊的裝置名稱（20VSFG2）——先講它是哪一種方塊、控制哪一顆，附件另列
+      const dvE = gh.via === 'signal' ? ents.filter((e) => (e.dv || []).some(([n]) => IX.compact(n) === gh.k)) : [];
+      const dvT = dvE.length ? ((dvE[0].dv || []).find(([n]) => IX.compact(n) === gh.k) || [])[1] : '';
       let st = `「${qq}」是${what}：${names}`;
+      if (dvE.length) {
+        const rest = ents.filter((e) => !dvE.includes(e));
+        st = `「${qq}」是 Mark VIe 的設備物件方塊名稱（${CB_TYPE[dvT] || dvT}），控制 ${[...new Set(dvE.map(nm))].join('、')}`
+          + (rest.length ? `；同一個 KKS 的其他編號（附件）：${[...new Set(rest.map(nm))].join('、')}` : '') + '（方塊的腳位與接線見下方「Mark VIe 控制方塊」）';
+      }
       if (ents.every((e) => e.gone)) st += '（最新版 GE 清單已無此編號）';
       if (offSite) st += `；本站只有 1 號機（G11／G12／S10），${gh.unit} 與它們同設計，下面列的是 1 號機的對照`;
       if (rsNum) {
@@ -1285,6 +1299,14 @@
             gw.appendChild(ul);
           }
         }
+        // Mark VIe 控制方塊（v27，ctl_block.py）：lo.cb＝[[卡鍵 控制器.裝置名, 本條目是設備本體]…]，卡在 lj.cbs；有站別（G12_…）時只列那一台
+        const cbs = (lo.cb || []).filter(([k]) => { const c = ((lj && lj.cbs) || {})[k]; return c && (!site || c.u === site); });
+        if (cbs.length) {
+          const gc = part('Mark VIe 控制方塊（命令、回授、計時與故障各腳接到哪）', 'ge-cb');
+          gc.innerHTML = '';
+          const href = (t) => '#/card/' + encodeURIComponent(site ? site + '_' + t : t) + (!site && e.sc ? '?sc=' + e.sc : '');
+          this.fillCtlBlocks(gc, cbs, lj, e, href);
+        }
         for (const [un, rep, list] of lo.hms || []) {
           if (site && un !== site) continue;
           gh.appendChild(U.h('p', { class: 'muted small aux-note' }, `${un}：「${rep}」上的同一個面板也出現在另外 ${list.length} 張 SIL 畫面（${list.join('、')}），只列一張。`));
@@ -1299,6 +1321,93 @@
 
     /** 一個元件的每一條接線路徑（GE 編號卡、v17 的 AMS 設備卡接線路徑塊與 KKS 編號卡共用）：多條時每條一個標題「G11 第 n 條：電子室盤」，
      *  第一條的迴路圖先展開。href＝接線箱端子排裡認得的元件連到哪裡、tag＝迴路圖的編號用的元件名。 */
+    /** GE 編號卡「Mark VIe 控制方塊」（v27，CONTRACT.md「v27」）：getag-loc.json 的 cbs[鍵]（build_card_aux → ctl_block.card）。
+     *  一台機組一塊：方塊名、種類、說明、位置（file:line 或列印圖頁，連 signal-atlas）；輸入腳、輸出腳各一張表——腳位、意思（GE 腳位表）、接到什麼
+     *  （變數連 signal-atlas、常數帶值與單位、方塊連線、列舉），往外追到哪（MOVE 搬移照走，到 I/O 點／EGD／別的邏輯方塊停）。
+     *  追到的 I/O 點 DeviceTag 就是本編號的標「本編號」，是對照表裡別的編號的連到那張卡。 */
+    fillCtlBlocks(el, cbs, lj, e, href) {
+      const G = AMS.getag.G; const IX = AMS.index;
+      const mine = new Set([e.t].concat(e.f || []).map((x) => IX.compact(x)));
+      if (!G._dvOwner) {   // 裝置名 → 設備本體的 GE 編號（條目的 dv）
+        G._dvOwner = new Map();
+        for (const x of G.j.entries) for (const [n] of x.dv || []) { const k = IX.compact(n); if (!G._dvOwner.has(k)) G._dvOwner.set(k, []); if (!G._dvOwner.get(k).includes(x.t)) G._dvOwner.get(k).push(x.t); }
+      }
+      const known = (t) => !!t && (G.keys.has(IX.compact(t)));
+      const ext = (txt, url, title) => U.h('a', { class: 'lk mono', href: url, target: '_blank', rel: 'noopener noreferrer', title: title || ('在 signal-atlas 開啟 ' + txt) }, txt);
+      const isVar = (n) => /^[A-Za-z0-9_.]+$/.test(n);
+      const endEl = (c, end, dirIn) => {
+        if (!end) return null;
+        if (end.io != null) {
+          const dt = end.dt || '';
+          const me = dt && mine.has(IX.compact(dt));
+          return U.h('span', {}, 'I/O 點：' + end.io, dt ? U.h('span', {}, '（DeviceTag ', me ? U.h('b', {}, dt) : known(dt) ? U.h('a', { class: 'lk mono', href: href(dt) }, dt) : U.h('span', { class: 'mono' }, dt), '）') : null,
+            me ? U.h('span', { class: 'pill plain cb-me', title: '這個 I/O 點的 DeviceTag 就是本編號' }, '本編號') : null);
+        }
+        if (end.egd) return U.h('span', {}, 'EGD ← ', ext(end.egd, atlasV(end.egd)), '（另一台控制器送來）');
+        if (end.w != null) {
+          return U.h('span', {}, (dirIn ? '寫入者：' : '') + (end.w ? end.w + ' 方塊 ' : ''), end.w ? ext(end.wp, atlasB(c.c, end.wp), '在 signal-atlas 開啟這個方塊') : U.h('span', {}, end.wp),
+            end.at ? U.h('span', { class: 'muted small' }, ' · ' + end.at) : null);
+        }
+        if (end.r != null) {
+          if (end.r > 0) return U.h('span', { class: 'muted' }, `控制器內 ${end.r} 個讀取者（到 signal-atlas 看）`);
+          if (end.r === 0) return U.h('span', { class: 'muted' }, '控制器內沒有讀取者' + (end.scr ? `；${end.scr} 張畫面有它` : '') + (end.pub ? '；有送 EGD（畫面、其他控制器可讀）' : ''));
+          return U.h('span', { class: 'muted' }, '追到上限停');
+        }
+        if (end.n === 0) return U.h('span', { class: 'muted' }, '沒有寫入者');
+        return null;
+      };
+      const table = (c, rows, dirIn) => {
+        const tb = U.h('tbody');
+        for (const [pin, gl, kind, val, desc, chain] of rows) {
+          const name = String(val || '').split(' ＝ ')[0];
+          const conn = kind === 'v' || kind === 'k'
+            ? U.h('div', {}, isVar(name) ? ext(name, atlasV(c.c + '.' + name)) : U.h('span', { class: 'mono' }, name), kind === 'k' ? U.h('span', { class: 'mono' }, ' ＝ ' + String(val).split(' ＝ ').slice(1).join(' ＝ ')) : null,
+              desc ? U.h('div', { class: 'muted small' }, desc) : null)
+            : U.h('div', {}, U.h('span', { class: 'mono' }, val || ''), desc ? U.h('div', { class: 'muted small' }, desc) : null);
+          const tr = U.h('td', { class: 'cb-chain' });
+          if (chain && chain.length) {
+            const arrow = dirIn ? ' ← ' : ' → ';
+            for (const h of chain) {
+              if (Array.isArray(h)) {
+                tr.appendChild(U.h('span', {}, arrow.trimStart()));
+                tr.appendChild(isVar(h[0]) ? ext(h[0], atlasV(c.c + '.' + h[0]), h[1] || '') : U.h('span', { class: 'muted small' }, h[0]));
+                tr.appendChild(U.h('span', {}, ' '));
+              } else {
+                const x = endEl(c, h, dirIn);
+                if (x) tr.appendChild(U.h('span', {}, (tr.childNodes.length ? arrow.trimStart() : ''), x));
+              }
+            }
+          }
+          tb.appendChild(U.h('tr', {}, U.h('td', { class: 'mono' }, pin), U.h('td', {}, gl || ''), U.h('td', {}, conn), tr));
+        }
+        return U.h('div', { class: 'tbl-scroll' }, U.h('table', { class: 'mini cb-pins' },
+          U.h('caption', { class: 'muted small' }, dirIn ? '輸入腳（有接線的；← 往上游追）' : '輸出腳（有接線的；→ 往下游追）'),
+          U.h('thead', {}, U.h('tr', {}, ...['腳位', '意思', '接到', dirIn ? '從哪裡來' : '送到哪裡'].map((h) => U.h('th', { scope: 'col' }, h)))), tb));
+      };
+      cbs.forEach(([k, body], n) => {
+        const c = lj.cbs[k];
+        const head = U.h('div', { class: 'cb-h' }, U.h('span', { class: 'pill plain' }, c.u), U.h('b', { class: 'mono' }, c.n), U.h('span', {}, ' ' + (CB_TYPE[c.typ] || c.typ)),
+          c.d ? U.h('span', { class: 'muted' }, '　' + c.d) : null);
+        // 第一台展開，其餘機組收合（同一顆方塊在 G11／G12 各一份，展開全部太長）
+        const blk = n ? U.h('details', { class: 'cb-blk' }, U.h('summary', {}, head)) : U.h('div', { class: 'cb-blk' }, head);
+        blk.appendChild(U.h('div', { class: 'small' }, '方塊 ', ext(c.c + ' ' + c.p, atlasB(c.c, c.p), '在 signal-atlas 開啟這個方塊'), c.at ? U.h('span', { class: 'muted' }, ' · ' + c.at) : null,
+          c.hmi ? U.h('span', { class: 'muted' }, ' · 畫面面板 ' + c.hmi) : null));
+        if (!body) {   // 本條目不是設備本體：只寫資料撐得住的話——有本體條目才說「附件」，有接到本編號的腳才說「標本編號的那一腳」
+          const ow = (G._dvOwner.get(IX.compact(c.n)) || []).filter((t) => !mine.has(IX.compact(t)));
+          const meIn = [...(c.i || []), ...(c.o || [])].some((r) => (r[5] || []).some((h) => h && !Array.isArray(h) && h.dt && mine.has(IX.compact(h.dt))));
+          blk.appendChild(U.h('p', { class: 'muted small' },
+            ow.length ? U.h('span', {}, '這個方塊控制的是設備本體 ', ...ow.flatMap((t, i) => [i ? '、' : '', U.h('a', { class: 'lk mono', href: href(t) }, t)]), '；本編號是它的附件（對照表以同一個 KKS 或訊號名連在一起）')
+              : '這個方塊經對照表的 KKS 別名或訊號名連到本編號（對照表沒有另列設備本體的編號）',
+            meIn ? '；下表標「本編號」的那一腳接到本編號' : '；方塊的腳沒有追到 DeviceTag 是本編號的 I/O 點'));
+        }
+        if ((c.i || []).length) blk.appendChild(table(c, c.i, true));
+        if ((c.o || []).length) blk.appendChild(table(c, c.o, false));
+        el.appendChild(blk);
+      });
+      el.appendChild(U.h('p', { class: 'muted small aux-note' }, (lj.cb_rule || '') + (lj.cb_built ? `（signal-atlas 索引建於 ${lj.cb_built}，組態值非即時值）` : '')
+        + '；腳位意思：' + [...new Set(cbs.map(([k]) => lj.cbs[k].lib))].join('；')));
+    }
+
     fillWirePaths(gw, wps, ix, mode, href, tag) {
       gw.innerHTML = '';
       // v21：BOP 震動監測盤的感測器、繼電器、記錄器：先畫整個 3500 通道（感測器 → 盤內 3500 → 繼電器接點／4–20 mA → Mark VIe）；這張的單條迴路圖就先收合

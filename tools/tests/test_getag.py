@@ -588,9 +588,107 @@ def ge_wp(page, ctx, ck):
        bool(st) and not st.get('none') and '查無' in st['text'] and 'ME-2996' in (st.get('xref') or []), st)
 
 
+# ---- v27（2026-11-23）：Mark VIe 控制方塊——使用者問「20VSFG2 這是甚麼」：G11 GasFuelSkid 的電磁閥控制方塊（S_O_V_V3），控制燃料氣截止閥 VGS-1
+CB_JS = """async () => { const G = await AMS.getag.load(); const E = G.j.entries; const L = await AMS.data.fetchJSON(G.j.loc); const by = L.by_i || {}; const C = L.cbs || {};
+  const idx = (t) => E.findIndex((e) => e.t === t && e.sc === 'G');
+  const c11 = C['G11.20VSFG2'] || null; const c12 = C['G12.20VSFG2'] || null;
+  const pin = (c, p, io) => ((c && c[io]) || []).find((r) => r[0] === p) || null;
+  const end = (r) => (r && r[5] && r[5].length) ? r[5][r[5].length - 1] : null;
+  const h = AMS.getag.hit('20VSFG2');
+  return { n: Object.keys(C).length, types: [...new Set(Object.values(C).map((c) => c.typ))].sort(), built: L.cb_built || '', rule: !!L.cb_rule,
+    typ: c11 && c11.typ, flop: (pin(c11, 'FL_OP_T', 'i') || [])[3], flcl: (pin(c11, 'FL_CL_T', 'i') || [])[3], mode: (pin(c11, 'MODE_OPT', 'i') || [])[3],
+    svEnd: end(pin(c11, 'SV_ORD', 'o')), opEnd: end(pin(c11, 'OP_INP', 'i')), clEnd: end(pin(c11, 'CL_INP', 'i')), pmEnd: end(pin(c11, 'OP_PMT', 'i')),
+    auop: end(pin(c11, 'AU_OP', 'i')), at11: c11 && c11.at, at12: c12 && c12.at, c12: c12 && c12.c, pm12: end(pin(c12, 'OP_PMT', 'i')),
+    vgsCb: (by[String(idx('VGS-1'))] || {}).cb || [], solCb: (by[String(idx('20VGS-1'))] || {}).cb || [], dv: (E[idx('VGS-1')] || {}).dv || [],
+    first: h ? E[h.ids[0]].t : '', ids: h ? h.ids.map((i) => E[i].t) : [], via: h && h.via,
+    abs: JSON.stringify(C).match(/[A-Za-z]:[\\\\/]|\\\\Users\\\\|\\/Users\\//) ? 1 : 0,
+    // 掃全部「不是設備本體」的條目：卡上的附註只能講資料撐得住的話——挑一個沒有本體條目、一個沒有腳追到本編號的，開卡核對（只挑 GE 編號卡、不是閥卡或 AMS 設備的）
+    sweep: (() => { const own = new Set(); E.forEach((e) => (e.dv || []).forEach(([n]) => own.add(n.toUpperCase())));
+      const cmp = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); const out = { acc: 0, noOwner: '', noMe: '', ownMe: '', fromAt: 0, ioDir: 0 };
+      for (const [i, lo] of Object.entries(by)) for (const [k, b] of lo.cb || []) { const c = C[k]; if (!c) continue;
+        for (const r of [...(c.i || []), ...(c.o || [])]) for (const x of r[5] || []) if (x && !Array.isArray(x) && x.io && /Synch_Reset/.test(x.io)) out.ioDir++;
+        if (b) continue; out.acc++; const e = E[+i]; if ((e.ams || []).length) continue;
+        const mine = new Set([e.t].concat(e.f || []).map(cmp));
+        const me = [...(c.i || []), ...(c.o || [])].some((r) => (r[5] || []).some((x) => x && !Array.isArray(x) && x.dt && mine.has(cmp(x.dt))));
+        const ow = own.has(c.n.toUpperCase());
+        if (!out.noOwner && !ow) out.noOwner = e.t; if (!out.noMe && !me) out.noMe = e.t; if (!out.ownMe && ow && me) out.ownMe = e.t; }
+      return out; })() }; }"""
+CB_NOTES = """() => [...document.querySelectorAll('.ge-cb .cb-blk > p.muted')].map((p) => p.textContent)"""
+CB_STATE = """() => { const g = document.querySelector('.ge-only:not(.ge-below)'); if (!g) return null;
+  const boxes = [...g.querySelectorAll('.sum-sig')];
+  return { status: (document.querySelector('.cq-status') || {}).textContent || '', first: ((boxes[0] || {}).querySelector ? (boxes[0].querySelector('.sum-sigi.key') || {}).textContent : ''),
+    per: boxes.map((b) => { const s = b.querySelector('.ge-cb'); return s ? { blk: s.querySelectorAll('.cb-blk').length, units: [...s.querySelectorAll('.cb-h .pill')].map((x) => x.textContent),
+      me: s.querySelectorAll('.cb-me').length, text: s.textContent, atlasB: s.querySelectorAll('a[href*="signal-atlas/#/b/"]').length,
+      atlasV: [...s.querySelectorAll('a[href*="signal-atlas/#/v/"]')].map((a) => decodeURIComponent(a.getAttribute('href').split('#/v/')[1])) } : null; }) }; }"""
+CB_WIRE = """() => { const s = [...document.querySelectorAll('.ge-only .ge-wire table.wire-sum tr')].map((tr) => tr.textContent); return s.filter((x) => x.startsWith('Mark VIe')); }"""
+
+
+def ge_cb(page, ctx, ck):
+    v = page.evaluate(CB_JS)
+    ck('v27 control blocks: 90+ device-object cards of the three types, index date and rule in the loc file, no local paths',
+       bool(v) and v['n'] >= 90 and v['types'] == ['PID_MA_ENH_V2', 'STARTER_V3', 'S_O_V_V3'] and v['built'] and v['rule'] and not v['abs'], v and (v['n'], v['types'], v['built']))
+    ck('G11.20VSFG2 = S_O_V_V3 (AUTO_ONLY); fail-to-open 2000 ms, fail-to-close 1600 ms (K33VSFG2O_F／C_F, same on G12)',
+       bool(v) and v['typ'] == 'S_O_V_V3' and v['mode'] == 'AUTO_ONLY' and v['flop'] == 'K33VSFG2O_F ＝ 2000 ms' and v['flcl'] == 'K33VSFG2C_F ＝ 1600 ms',
+       v and (v['typ'], v['mode'], v['flop'], v['flcl']))
+    ck('20VSFG2 chains: SV_ORD → d_20vgs1 → PTUR-75 Kq2 (DeviceTag 20VGS-1); OP_INP／CL_INP ← limit switches 33VGS-1H／L; OP_PMT ← NOT ← EGD G11S.L97ETR_VGS1; '
+       'AU_OP stops at the RUNG writer with file:line',
+       bool(v) and (v['svEnd'] or {}).get('dt') == '20VGS-1' and 'PTUR-75' in (v['svEnd'] or {}).get('io', '') and (v['opEnd'] or {}).get('dt') == '33VGS-1H'
+       and (v['clEnd'] or {}).get('dt') == '33VGS-1L' and (v['pmEnd'] or {}).get('egd') == 'G11S.L97ETR_VGS1'
+       and (v['auop'] or {}).get('w') == 'RUNG' and (v['auop'] or {}).get('at', '').startswith('G11/_GasFuelSkid.xml:'),
+       v and (v['svEnd'], v['opEnd'], v['clEnd'], v['pmEnd'], v['auop']))
+    ck('G12 uses its own block (G12/_GasFuelSkid.xml, OP_PMT ← G12S.L97ETR_VGS1), not the G11 one',
+       bool(v) and v['c12'] == 'G12' and (v['at12'] or '').startswith('G12/') and (v['pm12'] or {}).get('egd') == 'G12S.L97ETR_VGS1', v and (v['at12'], v['pm12']))
+    ck('VGS-1 is the body (cb flag 1 on both units, dv 20VSFG2); solenoid 20VGS-1 carries the same blocks as an accessory (flag 0)',
+       bool(v) and v['vgsCb'] == [['G11.20VSFG2', 1], ['G12.20VSFG2', 1]] and v['solCb'] == [['G11.20VSFG2', 0], ['G12.20VSFG2', 0]] and v['dv'] == [['20VSFG2', 'S_O_V_V3']],
+       v and (v['vgsCb'], v['solCb'], v['dv']))
+    ck('「20VSFG2」hit: via signal, the valve body VGS-1 first, then its solenoid and limit switches',
+       bool(v) and v['via'] == 'signal' and v['first'] == 'VGS-1' and set(v['ids']) == {'VGS-1', '20VGS-1', '33VGS-1H', '33VGS-1L'}, v and (v['via'], v['ids']))
+    s = ge_query(page, ctx, '20VSFG2')
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-cb'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    page.wait_for_timeout(500)
+    st = page.evaluate(CB_STATE)
+    ck('「20VSFG2」status: device-object block name (電磁閥控制方塊 S_O_V_V3) controlling VGS-1, accessories listed after',
+       bool(st) and '設備物件方塊名稱（電磁閥控制方塊 S_O_V_V3），控制 VGS-1' in st['status'] and '20VGS-1' in st['status'] and st['first'] == 'VGS-1',
+       st and (st['status'][:160], st['first']))
+    p0 = (st or {}).get('per', [None])[0] or {}
+    ck('VGS-1 box: Mark VIe 控制方塊 part with G11 and G12 blocks, block links, pin glosses, constants and the I/O chain text',
+       p0.get('blk') == 2 and p0.get('units') == ['G11', 'G12'] and p0.get('atlasB', 0) >= 2 and '開閥失敗時限' in p0.get('text', '') and '2000 ms' in p0.get('text', '')
+       and 'PTUR-75' in p0.get('text', '') and 'G11.L4VSFG2O' in p0.get('atlasV', []) and 'G11S.L97ETR_VGS1' in p0.get('atlasV', []), (p0.get('blk'), p0.get('units'), p0.get('text', '')[:200]))
+    sol = next((p for p in (st or {}).get('per', [])[1:] if p and '設備本體' in p['text']), None)
+    ck('accessory box (20VGS-1 or a limit switch): says the block controls body VGS-1 and marks the pin wired to this tag as 本編號',
+       bool(sol) and 'VGS-1' in sol['text'] and sol['me'] >= 2, sol and (sol['me'], sol['text'][:160]))
+    shot(page, ctx, 'getag_cb_20vsfg2')
+    s = ge_query(page, ctx, 'G12.20VSFG2')
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-cb'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    st = page.evaluate(CB_STATE)
+    p0 = (st or {}).get('per', [None])[0] or {}
+    ck('「G12.20VSFG2」: only the G12 block, all its signal links on G12 controllers', p0.get('units') == ['G12'] and p0.get('atlasV') and all(x.startswith('G12') for x in p0['atlasV']),
+       (p0.get('units'), (p0.get('atlasV') or [])[:4]))
+    s = ge_query(page, ctx, '20VGS-1')
+    page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-wire'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+    w = page.evaluate(CB_WIRE)
+    ck('20VGS-1 wiring path: Mark VIe row no longer says 不進 Mark VIe — the drawing stops at CA004-1M5B SSUP (no such board position in the I/O config), '
+       'the I/O config puts it on PTUR-75 Kq2',
+       bool(w) and '接線圖只畫到' in w[0] and 'SSUP' in w[0] and '控制器 I/O 組態在 CA004 1M5B 沒有這個板位' in w[0] and 'PTUR-75' in w[0] and '不進 Mark VIe' not in w[0], w[:1])
+    sw = v['sweep'] if v else {}
+    ck('I/O points end a chain only in the right direction: no chain stops at PTUR Synch_Reset (an internal point); 50+ accessory links swept',
+       bool(sw) and sw['ioDir'] == 0 and sw['acc'] >= 50, sw)
+    for tag, want, avoid in ((sw.get('ownMe'), ('設備本體', '標「本編號」的那一腳'), ('對照表沒有另列',)),
+                             (sw.get('noOwner'), ('對照表沒有另列設備本體',), ('設備本體 ',)),
+                             (sw.get('noMe'), ('沒有追到 DeviceTag 是本編號',), ('標「本編號」的那一腳',))):
+        if not tag:
+            continue
+        ge_query(page, ctx, tag)
+        page.wait_for_function("(() => { const l = document.querySelector('.ge-only .ge-loc .ge-cb'); return l && !/載入中/.test(l.textContent); })()", timeout=60000)
+        notes = page.evaluate(CB_NOTES)
+        ck('accessory note on %s says only what the data supports (%s)' % (tag, '、'.join(want)),
+           bool(notes) and all(any(x in n for n in notes) for x in want) and not any(a in n for n in notes for a in avoid), notes[:2])
+
+
 def ge_loc(page, ctx, ck):
     ge_ld(page, ctx, ck)
     ge_wp(page, ctx, ck)
+    ge_cb(page, ctx, ck)
     fx2 = page.evaluate(FIX_JS)
     ck('crosswalk fix ZS-211AC: KKS corrected to MAA11QN001-BG04, card says 已更正, signal di_l33cv1_c_st (no longer iv1_pos)',
        bool(fx2) and fx2['zsKks'] and fx2['zsFix'] and fx2['zsSig'] and not fx2['zsIv'], fx2)

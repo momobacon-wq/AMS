@@ -1443,7 +1443,11 @@
       for (let i = 0; i < kc.length; i++) if (kc[i] !== k && kc[i].startsWith(k)) return null;
       for (const x of G.keys.keys()) if (x !== k && x.startsWith(k)) return null;
     }
-    return mk(unit ? inScope(G.sig.get(k), unit) : G.sig.get(k), 'signal', unit, k);
+    // v27：訊號是 Mark VIe 設備物件方塊的裝置名稱（20VSFG2）時，設備本體（dv 有它的條目：VGS-1）排第一，附件（電磁閥、極限開關）在後
+    const own = (i) => (E[i].dv || []).some(([n]) => IX.compact(n) === k);
+    const ids = (unit ? inScope(G.sig.get(k), unit) : G.sig.get(k)).slice();
+    ids.sort((a, b) => (own(b) ? 1 : 0) - (own(a) ? 1 : 0) || a - b);
+    return mk(ids, 'signal', unit, k);
   };
   /** 打一半的字 → 相近的 GE 編號。項目形狀同 IX.suggest：{key, src:'GE 原廠編號', alias:<範圍 · 說明>, tag:'', ge:序號, m:'pre'|'sub'|'name'}；
    *  比對（去分隔符）：任一寫法開頭 → 包含（≥3 字元）；輸入帶機組（G11_CTDA、GT11 CTDA）時去前綴再比、只取該範圍、key 補回機組；
